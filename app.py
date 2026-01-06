@@ -12,7 +12,7 @@ import os
 import secrets
 import json
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, jsonify
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify, Response
 from flask_socketio import SocketIO, emit, join_room
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
