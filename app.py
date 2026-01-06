@@ -432,6 +432,7 @@ DESKTOP_CLIENT = r'''#!/usr/bin/env python3
 """
 Voice Hub Desktop Client - Controls apps on your computer
 Auto-configured for: {{SERVER_URL}}
+Version: {{VERSION}}
 """
 
 import os
@@ -456,16 +457,101 @@ ensure_deps()
 import pyautogui
 import pyperclip
 import socketio
+import requests
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
+VERSION = "{{VERSION}}"
 SERVER_URL = "{{SERVER_URL}}"
 # Ensure HTTPS for Render
 if SERVER_URL.startswith('http://') and 'onrender.com' in SERVER_URL:
     SERVER_URL = SERVER_URL.replace('http://', 'https://')
 PLATFORM = platform.system()
+CLIENT_PATH = os.path.abspath(__file__)
+
+# ============================================================================
+# AUTO-UPDATE
+# ============================================================================
+
+def check_for_updates():
+    """Check if a newer version is available and auto-update if so"""
+    try:
+        print(f"Checking for updates (current: v{VERSION})...")
+        response = requests.get(f"{SERVER_URL}/api/version", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            latest_version = data.get('version', VERSION)
+            
+            if compare_versions(latest_version, VERSION) > 0:
+                print(f"New version available: v{latest_version}")
+                return update_client(data.get('download_url'))
+            else:
+                print(f"You have the latest version (v{VERSION})")
+                return False
+    except Exception as e:
+        print(f"Could not check for updates: {e}")
+    return False
+
+def compare_versions(v1, v2):
+    """Compare two version strings. Returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal"""
+    try:
+        parts1 = [int(x) for x in v1.split('.')]
+        parts2 = [int(x) for x in v2.split('.')]
+        
+        # Pad shorter version with zeros
+        while len(parts1) < len(parts2):
+            parts1.append(0)
+        while len(parts2) < len(parts1):
+            parts2.append(0)
+        
+        for p1, p2 in zip(parts1, parts2):
+            if p1 > p2:
+                return 1
+            elif p1 < p2:
+                return -1
+        return 0
+    except:
+        return 0
+
+def update_client(download_url):
+    """Download and install the new version"""
+    try:
+        print("Downloading update...")
+        response = requests.get(download_url, timeout=30)
+        if response.status_code == 200:
+            # Write the new version
+            new_content = response.text
+            
+            # Save to a temp file first
+            temp_path = CLIENT_PATH + '.new'
+            with open(temp_path, 'w') as f:
+                f.write(new_content)
+            
+            # Replace the old file
+            backup_path = CLIENT_PATH + '.backup'
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            os.rename(CLIENT_PATH, backup_path)
+            os.rename(temp_path, CLIENT_PATH)
+            
+            print("Update installed! Restarting...")
+            time.sleep(1)
+            
+            # Restart the script
+            os.execv(sys.executable, [sys.executable, CLIENT_PATH])
+            return True
+    except Exception as e:
+        print(f"Update failed: {e}")
+        # Try to restore backup
+        if os.path.exists(backup_path):
+            try:
+                os.rename(backup_path, CLIENT_PATH)
+                print("Restored previous version")
+            except:
+                pass
+    return False
 
 # ============================================================================
 # APP CONTROL
@@ -702,7 +788,7 @@ class VoiceHubClient:
         """Run the client"""
         print(f"""
 ==============================================================================
-                    Voice Hub Desktop Client                              
+                    Voice Hub Desktop Client v{VERSION}
 ==============================================================================
   Server: {SERVER_URL}
   Device: {self.device_name}
@@ -714,6 +800,9 @@ class VoiceHubClient:
   Press Ctrl+C to stop
 ==============================================================================
         """)
+        
+        # Check for updates on startup
+        check_for_updates()
         
         try:
             print(f"Connecting to {SERVER_URL}...")
@@ -2982,11 +3071,22 @@ def install_page():
     server_url = request.host_url.rstrip('/')
     return render_template_string(INSTALL_PAGE, server=server_url)
 
+# Desktop client version - increment this when you update the client
+CLIENT_VERSION = "1.1.0"
+
+@app.route('/api/version')
+def get_version():
+    """Return the current client version"""
+    return jsonify({
+        'version': CLIENT_VERSION,
+        'download_url': request.host_url.rstrip('/') + '/setup.py'
+    })
+
 @app.route('/setup.py')
 def download_setup():
     """Download the auto-setup script"""
     server_url = request.host_url.rstrip('/')
-    script = DESKTOP_CLIENT.replace('{{SERVER_URL}}', server_url)
+    script = DESKTOP_CLIENT.replace('{{SERVER_URL}}', server_url).replace('{{VERSION}}', CLIENT_VERSION)
     return Response(script, mimetype='text/plain', 
                    headers={'Content-Disposition': 'attachment; filename=voice_hub_client.py'})
 
