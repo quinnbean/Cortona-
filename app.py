@@ -2,7 +2,7 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                        🎛️ VOICE HUB - CLOUD SERVER                           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Upload these files to GitHub, then deploy on Railway                        ║
+║  Upload these files to GitHub, then deploy on Render                         ║
 ║  Login: admin / voicehub123 (or set ADMIN_PASSWORD env variable)             ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
@@ -26,6 +26,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+login_manager.remember_cookie_duration = __import__('datetime').timedelta(days=30)
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'voicehub123')
 USERS = {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD), 'name': 'Admin'}}
@@ -210,6 +211,33 @@ LOGIN_PAGE = '''
         .btn:active {
             transform: translateY(0);
         }
+        .remember-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+        .checkbox-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+        .checkbox-wrapper input {
+            width: 20px;
+            height: 20px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .checkbox-wrapper label {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: none;
+            letter-spacing: 0;
+            cursor: pointer;
+        }
         .error {
             background: rgba(247, 37, 133, 0.1);
             border: 1px solid rgba(247, 37, 133, 0.3);
@@ -246,6 +274,12 @@ LOGIN_PAGE = '''
                 <div class="form-group">
                     <label>Password</label>
                     <input type="password" name="password" placeholder="Enter password" required>
+                </div>
+                <div class="remember-row">
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" name="remember" id="remember" checked>
+                        <label for="remember">Remember me for 30 days</label>
+                    </div>
                 </div>
                 <button type="submit" class="btn">Sign In →</button>
             </form>
@@ -1206,9 +1240,9 @@ VOICE_CLIENT = r'''#!/usr/bin/env python3
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 
 Usage:
-  python voice_client.py --wake-word cortana --server https://your-app.railway.app
-  python voice_client.py --continuous --server https://your-app.railway.app
-  python voice_client.py --hotkey --server https://your-app.railway.app
+  python voice_client.py --wake-word cortana --server https://your-app.onrender.com
+  python voice_client.py --continuous --server https://your-app.onrender.com
+  python voice_client.py --hotkey --server https://your-app.onrender.com
 """
 
 import argparse
@@ -1583,9 +1617,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --wake-word cortana --server https://myapp.railway.app
-  %(prog)s --continuous --server https://myapp.railway.app
-  %(prog)s --hotkey --server https://myapp.railway.app
+  %(prog)s --wake-word cortana --server https://myapp.onrender.com
+  %(prog)s --continuous --server https://myapp.onrender.com
+  %(prog)s --hotkey --server https://myapp.onrender.com
   %(prog)s --list-mics
         """
     )
@@ -1649,8 +1683,9 @@ def dashboard():
 def login():
     if request.method == 'POST':
         u, p = request.form.get('username', '').strip(), request.form.get('password', '')
+        remember = request.form.get('remember') == 'on'
         if u in USERS and check_password_hash(USERS[u]['password_hash'], p):
-            login_user(User(u))
+            login_user(User(u), remember=remember)
             return redirect(url_for('dashboard'))
         return render_template_string(LOGIN_PAGE, error='Invalid credentials')
     return render_template_string(LOGIN_PAGE, error=None)
