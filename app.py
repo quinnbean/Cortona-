@@ -874,6 +874,14 @@ DASHBOARD_PAGE = '''
                 <div class="voice-hint" id="voice-hint">
                     Or say your wake word: <strong id="current-wake-word">"Hey Computer"</strong>
                 </div>
+                <div class="mode-badges" style="display: flex; gap: 10px; justify-content: center; margin-top: 16px;">
+                    <span id="badge-always" class="mode-badge" style="display: none; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 500;">
+                        👂 Always Listening
+                    </span>
+                    <span id="badge-continuous" class="mode-badge" style="display: none; background: rgba(123, 44, 191, 0.2); color: #a855f7; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 500;">
+                        🔄 Continuous Mode
+                    </span>
+                </div>
                 <div class="transcript-box">
                     <h4>📝 Live Transcript</h4>
                     <div class="transcript-text" id="transcript">Waiting for speech...</div>
@@ -919,15 +927,34 @@ DASHBOARD_PAGE = '''
                 </div>
                 <div class="setting-row">
                     <div class="setting-label">
-                        <h4>Continuous Mode</h4>
-                        <p>Keep listening after each phrase</p>
+                        <h4>Always Listen for Wake Word</h4>
+                        <p>Keep microphone on to detect wake word anytime</p>
+                    </div>
+                    <div class="toggle" id="toggle-always-listen" onclick="toggleAlwaysListen()"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Continuous Dictation</h4>
+                        <p>Keep dictating after each phrase (no wake word needed)</p>
                     </div>
                     <div class="toggle" id="toggle-continuous" onclick="toggleContinuous()"></div>
                 </div>
                 <div class="setting-row">
                     <div class="setting-label">
+                        <h4>Wake Word Sensitivity</h4>
+                        <p>How closely speech must match your wake word</p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <input type="range" min="1" max="5" value="3" id="sensitivity-slider" 
+                               style="width: 120px; accent-color: var(--accent);"
+                               onchange="updateSensitivity(this.value)">
+                        <span id="sensitivity-label" style="font-size: 13px; color: var(--text-muted); min-width: 60px;">Medium</span>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
                         <h4>Auto-Type</h4>
-                        <p>Automatically type recognized text</p>
+                        <p>Automatically copy recognized text to clipboard</p>
                     </div>
                     <div class="toggle active" id="toggle-autotype" onclick="toggleAutoType()"></div>
                 </div>
@@ -994,8 +1021,20 @@ DASHBOARD_PAGE = '''
         let currentDevice = null;
         let devices = {};
         let activityLog = [];
+        let alwaysListen = false;
         let continuousMode = false;
         let autoType = true;
+        let sensitivity = 3; // 1-5, higher = more strict matching
+        let isActiveDictation = false; // true when wake word triggered dictation
+        
+        // Sensitivity labels
+        const sensitivityLabels = {
+            1: 'Very Low',
+            2: 'Low', 
+            3: 'Medium',
+            4: 'High',
+            5: 'Exact'
+        };
         
         // Check browser support
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1029,12 +1068,98 @@ DASHBOARD_PAGE = '''
                 language: 'en-US',
                 wordsTyped: 0,
                 sessions: 0,
+                alwaysListen: false,
                 continuous: false,
-                autoType: true
+                autoType: true,
+                sensitivity: 3
             };
             saveDevices();
         }
         currentDevice = devices[deviceId];
+        alwaysListen = currentDevice.alwaysListen || false;
+        sensitivity = currentDevice.sensitivity || 3;
+        
+        // ============================================================
+        // FUZZY WAKE WORD MATCHING
+        // ============================================================
+        
+        // Calculate similarity between two strings (0-1)
+        function similarity(s1, s2) {
+            s1 = s1.toLowerCase().trim();
+            s2 = s2.toLowerCase().trim();
+            
+            if (s1 === s2) return 1;
+            if (s1.length === 0 || s2.length === 0) return 0;
+            
+            // Check if one contains the other
+            if (s1.includes(s2) || s2.includes(s1)) return 0.9;
+            
+            // Levenshtein distance
+            const matrix = [];
+            for (let i = 0; i <= s1.length; i++) {
+                matrix[i] = [i];
+            }
+            for (let j = 0; j <= s2.length; j++) {
+                matrix[0][j] = j;
+            }
+            for (let i = 1; i <= s1.length; i++) {
+                for (let j = 1; j <= s2.length; j++) {
+                    const cost = s1[i-1] === s2[j-1] ? 0 : 1;
+                    matrix[i][j] = Math.min(
+                        matrix[i-1][j] + 1,
+                        matrix[i][j-1] + 1,
+                        matrix[i-1][j-1] + cost
+                    );
+                }
+            }
+            const distance = matrix[s1.length][s2.length];
+            const maxLen = Math.max(s1.length, s2.length);
+            return 1 - (distance / maxLen);
+        }
+        
+        // Check if transcript contains wake word with fuzzy matching
+        function detectWakeWord(transcript, wakeWord) {
+            const lowerTranscript = transcript.toLowerCase();
+            const lowerWake = wakeWord.toLowerCase();
+            
+            // Exact match - always works
+            if (lowerTranscript.includes(lowerWake)) {
+                return { detected: true, index: lowerTranscript.indexOf(lowerWake), length: lowerWake.length };
+            }
+            
+            // Fuzzy matching based on sensitivity
+            // Sensitivity 5 = exact only (threshold 1.0)
+            // Sensitivity 1 = very fuzzy (threshold 0.5)
+            const thresholds = { 1: 0.5, 2: 0.6, 3: 0.7, 4: 0.85, 5: 1.0 };
+            const threshold = thresholds[sensitivity] || 0.7;
+            
+            // Split transcript into chunks and check each
+            const words = lowerTranscript.split(' ');
+            const wakeWords = lowerWake.split(' ');
+            
+            for (let i = 0; i <= words.length - wakeWords.length; i++) {
+                const chunk = words.slice(i, i + wakeWords.length).join(' ');
+                const sim = similarity(chunk, lowerWake);
+                
+                if (sim >= threshold) {
+                    const index = lowerTranscript.indexOf(chunk);
+                    return { detected: true, index, length: chunk.length, similarity: sim };
+                }
+            }
+            
+            // Also check individual words for single-word wake words
+            if (wakeWords.length === 1) {
+                for (const word of words) {
+                    const sim = similarity(word, lowerWake);
+                    if (sim >= threshold) {
+                        const index = lowerTranscript.indexOf(word);
+                        return { detected: true, index, length: word.length, similarity: sim };
+                    }
+                }
+            }
+            
+            return { detected: false };
+        }
         
         // ============================================================
         // SPEECH RECOGNITION
@@ -1049,7 +1174,9 @@ DASHBOARD_PAGE = '''
             recognition.onstart = () => {
                 isListening = true;
                 updateUI();
-                addActivity('Started listening', 'info');
+                if (!alwaysListen) {
+                    addActivity('Started listening', 'info');
+                }
                 socket.emit('device_status', { deviceId, status: 'listening' });
             };
             
@@ -1057,11 +1184,13 @@ DASHBOARD_PAGE = '''
                 isListening = false;
                 updateUI();
                 
-                // Restart if in continuous mode
-                if (continuousMode && currentDevice) {
+                // Restart if in always-listen or continuous mode
+                if ((alwaysListen || continuousMode) && currentDevice) {
                     setTimeout(() => {
-                        if (continuousMode) startListening();
-                    }, 500);
+                        if (alwaysListen || continuousMode) {
+                            startListening();
+                        }
+                    }, 300);
                 }
             };
             
@@ -1086,36 +1215,83 @@ DASHBOARD_PAGE = '''
                 }
                 
                 if (finalTranscript) {
-                    // Check for wake word (if not already listening from button press)
                     const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
-                    const lowerTranscript = finalTranscript.toLowerCase();
                     
-                    if (lowerTranscript.includes(wakeWord)) {
-                        // Wake word detected - extract the command after it
-                        const parts = lowerTranscript.split(wakeWord);
-                        if (parts.length > 1) {
-                            const command = parts[1].trim();
-                            if (command) {
-                                handleTranscript(command);
-                            }
-                        }
-                        addActivity(`Wake word "${wakeWord}" detected!`, 'success');
+                    // Check for wake word with fuzzy matching
+                    const detection = detectWakeWord(finalTranscript, wakeWord);
+                    
+                    if (detection.detected) {
+                        // Wake word detected!
+                        const afterWakeWord = finalTranscript.substring(detection.index + detection.length).trim();
+                        
+                        // Play activation sound
+                        playSound('activate');
+                        
+                        const matchInfo = detection.similarity ? ` (${Math.round(detection.similarity * 100)}% match)` : '';
+                        addActivity(`🎯 Wake word detected${matchInfo}!`, 'success');
                         currentDevice.sessions++;
                         saveDevices();
-                    } else {
+                        renderDeviceList();
+                        
+                        // If there's text after the wake word, type it
+                        if (afterWakeWord) {
+                            handleTranscript(afterWakeWord);
+                        } else {
+                            // Just activated, waiting for command
+                            isActiveDictation = true;
+                            document.getElementById('voice-status').textContent = '🎯 Activated! Speak now...';
+                            transcriptEl.textContent = 'Listening for your command...';
+                        }
+                    } else if (isActiveDictation || continuousMode || !alwaysListen) {
+                        // In active dictation mode, type everything
                         handleTranscript(finalTranscript);
+                        isActiveDictation = false;
+                    } else {
+                        // In always-listen mode, just show what was heard
+                        transcriptEl.textContent = `Heard: "${finalTranscript}" (waiting for wake word)`;
+                        transcriptEl.classList.remove('active');
                     }
                 }
             };
             
             recognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
-                if (event.error !== 'no-speech') {
+                if (event.error === 'not-allowed') {
+                    addActivity('Microphone access denied. Please allow microphone access.', 'warning');
+                    alwaysListen = false;
+                    document.getElementById('toggle-always-listen').classList.remove('active');
+                } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
                     addActivity(`Error: ${event.error}`, 'warning');
                 }
                 isListening = false;
                 updateUI();
             };
+        }
+        
+        function playSound(type) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = ctx.createOscillator();
+                const gainNode = ctx.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(ctx.destination);
+                
+                if (type === 'activate') {
+                    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+                    oscillator.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+                } else {
+                    oscillator.frequency.setValueAtTime(440, ctx.currentTime);
+                }
+                
+                gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                
+                oscillator.start(ctx.currentTime);
+                oscillator.stop(ctx.currentTime + 0.2);
+            } catch (e) {
+                console.log('Sound playback not available');
+            }
         }
         
         function handleTranscript(text) {
@@ -1224,14 +1400,25 @@ DASHBOARD_PAGE = '''
             
             if (isListening) {
                 micButton.classList.add('listening');
-                micButton.innerHTML = '🔴';
-                voiceStatus.textContent = 'Listening...';
-                voiceHint.innerHTML = 'Click to stop or say <strong>"stop"</strong>';
+                if (alwaysListen && !isActiveDictation) {
+                    micButton.innerHTML = '👂';
+                    voiceStatus.textContent = 'Listening for wake word...';
+                    voiceHint.innerHTML = `Say <strong>"${currentDevice?.wakeWord || 'hey computer'}"</strong> to activate`;
+                } else {
+                    micButton.innerHTML = '🔴';
+                    voiceStatus.textContent = 'Listening...';
+                    voiceHint.innerHTML = 'Speak now! Click to stop.';
+                }
             } else {
                 micButton.classList.remove('listening');
                 micButton.innerHTML = '🎤';
-                voiceStatus.textContent = 'Click to Start';
-                voiceHint.innerHTML = `Or say your wake word: <strong>"${currentDevice?.wakeWord || 'hey computer'}"</strong>`;
+                if (alwaysListen) {
+                    voiceStatus.textContent = 'Starting...';
+                    voiceHint.innerHTML = 'Microphone initializing...';
+                } else {
+                    voiceStatus.textContent = 'Click to Start';
+                    voiceHint.innerHTML = `Or enable "Always Listen" for hands-free activation`;
+                }
             }
             
             wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
@@ -1240,6 +1427,13 @@ DASHBOARD_PAGE = '''
             document.getElementById('device-name-input').value = currentDevice?.name || '';
             document.getElementById('wake-word-input').value = currentDevice?.wakeWord || '';
             document.getElementById('language-select').value = currentDevice?.language || 'en-US';
+            document.getElementById('sensitivity-slider').value = sensitivity;
+            document.getElementById('sensitivity-label').textContent = sensitivityLabels[sensitivity];
+            document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+            
+            // Update mode badges
+            document.getElementById('badge-always').style.display = alwaysListen ? 'inline-block' : 'none';
+            document.getElementById('badge-continuous').style.display = continuousMode ? 'inline-block' : 'none';
         }
         
         function renderDeviceList() {
@@ -1344,6 +1538,24 @@ DASHBOARD_PAGE = '''
             socket.emit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
         }
         
+        function toggleAlwaysListen() {
+            alwaysListen = !alwaysListen;
+            document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+            currentDevice.alwaysListen = alwaysListen;
+            saveDevices();
+            
+            if (alwaysListen) {
+                addActivity('🎧 Always Listen enabled - say your wake word anytime!', 'success');
+                startListening();
+            } else {
+                addActivity('Always Listen disabled', 'info');
+                if (isListening && !continuousMode) {
+                    stopListening();
+                }
+            }
+            updateUI();
+        }
+        
         function toggleContinuous() {
             continuousMode = !continuousMode;
             document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
@@ -1354,7 +1566,7 @@ DASHBOARD_PAGE = '''
                 startListening();
             }
             
-            addActivity(continuousMode ? 'Continuous mode enabled' : 'Continuous mode disabled', 'info');
+            addActivity(continuousMode ? 'Continuous dictation enabled' : 'Continuous dictation disabled', 'info');
         }
         
         function toggleAutoType() {
@@ -1363,6 +1575,14 @@ DASHBOARD_PAGE = '''
             currentDevice.autoType = autoType;
             saveDevices();
             addActivity(autoType ? 'Auto-type enabled' : 'Auto-type disabled', 'info');
+        }
+        
+        function updateSensitivity(value) {
+            sensitivity = parseInt(value);
+            currentDevice.sensitivity = sensitivity;
+            saveDevices();
+            document.getElementById('sensitivity-label').textContent = sensitivityLabels[sensitivity];
+            addActivity(`Wake word sensitivity set to: ${sensitivityLabels[sensitivity]}`, 'info');
         }
         
         function saveDevices() {
@@ -1447,10 +1667,16 @@ DASHBOARD_PAGE = '''
         renderActivityLog();
         
         // Restore settings
+        alwaysListen = currentDevice?.alwaysListen || false;
         continuousMode = currentDevice?.continuous || false;
         autoType = currentDevice?.autoType ?? true;
+        sensitivity = currentDevice?.sensitivity || 3;
+        
+        document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
         document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
         document.getElementById('toggle-autotype').classList.toggle('active', autoType);
+        document.getElementById('sensitivity-slider').value = sensitivity;
+        document.getElementById('sensitivity-label').textContent = sensitivityLabels[sensitivity];
         
         // Close modal on escape
         document.addEventListener('keydown', (e) => {
@@ -1462,9 +1688,12 @@ DASHBOARD_PAGE = '''
             if (e.target.id === 'add-device-modal') closeAddDeviceModal();
         });
         
-        // Start continuous listening if enabled
-        if (continuousMode) {
-            setTimeout(startListening, 1000);
+        // Auto-start listening if always-listen or continuous mode is enabled
+        if (alwaysListen || continuousMode) {
+            setTimeout(() => {
+                addActivity('🚀 Auto-starting voice recognition...', 'info');
+                startListening();
+            }, 1000);
         }
     </script>
 </body>
