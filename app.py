@@ -432,6 +432,7 @@ DESKTOP_CLIENT = r'''#!/usr/bin/env python3
 """
 Voice Hub Desktop Client - Controls apps on your computer
 Auto-configured for: {{SERVER_URL}}
+Version: {{VERSION}}
 """
 
 import os
@@ -456,16 +457,101 @@ ensure_deps()
 import pyautogui
 import pyperclip
 import socketio
+import requests
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
+VERSION = "{{VERSION}}"
 SERVER_URL = "{{SERVER_URL}}"
 # Ensure HTTPS for Render
 if SERVER_URL.startswith('http://') and 'onrender.com' in SERVER_URL:
     SERVER_URL = SERVER_URL.replace('http://', 'https://')
 PLATFORM = platform.system()
+CLIENT_PATH = os.path.abspath(__file__)
+
+# ============================================================================
+# AUTO-UPDATE
+# ============================================================================
+
+def check_for_updates():
+    """Check if a newer version is available and auto-update if so"""
+    try:
+        print(f"Checking for updates (current: v{VERSION})...")
+        response = requests.get(f"{SERVER_URL}/api/version", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            latest_version = data.get('version', VERSION)
+            
+            if compare_versions(latest_version, VERSION) > 0:
+                print(f"New version available: v{latest_version}")
+                return update_client(data.get('download_url'))
+            else:
+                print(f"You have the latest version (v{VERSION})")
+                return False
+    except Exception as e:
+        print(f"Could not check for updates: {e}")
+    return False
+
+def compare_versions(v1, v2):
+    """Compare two version strings. Returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal"""
+    try:
+        parts1 = [int(x) for x in v1.split('.')]
+        parts2 = [int(x) for x in v2.split('.')]
+        
+        # Pad shorter version with zeros
+        while len(parts1) < len(parts2):
+            parts1.append(0)
+        while len(parts2) < len(parts1):
+            parts2.append(0)
+        
+        for p1, p2 in zip(parts1, parts2):
+            if p1 > p2:
+                return 1
+            elif p1 < p2:
+                return -1
+        return 0
+    except:
+        return 0
+
+def update_client(download_url):
+    """Download and install the new version"""
+    try:
+        print("Downloading update...")
+        response = requests.get(download_url, timeout=30)
+        if response.status_code == 200:
+            # Write the new version
+            new_content = response.text
+            
+            # Save to a temp file first
+            temp_path = CLIENT_PATH + '.new'
+            with open(temp_path, 'w') as f:
+                f.write(new_content)
+            
+            # Replace the old file
+            backup_path = CLIENT_PATH + '.backup'
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            os.rename(CLIENT_PATH, backup_path)
+            os.rename(temp_path, CLIENT_PATH)
+            
+            print("Update installed! Restarting...")
+            time.sleep(1)
+            
+            # Restart the script
+            os.execv(sys.executable, [sys.executable, CLIENT_PATH])
+            return True
+    except Exception as e:
+        print(f"Update failed: {e}")
+        # Try to restore backup
+        if os.path.exists(backup_path):
+            try:
+                os.rename(backup_path, CLIENT_PATH)
+                print("Restored previous version")
+            except:
+                pass
+    return False
 
 # ============================================================================
 # APP CONTROL
@@ -665,6 +751,24 @@ class VoiceHubClient:
         @self.sio.on('command_received')
         def on_command_received(data):
             self._execute_command(data)
+        
+        @self.sio.on('update_available')
+        def on_update_available(data):
+            """Server notified us of a new version - update now!"""
+            new_version = data.get('version', 'unknown')
+            print(f"\n{'='*60}")
+            print(f"New version available: v{new_version} (current: v{VERSION})")
+            print(f"{'='*60}")
+            if compare_versions(new_version, VERSION) > 0:
+                download_url = data.get('download_url')
+                # If relative URL, prepend server URL
+                if download_url and not download_url.startswith('http'):
+                    download_url = SERVER_URL + download_url
+                if download_url:
+                    print(f"Downloading update from {download_url}...")
+                    update_client(download_url)
+            else:
+                print("Already up to date!")
     
     def _execute_command(self, data):
         """Execute a received command"""
@@ -702,7 +806,7 @@ class VoiceHubClient:
         """Run the client"""
         print(f"""
 ==============================================================================
-                    Voice Hub Desktop Client                              
+                    Voice Hub Desktop Client v{VERSION}
 ==============================================================================
   Server: {SERVER_URL}
   Device: {self.device_name}
@@ -714,6 +818,9 @@ class VoiceHubClient:
   Press Ctrl+C to stop
 ==============================================================================
         """)
+        
+        # Check for updates on startup
+        check_for_updates()
         
         try:
             print(f"Connecting to {SERVER_URL}...")
@@ -2982,11 +3089,22 @@ def install_page():
     server_url = request.host_url.rstrip('/')
     return render_template_string(INSTALL_PAGE, server=server_url)
 
+# Desktop client version - increment this when you update the client
+CLIENT_VERSION = "1.1.0"
+
+@app.route('/api/version')
+def get_version():
+    """Return the current client version"""
+    return jsonify({
+        'version': CLIENT_VERSION,
+        'download_url': request.host_url.rstrip('/') + '/setup.py'
+    })
+
 @app.route('/setup.py')
 def download_setup():
     """Download the auto-setup script"""
     server_url = request.host_url.rstrip('/')
-    script = DESKTOP_CLIENT.replace('{{SERVER_URL}}', server_url)
+    script = DESKTOP_CLIENT.replace('{{SERVER_URL}}', server_url).replace('{{VERSION}}', CLIENT_VERSION)
     return Response(script, mimetype='text/plain', 
                    headers={'Content-Disposition': 'attachment; filename=voice_hub_client.py'})
 
@@ -3190,6 +3308,18 @@ def on_disconnect():
 # START SERVER
 # ============================================================================
 
+def notify_clients_of_update():
+    """Notify all connected desktop clients of the new version after server restart"""
+    import time
+    time.sleep(10)  # Wait for clients to reconnect after server restart
+    print(f"Broadcasting update notification (v{CLIENT_VERSION}) to all clients...")
+    # Use the Render URL or localhost for download
+    base_url = os.environ.get('RENDER_EXTERNAL_URL', 'http://localhost:5000')
+    socketio.emit('update_available', {
+        'version': CLIENT_VERSION,
+        'download_url': f"{base_url}/setup.py"
+    }, room='dashboard')
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"""
@@ -3198,11 +3328,19 @@ if __name__ == '__main__':
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║  URL: http://localhost:{port:<52} ║
 ║  Login: admin / {ADMIN_PASSWORD:<51} ║
+║  Client Version: {CLIENT_VERSION:<50} ║
 ║                                                                               ║
 ║  ✨ NEW: Browser-based voice recognition - no terminal needed!               ║
 ║  • Click the mic button or say your wake word                                 ║
 ║  • Add multiple devices with custom wake words                                ║
 ║  • Edit device settings directly in the web app                               ║
+║  • Desktop clients auto-update when you push changes!                         ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
     """)
+    
+    # Start background thread to notify clients after startup
+    import threading
+    update_thread = threading.Thread(target=notify_clients_of_update, daemon=True)
+    update_thread.start()
+    
     socketio.run(app, host='0.0.0.0', port=port)
