@@ -3035,23 +3035,24 @@ def download_setup():
 def download_install_sh():
     """One-liner install script for Mac/Linux - no login required"""
     server_url = request.host_url.rstrip('/').replace('http://', 'https://')
-    script = f'''#!/bin/bash
+    script = '''#!/bin/bash
 # Voice Hub Desktop Client - One-Click Installer
-# Run with: curl -sL {server_url}/install.sh | bash
 
-echo "🎛️  Voice Hub Desktop Client Installer"
+SERVER_URL="''' + server_url + '''"
+
+echo "Voice Hub Desktop Client Installer"
 echo "========================================"
 echo ""
 
 # Check for Python
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is required. Please install Python first."
+    echo "Python 3 is required. Please install Python first."
     echo "   Mac: brew install python3"
     echo "   Linux: sudo apt install python3 python3-pip"
     exit 1
 fi
 
-echo "✅ Python found: $(python3 --version)"
+echo "Python found: $(python3 --version)"
 echo ""
 
 # Create directory
@@ -3059,18 +3060,18 @@ mkdir -p ~/.voicehub
 cd ~/.voicehub
 
 # Download the client
-echo "📥 Downloading Voice Hub client..."
-curl -sL {server_url}/setup.py -o voice_hub_client.py
+echo "Downloading Voice Hub client..."
+curl -sL "$SERVER_URL/setup.py" -o voice_hub_client.py
 
 # Install dependencies
-echo "📦 Installing dependencies..."
+echo "Installing dependencies..."
 pip3 install --quiet pyautogui pyperclip websocket-client requests 2>/dev/null || pip install --quiet pyautogui pyperclip websocket-client requests
 
 echo ""
-echo "✅ Installation complete!"
+echo "Installation complete!"
 echo ""
-echo "🚀 Starting Voice Hub client..."
-echo "   (Press Ctrl+C to stop)"
+echo "Starting Voice Hub client..."
+echo "(Press Ctrl+C to stop)"
 echo ""
 
 python3 voice_hub_client.py
@@ -3082,22 +3083,22 @@ python3 voice_hub_client.py
 def download_install_ps1():
     """One-liner install script for Windows - no login required"""
     server_url = request.host_url.rstrip('/').replace('http://', 'https://')
-    script = f'''# Voice Hub Desktop Client - Windows Installer
-# Run with: irm {server_url}/install.ps1 | iex
+    script = '''# Voice Hub Desktop Client - Windows Installer
 
-Write-Host "🎛️  Voice Hub Desktop Client Installer" -ForegroundColor Cyan
+$SERVER_URL = "''' + server_url + '''"
+
+Write-Host "Voice Hub Desktop Client Installer" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Check for Python
-try {{
-    $pythonVersion = python --version 2>&1
-    Write-Host "✅ Python found: $pythonVersion" -ForegroundColor Green
-}} catch {{
-    Write-Host "❌ Python 3 is required. Please install Python first." -ForegroundColor Red
+$pythonCheck = python --version 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Python 3 is required. Please install Python first." -ForegroundColor Red
     Write-Host "   Download from: https://www.python.org/downloads/" -ForegroundColor Yellow
     exit 1
-}}
+}
+Write-Host "Python found: $pythonCheck" -ForegroundColor Green
 
 # Create directory
 $installDir = "$env:USERPROFILE\\.voicehub"
@@ -3105,18 +3106,18 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 Set-Location $installDir
 
 # Download the client
-Write-Host "📥 Downloading Voice Hub client..." -ForegroundColor Yellow
-Invoke-WebRequest -Uri "{server_url}/setup.py" -OutFile "voice_hub_client.py"
+Write-Host "Downloading Voice Hub client..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "$SERVER_URL/setup.py" -OutFile "voice_hub_client.py"
 
 # Install dependencies
-Write-Host "📦 Installing dependencies..." -ForegroundColor Yellow
+Write-Host "Installing dependencies..." -ForegroundColor Yellow
 pip install --quiet pyautogui pyperclip websocket-client requests 2>$null
 
 Write-Host ""
-Write-Host "✅ Installation complete!" -ForegroundColor Green
+Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "🚀 Starting Voice Hub client..." -ForegroundColor Cyan
-Write-Host "   (Press Ctrl+C to stop)" -ForegroundColor Gray
+Write-Host "Starting Voice Hub client..." -ForegroundColor Cyan
+Write-Host "(Press Ctrl+C to stop)" -ForegroundColor Gray
 Write-Host ""
 
 python voice_hub_client.py
