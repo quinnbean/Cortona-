@@ -960,6 +960,75 @@ DASHBOARD_PAGE = '''
                 </div>
             </div>
             
+            <!-- Command Routing Panel -->
+            <div class="settings-section" id="command-routing">
+                <h3>🎯 Command Routing</h3>
+                <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
+                    Say a device name or app to route your command. Example: <strong>"Jarvis, type hello world"</strong> or <strong>"Cursor, write a function"</strong>
+                </p>
+                
+                <div class="routing-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Available Devices -->
+                    <div class="routing-section">
+                        <h4 style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+                            📱 Available Devices
+                        </h4>
+                        <div id="available-devices" class="routing-list" style="display: flex; flex-direction: column; gap: 8px;">
+                            <!-- Devices will be rendered here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Target Apps -->
+                    <div class="routing-section">
+                        <h4 style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+                            🤖 AI Apps & Targets
+                        </h4>
+                        <div class="routing-list" style="display: flex; flex-direction: column; gap: 8px;">
+                            <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
+                                <span style="font-size: 20px;">🖱️</span>
+                                <div>
+                                    <div style="font-weight: 500;">Cursor</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">"Cursor, write..."</div>
+                                </div>
+                            </div>
+                            <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
+                                <span style="font-size: 20px;">🧠</span>
+                                <div>
+                                    <div style="font-weight: 500;">Claude</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">"Claude, explain..."</div>
+                                </div>
+                            </div>
+                            <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
+                                <span style="font-size: 20px;">💬</span>
+                                <div>
+                                    <div style="font-weight: 500;">ChatGPT</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">"ChatGPT, help..."</div>
+                                </div>
+                            </div>
+                            <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
+                                <span style="font-size: 20px;">✨</span>
+                                <div>
+                                    <div style="font-weight: 500;">Copilot</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">"Copilot, suggest..."</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Last Command -->
+                <div id="last-command-box" style="margin-top: 20px; padding: 16px; background: var(--bg-primary); border-radius: 12px; display: none;">
+                    <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Last Routed Command</div>
+                    <div id="last-command-content" style="display: flex; align-items: center; gap: 12px;">
+                        <span id="last-command-icon" style="font-size: 24px;">🎯</span>
+                        <div>
+                            <div id="last-command-target" style="font-weight: 600; color: var(--accent);"></div>
+                            <div id="last-command-text" style="font-size: 14px; color: var(--text-secondary);"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Activity Log -->
             <div class="activity-section">
                 <h3>📊 Activity Log</h3>
@@ -1078,6 +1147,177 @@ DASHBOARD_PAGE = '''
         currentDevice = devices[deviceId];
         alwaysListen = currentDevice.alwaysListen || false;
         sensitivity = currentDevice.sensitivity || 3;
+        
+        // ============================================================
+        // COMMAND PARSING & ROUTING
+        // ============================================================
+        
+        // Known AI apps and targets
+        const knownApps = {
+            'cursor': { name: 'Cursor', icon: '🖱️', keywords: ['cursor', 'code editor'] },
+            'claude': { name: 'Claude', icon: '🧠', keywords: ['claude', 'anthropic'] },
+            'chatgpt': { name: 'ChatGPT', icon: '💬', keywords: ['chatgpt', 'chat gpt', 'openai', 'gpt'] },
+            'copilot': { name: 'Copilot', icon: '✨', keywords: ['copilot', 'github copilot'] },
+            'gemini': { name: 'Gemini', icon: '🌟', keywords: ['gemini', 'google ai', 'bard'] },
+            'terminal': { name: 'Terminal', icon: '⬛', keywords: ['terminal', 'command line', 'shell', 'console'] },
+            'browser': { name: 'Browser', icon: '🌐', keywords: ['browser', 'chrome', 'firefox', 'safari', 'edge'] },
+            'notes': { name: 'Notes', icon: '📝', keywords: ['notes', 'notepad', 'text editor'] },
+            'slack': { name: 'Slack', icon: '💼', keywords: ['slack'] },
+            'discord': { name: 'Discord', icon: '🎮', keywords: ['discord'] },
+        };
+        
+        // Parse a command to extract target device/app and the actual command
+        function parseCommand(text) {
+            const lowerText = text.toLowerCase().trim();
+            const result = {
+                originalText: text,
+                targetDevice: null,
+                targetApp: null,
+                command: text,
+                action: 'type' // default action
+            };
+            
+            // Check for device targeting first (e.g., "Jarvis, type hello")
+            const allDevices = Object.values(devices);
+            for (const device of allDevices) {
+                const deviceName = (device.name || '').toLowerCase();
+                const wakeWord = (device.wakeWord || '').toLowerCase();
+                
+                // Check various patterns
+                const patterns = [
+                    new RegExp(`^${escapeRegex(deviceName)}[,:]?\\s+(.+)`, 'i'),
+                    new RegExp(`^${escapeRegex(wakeWord)}[,:]?\\s+(.+)`, 'i'),
+                    new RegExp(`^hey\\s+${escapeRegex(deviceName)}[,:]?\\s+(.+)`, 'i'),
+                    new RegExp(`^ok\\s+${escapeRegex(deviceName)}[,:]?\\s+(.+)`, 'i'),
+                ];
+                
+                for (const pattern of patterns) {
+                    const match = text.match(pattern);
+                    if (match) {
+                        result.targetDevice = device;
+                        result.command = match[1].trim();
+                        break;
+                    }
+                }
+                if (result.targetDevice) break;
+            }
+            
+            // Check for app targeting (e.g., "Cursor, write a function")
+            for (const [appId, app] of Object.entries(knownApps)) {
+                for (const keyword of app.keywords) {
+                    const patterns = [
+                        new RegExp(`^${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^(in|to|for|into)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^send\\s+(to\\s+)?${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^paste\\s+(in|into|to)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                    ];
+                    
+                    for (const pattern of patterns) {
+                        const match = (result.command || text).match(pattern);
+                        if (match) {
+                            result.targetApp = { id: appId, ...app };
+                            // Get the last capture group as the command
+                            result.command = match[match.length - 1].trim();
+                            break;
+                        }
+                    }
+                    if (result.targetApp) break;
+                }
+                if (result.targetApp) break;
+            }
+            
+            // Check for action keywords
+            const actionPatterns = {
+                'type': /^(type|write|enter|input)\s+(.+)/i,
+                'paste': /^paste\s+(.+)/i,
+                'search': /^(search|google|look up)\s+(.+)/i,
+                'run': /^(run|execute|do)\s+(.+)/i,
+            };
+            
+            for (const [action, pattern] of Object.entries(actionPatterns)) {
+                const match = result.command.match(pattern);
+                if (match) {
+                    result.action = action;
+                    result.command = match[match.length - 1].trim();
+                    break;
+                }
+            }
+            
+            return result;
+        }
+        
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        // Route a command to a specific device
+        function routeCommandToDevice(targetDevice, command, action) {
+            socket.emit('route_command', {
+                fromDeviceId: deviceId,
+                toDeviceId: targetDevice.id,
+                command: command,
+                action: action,
+                timestamp: new Date().toISOString()
+            });
+            
+            showLastCommand(targetDevice.icon || '💻', `→ ${targetDevice.name}`, command);
+            addActivity(`📤 Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
+        }
+        
+        // Handle an incoming routed command
+        function handleRoutedCommand(data) {
+            const { command, action, fromDeviceId } = data;
+            const fromDevice = devices[fromDeviceId];
+            const fromName = fromDevice?.name || 'Unknown Device';
+            
+            addActivity(`📥 Received from ${fromName}: "${command.substring(0, 40)}..."`, 'info');
+            playSound('activate');
+            
+            // Execute the command
+            if (action === 'type' || action === 'paste') {
+                handleTranscript(command);
+            }
+            
+            showLastCommand('📥', `← From ${fromName}`, command);
+        }
+        
+        // Show the last command in the UI
+        function showLastCommand(icon, target, text) {
+            const box = document.getElementById('last-command-box');
+            document.getElementById('last-command-icon').textContent = icon;
+            document.getElementById('last-command-target').textContent = target;
+            document.getElementById('last-command-text').textContent = text.length > 60 ? text.substring(0, 60) + '...' : text;
+            box.style.display = 'block';
+            
+            // Highlight effect
+            box.style.borderColor = 'var(--accent)';
+            box.style.border = '1px solid var(--accent)';
+            setTimeout(() => {
+                box.style.border = 'none';
+            }, 2000);
+        }
+        
+        // Render available devices for routing
+        function renderAvailableDevices() {
+            const container = document.getElementById('available-devices');
+            const deviceList = Object.values(devices);
+            
+            if (deviceList.length === 0) {
+                container.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No devices available</div>';
+                return;
+            }
+            
+            container.innerHTML = deviceList.map(d => `
+                <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px; ${d.id === deviceId ? 'border: 1px solid var(--accent);' : ''}">
+                    <span style="font-size: 20px;">${d.icon || '💻'}</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500;">${d.name || 'Unnamed'}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">"${d.wakeWord || 'hey computer'}"</div>
+                    </div>
+                    ${d.id === deviceId ? '<span style="font-size: 10px; background: var(--accent); color: var(--bg-primary); padding: 2px 8px; border-radius: 50px;">THIS DEVICE</span>' : ''}
+                </div>
+            `).join('');
+        }
         
         // ============================================================
         // FUZZY WAKE WORD MATCHING
@@ -1294,7 +1534,25 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        function handleTranscript(text) {
+        function handleTranscript(text, skipRouting = false) {
+            // Parse the command to check for device/app targeting
+            const parsed = parseCommand(text);
+            
+            // If targeting another device, route the command
+            if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
+                routeCommandToDevice(parsed.targetDevice, parsed.command, parsed.action);
+                document.getElementById('transcript').textContent = `📤 Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
+                return;
+            }
+            
+            // If targeting an app, show which app and prepare the command
+            if (parsed.targetApp) {
+                const appInfo = parsed.targetApp;
+                showLastCommand(appInfo.icon, `→ ${appInfo.name}`, parsed.command);
+                addActivity(`🎯 Target: ${appInfo.name} - "${parsed.command.substring(0, 40)}..."`, 'success');
+                text = parsed.command; // Use just the command part
+            }
+            
             // Apply formatting
             text = formatTranscript(text);
             
@@ -1309,7 +1567,8 @@ DASHBOARD_PAGE = '''
             // Auto-type if enabled
             if (autoType) {
                 copyToClipboard(text);
-                addActivity(`Typed: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'success', wordCount);
+                const targetInfo = parsed.targetApp ? ` → ${parsed.targetApp.name}` : '';
+                addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'success', wordCount);
             } else {
                 addActivity(`Recognized: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
             }
@@ -1319,10 +1578,12 @@ DASHBOARD_PAGE = '''
                 deviceId, 
                 text, 
                 words: wordCount,
+                targetApp: parsed.targetApp?.id,
                 timestamp: new Date().toISOString()
             });
             
             renderDeviceList();
+            renderAvailableDevices();
         }
         
         function formatTranscript(text) {
@@ -1654,6 +1915,30 @@ DASHBOARD_PAGE = '''
                 }
                 saveDevices();
                 renderDeviceList();
+                renderAvailableDevices();
+            }
+        });
+        
+        // Handle incoming routed commands from other devices
+        socket.on('command_received', (data) => {
+            console.log('Received routed command:', data);
+            handleRoutedCommand(data);
+        });
+        
+        // Handle device online/offline updates
+        socket.on('device_online', (data) => {
+            if (devices[data.deviceId]) {
+                devices[data.deviceId].online = true;
+                renderDeviceList();
+                renderAvailableDevices();
+            }
+        });
+        
+        socket.on('device_offline', (data) => {
+            if (devices[data.deviceId]) {
+                devices[data.deviceId].online = false;
+                renderDeviceList();
+                renderAvailableDevices();
             }
         });
         
@@ -1665,6 +1950,7 @@ DASHBOARD_PAGE = '''
         updateUI();
         renderDeviceList();
         renderActivityLog();
+        renderAvailableDevices();
         
         // Restore settings
         alwaysListen = currentDevice?.alwaysListen || false;
@@ -1756,7 +2042,15 @@ def manage_device(device_id):
 def on_dashboard_join(data):
     device_id = data.get('deviceId')
     join_room('dashboard')
-    join_room(device_id)
+    join_room(device_id)  # Join own room to receive routed commands
+    
+    # Track this device's socket session
+    if device_id and device_id in devices:
+        devices[device_id]['sid'] = request.sid
+        devices[device_id]['online'] = True
+        # Notify others this device is online
+        socketio.emit('device_online', {'deviceId': device_id}, room='dashboard')
+    
     emit('devices_update', {'devices': devices})
 
 @socketio.on('device_status')
@@ -1793,9 +2087,35 @@ def on_transcript(data):
     
     socketio.emit('transcript_received', data, room='dashboard')
 
+@socketio.on('route_command')
+def on_route_command(data):
+    """Route a command from one device to another"""
+    from_device_id = data.get('fromDeviceId')
+    to_device_id = data.get('toDeviceId')
+    command = data.get('command')
+    action = data.get('action', 'type')
+    
+    print(f"📤 Routing command from {from_device_id} to {to_device_id}: {command[:50]}...")
+    
+    # Send the command to the target device
+    socketio.emit('command_received', {
+        'fromDeviceId': from_device_id,
+        'command': command,
+        'action': action,
+        'timestamp': data.get('timestamp')
+    }, room=to_device_id)
+    
+    # Also notify the dashboard
+    socketio.emit('command_routed', data, room='dashboard')
+
 @socketio.on('disconnect')
 def on_disconnect():
-    pass
+    sid = request.sid
+    # Notify other devices this one went offline
+    for device_id, device in devices.items():
+        if device.get('sid') == sid:
+            device['online'] = False
+            socketio.emit('device_offline', {'deviceId': device_id}, room='dashboard')
 
 # ============================================================================
 # START SERVER
