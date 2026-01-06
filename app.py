@@ -2,15 +2,17 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                        🎛️ VOICE HUB - CLOUD SERVER                           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Upload these files to GitHub, then deploy on Render                         ║
+║  Browser-based voice recognition - no terminal needed!                       ║
+║  Deploy on Render, login, and start dictating                                ║
 ║  Login: admin / voicehub123 (or set ADMIN_PASSWORD env variable)             ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 import os
 import secrets
-from datetime import datetime
-from flask import Flask, render_template_string, request, redirect, url_for, jsonify, Response
+import json
+from datetime import datetime, timedelta
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify
 from flask_socketio import SocketIO, emit, join_room
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -26,22 +28,15 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
-login_manager.remember_cookie_duration = __import__('datetime').timedelta(days=30)
+login_manager.remember_cookie_duration = timedelta(days=30)
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'voicehub123')
 USERS = {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD), 'name': 'Admin'}}
 
-connected_clients = {}
-
-# Default settings (can be customized per session)
-default_settings = {
-    'theme': 'dark',
-    'accent_color': '#00f5d4',
-    'continuous_mode': False,
-    'sound_feedback': True,
-    'auto_punctuation': True,
-    'language': 'en-US'
-}
+# Store devices and their settings
+devices = {}
+# Store active listening sessions
+active_sessions = {}
 
 class User(UserMixin):
     def __init__(self, username):
@@ -53,7 +48,7 @@ def load_user(username):
     return User(username) if username in USERS else None
 
 # ============================================================================
-# LOGIN PAGE - REDESIGNED
+# LOGIN PAGE
 # ============================================================================
 
 LOGIN_PAGE = '''
@@ -144,24 +139,14 @@ LOGIN_PAGE = '''
             0%, 100% { box-shadow: 0 10px 40px rgba(0, 245, 212, 0.3); }
             50% { box-shadow: 0 10px 60px rgba(0, 245, 212, 0.5); }
         }
-        h1 {
-            font-size: 32px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }
+        h1 { font-size: 32px; font-weight: 700; }
         h1 span {
             background: linear-gradient(135deg, var(--accent), var(--accent-3));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        .subtitle {
-            color: var(--text-muted);
-            font-size: 14px;
-            margin-top: 8px;
-        }
-        .form-group {
-            margin-bottom: 24px;
-        }
+        .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 8px; }
+        .form-group { margin-bottom: 24px; }
         label {
             display: block;
             font-size: 13px;
@@ -171,7 +156,7 @@ LOGIN_PAGE = '''
             text-transform: uppercase;
             letter-spacing: 1px;
         }
-        input {
+        input[type="text"], input[type="password"] {
             width: 100%;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -187,8 +172,24 @@ LOGIN_PAGE = '''
             border-color: var(--accent);
             box-shadow: 0 0 0 4px rgba(0, 245, 212, 0.1);
         }
-        input::placeholder {
-            color: var(--text-muted);
+        .remember-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .remember-row input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            accent-color: var(--accent);
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        .remember-row label {
+            margin: 0;
+            font-size: 14px;
+            text-transform: none;
+            letter-spacing: 0;
+            cursor: pointer;
         }
         .btn {
             width: 100%;
@@ -202,41 +203,10 @@ LOGIN_PAGE = '''
             font-family: inherit;
             cursor: pointer;
             transition: all 0.3s ease;
-            margin-top: 8px;
         }
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 30px rgba(0, 245, 212, 0.3);
-        }
-        .btn:active {
-            transform: translateY(0);
-        }
-        .remember-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 24px;
-        }
-        .checkbox-wrapper {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-        }
-        .checkbox-wrapper input {
-            width: 20px;
-            height: 20px;
-            accent-color: var(--accent);
-            cursor: pointer;
-        }
-        .checkbox-wrapper label {
-            margin: 0;
-            font-size: 14px;
-            color: var(--text-muted);
-            text-transform: none;
-            letter-spacing: 0;
-            cursor: pointer;
         }
         .error {
             background: rgba(247, 37, 133, 0.1);
@@ -246,9 +216,6 @@ LOGIN_PAGE = '''
             border-radius: 12px;
             margin-bottom: 24px;
             font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
         }
     </style>
 </head>
@@ -263,7 +230,7 @@ LOGIN_PAGE = '''
             <div class="logo">
                 <div class="logo-icon">🎛️</div>
                 <h1><span>Voice Hub</span></h1>
-                <p class="subtitle">Voice-to-text for your devices</p>
+                <p class="subtitle">Browser-based voice-to-text</p>
             </div>
             {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
             <form method="POST">
@@ -276,10 +243,8 @@ LOGIN_PAGE = '''
                     <input type="password" name="password" placeholder="Enter password" required>
                 </div>
                 <div class="remember-row">
-                    <div class="checkbox-wrapper">
-                        <input type="checkbox" name="remember" id="remember" checked>
-                        <label for="remember">Remember me for 30 days</label>
-                    </div>
+                    <input type="checkbox" name="remember" id="remember" checked>
+                    <label for="remember">Remember me for 30 days</label>
                 </div>
                 <button type="submit" class="btn">Sign In →</button>
             </form>
@@ -290,7 +255,7 @@ LOGIN_PAGE = '''
 '''
 
 # ============================================================================
-# DASHBOARD PAGE - COMPLETELY REDESIGNED
+# MAIN DASHBOARD - BROWSER-BASED VOICE RECOGNITION
 # ============================================================================
 
 DASHBOARD_PAGE = '''
@@ -325,14 +290,12 @@ DASHBOARD_PAGE = '''
             background: var(--bg-primary);
             color: var(--text);
             min-height: 100vh;
-            overflow-x: hidden;
         }
         
         /* Scrollbar */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: var(--bg-secondary); }
         ::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
         
         /* Header */
         header {
@@ -340,7 +303,7 @@ DASHBOARD_PAGE = '''
             top: 0;
             z-index: 100;
             padding: 16px 32px;
-            background: rgba(10, 10, 15, 0.8);
+            background: rgba(10, 10, 15, 0.9);
             backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--border);
             display: flex;
@@ -368,27 +331,7 @@ DASHBOARD_PAGE = '''
         .header-actions {
             display: flex;
             align-items: center;
-            gap: 16px;
-        }
-        .user-badge {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 16px;
-            background: var(--bg-card);
-            border-radius: 50px;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-        .user-badge .avatar {
-            width: 28px;
-            height: 28px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
+            gap: 12px;
         }
         .btn {
             padding: 10px 20px;
@@ -422,328 +365,364 @@ DASHBOARD_PAGE = '''
             transform: translateY(-1px);
             box-shadow: 0 4px 20px rgba(0, 245, 212, 0.3);
         }
+        .btn-danger {
+            background: var(--accent-3);
+            color: white;
+        }
         
         /* Main Layout */
-        main {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 32px;
-        }
-        
-        /* Stats Grid */
-        .stats-grid {
+        .main-layout {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            margin-bottom: 32px;
+            grid-template-columns: 320px 1fr;
+            min-height: calc(100vh - 74px);
         }
-        .stat-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
+        
+        /* Sidebar - Device Manager */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
             padding: 24px;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            transition: all 0.3s ease;
+            overflow-y: auto;
         }
-        .stat-card:hover {
-            border-color: var(--border-hover);
-            transform: translateY(-2px);
-        }
-        .stat-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 26px;
-        }
-        .stat-icon.blue { background: rgba(0, 245, 212, 0.15); }
-        .stat-icon.green { background: rgba(16, 185, 129, 0.15); }
-        .stat-icon.purple { background: rgba(123, 44, 191, 0.15); }
-        .stat-icon.pink { background: rgba(247, 37, 133, 0.15); }
-        .stat-content .value {
-            font-size: 32px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 4px;
-        }
-        .stat-content .value.accent { color: var(--accent); }
-        .stat-content .value.success { color: var(--success); }
-        .stat-content .label {
-            font-size: 13px;
-            color: var(--text-muted);
+        .sidebar h2 {
+            font-size: 14px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        /* Section Header */
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-        .section-title {
-            font-size: 20px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        /* Quick Setup */
-        .setup-card {
-            background: linear-gradient(135deg, rgba(0, 245, 212, 0.08), rgba(123, 44, 191, 0.08));
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 32px;
-            margin-bottom: 32px;
-            position: relative;
-            overflow: hidden;
-        }
-        .setup-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 300px;
-            height: 300px;
-            background: radial-gradient(circle, rgba(0, 245, 212, 0.1), transparent 70%);
-            pointer-events: none;
-        }
-        .setup-card h3 {
-            font-size: 20px;
+            letter-spacing: 1px;
+            color: var(--text-muted);
             margin-bottom: 20px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
-        .setup-steps {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px;
-        }
-        .step {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 14px;
-            padding: 20px;
-        }
-        .step-number {
-            width: 28px;
-            height: 28px;
-            background: var(--accent);
-            color: var(--bg-primary);
-            border-radius: 50%;
-            display: inline-flex;
+        .add-device-btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--bg-card);
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: 700;
-            font-size: 14px;
-            margin-bottom: 12px;
+            gap: 8px;
+            margin-bottom: 16px;
         }
-        .step h4 {
-            font-size: 15px;
-            margin-bottom: 8px;
-        }
-        .step p {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-        }
-        .step code {
-            display: block;
-            background: var(--bg-primary);
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
+        .add-device-btn:hover {
+            border-color: var(--accent);
             color: var(--accent);
-            word-break: break-all;
-            overflow-x: auto;
+            background: rgba(0, 245, 212, 0.05);
         }
-        .step a {
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 500;
+        .device-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
-        .step a:hover {
-            text-decoration: underline;
-        }
-        
-        /* Clients Grid */
-        .clients-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-            gap: 24px;
-        }
-        .client-card {
+        .device-item {
             background: var(--bg-card);
-            border: 2px solid var(--border);
-            border-radius: 20px;
-            overflow: hidden;
-            transition: all 0.3s ease;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
         }
-        .client-card:hover {
+        .device-item:hover {
             border-color: var(--border-hover);
         }
-        .client-card.online {
-            border-color: var(--success);
+        .device-item.active {
+            border-color: var(--accent);
+            background: rgba(0, 245, 212, 0.05);
         }
-        .client-header {
-            padding: 20px 24px;
-            background: var(--bg-secondary);
+        .device-item.listening {
+            border-color: var(--success);
+            animation: listening-pulse 2s infinite;
+        }
+        @keyframes listening-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+        }
+        .device-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 10px;
         }
-        .client-card.online .client-header {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), transparent);
-        }
-        .client-identity {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-        .client-avatar {
-            width: 52px;
-            height: 52px;
-            background: var(--bg-elevated);
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 26px;
-        }
-        .client-info h3 {
-            font-size: 17px;
+        .device-name {
             font-weight: 600;
-            margin-bottom: 4px;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .wake-word {
+        .device-status {
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 50px;
+            font-weight: 500;
+        }
+        .device-status.online {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+        .device-status.offline {
+            background: rgba(107, 114, 128, 0.2);
+            color: var(--text-muted);
+        }
+        .device-status.listening {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .device-wake-word {
             font-family: 'JetBrains Mono', monospace;
             font-size: 12px;
             color: var(--accent);
             background: rgba(0, 245, 212, 0.1);
             padding: 4px 10px;
             border-radius: 6px;
+            display: inline-block;
         }
-        .status-badge {
+        .device-stats {
+            display: flex;
+            gap: 16px;
+            margin-top: 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .device-stats span {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 14px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 50px;
-            font-size: 13px;
-            font-weight: 500;
+            gap: 4px;
         }
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--text-muted);
-        }
-        .status-dot.online {
-            background: var(--success);
-            box-shadow: 0 0 12px var(--success);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.1); }
-        }
-        .client-body {
-            padding: 24px;
-        }
-        .client-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .mini-stat {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            padding: 14px;
-            text-align: center;
-        }
-        .mini-stat .value {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--accent);
-            margin-bottom: 2px;
-        }
-        .mini-stat .label {
-            font-size: 11px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .activity-log {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            padding: 16px;
-            max-height: 140px;
+        
+        /* Main Content */
+        .main-content {
+            padding: 32px;
             overflow-y: auto;
         }
-        .activity-log h4 {
+        
+        /* Voice Control Card */
+        .voice-control {
+            background: linear-gradient(135deg, rgba(0, 245, 212, 0.1), rgba(123, 44, 191, 0.1));
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .mic-button {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 56px;
+            margin: 0 auto 24px;
+            transition: all 0.3s;
+            box-shadow: 0 10px 40px rgba(0, 245, 212, 0.3);
+        }
+        .mic-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 50px rgba(0, 245, 212, 0.4);
+        }
+        .mic-button.listening {
+            animation: mic-pulse 1.5s infinite;
+            background: linear-gradient(135deg, var(--success), var(--accent));
+        }
+        .mic-button.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        @keyframes mic-pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 10px 40px rgba(16, 185, 129, 0.3); }
+            50% { transform: scale(1.08); box-shadow: 0 15px 60px rgba(16, 185, 129, 0.5); }
+        }
+        .voice-status {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .voice-hint {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .transcript-box {
+            background: var(--bg-primary);
+            border-radius: 16px;
+            padding: 20px;
+            margin-top: 24px;
+            min-height: 80px;
+            text-align: left;
+        }
+        .transcript-box h4 {
             font-size: 12px;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-bottom: 12px;
         }
-        .log-entry {
-            display: flex;
-            gap: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border);
-            font-size: 13px;
+        .transcript-text {
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            min-height: 24px;
         }
-        .log-entry:last-child { border: none; }
-        .log-time {
-            font-family: 'JetBrains Mono', monospace;
+        .transcript-text.active {
+            color: var(--text);
+        }
+        
+        /* Browser Support Warning */
+        .browser-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--warning);
+        }
+        
+        /* Device Settings */
+        .settings-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 28px;
+            margin-bottom: 24px;
+        }
+        .settings-section h3 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .setting-row:last-child { border: none; }
+        .setting-label h4 {
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .setting-label p {
+            font-size: 13px;
             color: var(--text-muted);
-            font-size: 11px;
+        }
+        .setting-input {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--text);
+            min-width: 200px;
+        }
+        .setting-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        select.setting-input {
+            cursor: pointer;
+        }
+        .toggle {
+            width: 52px;
+            height: 28px;
+            background: var(--bg-secondary);
+            border-radius: 50px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle.active { background: var(--accent); }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s;
+        }
+        .toggle.active::after { transform: translateX(24px); }
+        
+        /* Activity Log */
+        .activity-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 28px;
+        }
+        .activity-section h3 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .activity-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .activity-item {
+            display: flex;
+            gap: 14px;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .activity-item:last-child { border: none; }
+        .activity-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
             flex-shrink: 0;
         }
-        .log-message { color: var(--text-secondary); }
-        .log-message.success { color: var(--success); }
-        .log-message.error { color: var(--accent-3); }
-        .log-message.wake_word { color: var(--accent); }
-        
-        /* Empty State */
-        .empty-state {
-            grid-column: 1 / -1;
-            text-align: center;
-            padding: 80px 40px;
-            background: var(--bg-card);
-            border: 2px dashed var(--border);
-            border-radius: 20px;
+        .activity-icon.success { background: rgba(16, 185, 129, 0.15); }
+        .activity-icon.info { background: rgba(0, 245, 212, 0.15); }
+        .activity-icon.warning { background: rgba(245, 158, 11, 0.15); }
+        .activity-content {
+            flex: 1;
         }
-        .empty-state .icon {
-            font-size: 64px;
-            margin-bottom: 20px;
-            opacity: 0.5;
+        .activity-content p {
+            font-size: 14px;
+            margin-bottom: 4px;
         }
-        .empty-state h3 {
-            font-size: 22px;
-            margin-bottom: 10px;
-        }
-        .empty-state p {
+        .activity-content .time {
+            font-size: 12px;
             color: var(--text-muted);
-            max-width: 400px;
-            margin: 0 auto;
+            font-family: 'JetBrains Mono', monospace;
         }
         
-        /* Settings Modal */
+        /* Modal */
         .modal-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.8);
             backdrop-filter: blur(4px);
             display: flex;
             align-items: center;
@@ -751,7 +730,7 @@ DASHBOARD_PAGE = '''
             z-index: 1000;
             opacity: 0;
             visibility: hidden;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
         }
         .modal-overlay.active {
             opacity: 1;
@@ -762,15 +741,13 @@ DASHBOARD_PAGE = '''
             border: 1px solid var(--border);
             border-radius: 24px;
             width: 100%;
-            max-width: 520px;
+            max-width: 480px;
             max-height: 90vh;
             overflow-y: auto;
             transform: translateY(20px);
-            transition: transform 0.3s ease;
+            transition: transform 0.3s;
         }
-        .modal-overlay.active .modal {
-            transform: translateY(0);
-        }
+        .modal-overlay.active .modal { transform: translateY(0); }
         .modal-header {
             padding: 24px 28px;
             border-bottom: 1px solid var(--border);
@@ -793,122 +770,68 @@ DASHBOARD_PAGE = '''
             color: var(--text-muted);
             cursor: pointer;
             font-size: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
         }
         .modal-close:hover {
             background: var(--bg-elevated);
             color: var(--text);
         }
-        .modal-body {
-            padding: 28px;
-        }
-        .setting-group {
-            margin-bottom: 28px;
-        }
-        .setting-group:last-child { margin-bottom: 0; }
-        .setting-group h3 {
-            font-size: 14px;
+        .modal-body { padding: 28px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
             color: var(--text-muted);
+            margin-bottom: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 16px;
         }
-        .setting-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        .setting-item:last-child { border: none; }
-        .setting-label h4 {
-            font-size: 15px;
-            margin-bottom: 4px;
-        }
-        .setting-label p {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-        .toggle {
-            width: 52px;
-            height: 28px;
-            background: var(--bg-secondary);
-            border-radius: 50px;
-            position: relative;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        .toggle.active {
-            background: var(--accent);
-        }
-        .toggle::after {
-            content: '';
-            position: absolute;
-            width: 22px;
-            height: 22px;
-            background: white;
-            border-radius: 50%;
-            top: 3px;
-            left: 3px;
-            transition: transform 0.3s;
-        }
-        .toggle.active::after {
-            transform: translateX(24px);
-        }
-        select {
+        .form-group input, .form-group select {
+            width: 100%;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 10px;
-            padding: 10px 16px;
-            font-size: 14px;
+            padding: 14px 16px;
+            font-size: 15px;
             font-family: inherit;
             color: var(--text);
-            cursor: pointer;
-            min-width: 140px;
         }
-        select:focus {
+        .form-group input:focus, .form-group select:focus {
             outline: none;
             border-color: var(--accent);
         }
-        .color-options {
+        .modal-actions {
             display: flex;
-            gap: 10px;
+            gap: 12px;
+            margin-top: 28px;
         }
-        .color-option {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            cursor: pointer;
-            border: 3px solid transparent;
-            transition: all 0.2s;
+        .modal-actions .btn { flex: 1; justify-content: center; padding: 14px; }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 40px;
+            color: var(--text-muted);
         }
-        .color-option:hover {
-            transform: scale(1.1);
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.5;
         }
-        .color-option.active {
-            border-color: white;
+        .empty-state h3 {
+            font-size: 20px;
+            color: var(--text);
+            margin-bottom: 10px;
         }
         
         /* Responsive */
-        @media (max-width: 1024px) {
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 768px) {
-            header { padding: 12px 16px; }
-            main { padding: 20px 16px; }
-            .stats-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
-            .stat-card { padding: 16px; }
-            .stat-icon { width: 44px; height: 44px; font-size: 20px; }
-            .stat-content .value { font-size: 24px; }
-            .clients-grid { grid-template-columns: 1fr; }
-            .setup-steps { grid-template-columns: 1fr; }
-        }
-        @media (max-width: 480px) {
-            .stats-grid { grid-template-columns: 1fr; }
-            .header-actions .user-badge { display: none; }
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                display: none;
+            }
         }
     </style>
 </head>
@@ -919,755 +842,633 @@ DASHBOARD_PAGE = '''
             <span>Voice</span> Hub
         </div>
         <div class="header-actions">
-            <div class="user-badge">
-                <div class="avatar">👤</div>
-                <span>{{ user.name }}</span>
-            </div>
-            <button class="btn btn-ghost" onclick="openSettings()">⚙️ Settings</button>
+            <span style="color: var(--text-muted); font-size: 14px;">👤 {{ user.name }}</span>
             <a href="/logout" class="btn btn-ghost">Logout</a>
         </div>
     </header>
     
-    <main>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon blue">🖥️</div>
-                <div class="stat-content">
-                    <div class="value accent" id="total">0</div>
-                    <div class="label">Total Devices</div>
-                </div>
+    <div class="main-layout">
+        <!-- Sidebar: Device Manager -->
+        <aside class="sidebar">
+            <h2>📱 Your Devices</h2>
+            <button class="add-device-btn" onclick="openAddDeviceModal()">
+                <span>➕</span> Add Device
+            </button>
+            <div class="device-list" id="device-list">
+                <!-- Devices will be rendered here -->
             </div>
-            <div class="stat-card">
-                <div class="stat-icon green">✅</div>
-                <div class="stat-content">
-                    <div class="value success" id="online">0</div>
-                    <div class="label">Online Now</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon purple">📝</div>
-                <div class="stat-content">
-                    <div class="value" id="words">0</div>
-                    <div class="label">Words Typed</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon pink">🎤</div>
-                <div class="stat-content">
-                    <div class="value" id="sessions">0</div>
-                    <div class="label">Voice Sessions</div>
-                </div>
-            </div>
-        </div>
+        </aside>
         
-        <div class="setup-card">
-            <h3>🚀 Quick Setup</h3>
-            <div class="setup-steps">
-                <div class="step">
-                    <div class="step-number">1</div>
-                    <h4>Download Client</h4>
-                    <p>Get the voice client for your computer</p>
-                    <a href="/download" class="btn btn-primary" style="width:100%;justify-content:center;">📥 Download voice_client.py</a>
+        <!-- Main Content -->
+        <main class="main-content">
+            <div id="browser-warning" class="browser-warning" style="display: none;">
+                ⚠️ Your browser doesn't support speech recognition. Please use Chrome, Edge, or Safari.
+            </div>
+            
+            <!-- Voice Control -->
+            <div class="voice-control">
+                <button class="mic-button" id="mic-button" onclick="toggleListening()">
+                    🎤
+                </button>
+                <div class="voice-status" id="voice-status">Click to Start</div>
+                <div class="voice-hint" id="voice-hint">
+                    Or say your wake word: <strong id="current-wake-word">"Hey Computer"</strong>
                 </div>
-                <div class="step">
-                    <div class="step-number">2</div>
-                    <h4>Install Dependencies</h4>
-                    <p>Run this in your terminal:</p>
-                    <code>pip install SpeechRecognition pyaudio pynput pyautogui pyperclip python-socketio</code>
-                </div>
-                <div class="step">
-                    <div class="step-number">3</div>
-                    <h4>Start Voice Client</h4>
-                    <p>Run with your wake word:</p>
-                    <code>python voice_client.py -w cortana -s {{ server }}</code>
+                <div class="transcript-box">
+                    <h4>📝 Live Transcript</h4>
+                    <div class="transcript-text" id="transcript">Waiting for speech...</div>
                 </div>
             </div>
-        </div>
-        
-        <div class="section-header">
-            <h2 class="section-title">🖥️ Connected Devices</h2>
-        </div>
-        
-        <div class="clients-grid" id="clients-grid">
-            <div class="empty-state">
-                <div class="icon">📡</div>
-                <h3>No devices connected</h3>
-                <p>Follow the setup steps above to connect your first device</p>
+            
+            <!-- Device Settings -->
+            <div class="settings-section" id="device-settings">
+                <h3>⚙️ Device Settings</h3>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Device Name</h4>
+                        <p>A friendly name for this device</p>
+                    </div>
+                    <input type="text" class="setting-input" id="device-name-input" 
+                           placeholder="My Computer" onchange="updateDeviceSetting('name', this.value)">
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Wake Word</h4>
+                        <p>Say this to activate voice recognition</p>
+                    </div>
+                    <input type="text" class="setting-input" id="wake-word-input" 
+                           placeholder="Hey Computer" onchange="updateDeviceSetting('wakeWord', this.value)">
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Language</h4>
+                        <p>Speech recognition language</p>
+                    </div>
+                    <select class="setting-input" id="language-select" onchange="updateDeviceSetting('language', this.value)">
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="fr-FR">French</option>
+                        <option value="de-DE">German</option>
+                        <option value="it-IT">Italian</option>
+                        <option value="pt-BR">Portuguese</option>
+                        <option value="ja-JP">Japanese</option>
+                        <option value="ko-KR">Korean</option>
+                        <option value="zh-CN">Chinese</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Continuous Mode</h4>
+                        <p>Keep listening after each phrase</p>
+                    </div>
+                    <div class="toggle" id="toggle-continuous" onclick="toggleContinuous()"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Auto-Type</h4>
+                        <p>Automatically type recognized text</p>
+                    </div>
+                    <div class="toggle active" id="toggle-autotype" onclick="toggleAutoType()"></div>
+                </div>
             </div>
-        </div>
-    </main>
+            
+            <!-- Activity Log -->
+            <div class="activity-section">
+                <h3>📊 Activity Log</h3>
+                <div class="activity-list" id="activity-list">
+                    <div class="empty-state">
+                        <div class="icon">📝</div>
+                        <h3>No activity yet</h3>
+                        <p>Start speaking to see your transcripts here</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
     
-    <!-- Settings Modal -->
-    <div class="modal-overlay" id="settings-modal">
+    <!-- Add Device Modal -->
+    <div class="modal-overlay" id="add-device-modal">
         <div class="modal">
             <div class="modal-header">
-                <h2>⚙️ Settings</h2>
-                <button class="modal-close" onclick="closeSettings()">✕</button>
+                <h2>➕ Add New Device</h2>
+                <button class="modal-close" onclick="closeAddDeviceModal()">✕</button>
             </div>
             <div class="modal-body">
-                <div class="setting-group">
-                    <h3>Voice Recognition</h3>
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <h4>Continuous Mode</h4>
-                            <p>Keep listening after each dictation</p>
-                        </div>
-                        <div class="toggle" id="toggle-continuous" onclick="toggleSetting(this)"></div>
-                    </div>
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <h4>Sound Feedback</h4>
-                            <p>Play sounds when listening starts/stops</p>
-                        </div>
-                        <div class="toggle active" id="toggle-sound" onclick="toggleSetting(this)"></div>
-                    </div>
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <h4>Auto Punctuation</h4>
-                            <p>Automatically add periods and commas</p>
-                        </div>
-                        <div class="toggle active" id="toggle-punctuation" onclick="toggleSetting(this)"></div>
-                    </div>
+                <div class="form-group">
+                    <label>Device Name</label>
+                    <input type="text" id="new-device-name" placeholder="e.g., Work Laptop, Home PC">
                 </div>
-                <div class="setting-group">
-                    <h3>Language</h3>
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <h4>Recognition Language</h4>
-                            <p>Primary language for speech recognition</p>
-                        </div>
-                        <select id="language-select" onchange="updateLanguage(this.value)">
-                            <option value="en-US">English (US)</option>
-                            <option value="en-GB">English (UK)</option>
-                            <option value="es-ES">Spanish</option>
-                            <option value="fr-FR">French</option>
-                            <option value="de-DE">German</option>
-                            <option value="it-IT">Italian</option>
-                            <option value="pt-BR">Portuguese</option>
-                            <option value="ja-JP">Japanese</option>
-                            <option value="ko-KR">Korean</option>
-                            <option value="zh-CN">Chinese</option>
-                        </select>
-                    </div>
+                <div class="form-group">
+                    <label>Wake Word</label>
+                    <input type="text" id="new-device-wake" placeholder="e.g., Hey Jarvis, OK Computer">
                 </div>
-                <div class="setting-group">
-                    <h3>Appearance</h3>
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <h4>Accent Color</h4>
-                            <p>Choose your preferred accent color</p>
-                        </div>
-                        <div class="color-options">
-                            <div class="color-option active" style="background: #00f5d4;" onclick="setAccent('#00f5d4', this)"></div>
-                            <div class="color-option" style="background: #7b2cbf;" onclick="setAccent('#7b2cbf', this)"></div>
-                            <div class="color-option" style="background: #f72585;" onclick="setAccent('#f72585', this)"></div>
-                            <div class="color-option" style="background: #3b82f6;" onclick="setAccent('#3b82f6', this)"></div>
-                            <div class="color-option" style="background: #10b981;" onclick="setAccent('#10b981', this)"></div>
-                        </div>
-                    </div>
+                <div class="form-group">
+                    <label>Icon</label>
+                    <select id="new-device-icon">
+                        <option value="💻">💻 Laptop</option>
+                        <option value="🖥️">🖥️ Desktop</option>
+                        <option value="📱">📱 Phone</option>
+                        <option value="⌨️">⌨️ Workstation</option>
+                        <option value="🎮">🎮 Gaming PC</option>
+                        <option value="🏠">🏠 Home</option>
+                        <option value="🏢">🏢 Office</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-ghost" onclick="closeAddDeviceModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="addDevice()">Add Device</button>
                 </div>
             </div>
         </div>
     </div>
     
     <script>
+        // ============================================================
+        // INITIALIZATION
+        // ============================================================
+        
         const socket = io();
-        let clients = {};
-        let settings = {
-            continuous: false,
-            sound: true,
-            punctuation: true,
-            language: 'en-US',
-            accent: '#00f5d4'
-        };
+        let recognition = null;
+        let isListening = false;
+        let currentDevice = null;
+        let devices = {};
+        let activityLog = [];
+        let continuousMode = false;
+        let autoType = true;
         
-        // Socket events
-        socket.on('connect', () => socket.emit('dashboard_join'));
-        socket.on('clients_update', data => {
-            clients = data.clients || {};
-            renderClients();
-            updateStats();
-        });
-        socket.on('client_activity', data => {
-            if (clients[data.client_id]) {
-                const c = clients[data.client_id];
-                c.logs = c.logs || [];
-                c.logs.unshift({
-                    time: new Date().toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit'}),
-                    message: data.message,
-                    type: data.type
-                });
-                c.logs = c.logs.slice(0, 15);
-                if (data.words) c.words_typed = (c.words_typed || 0) + data.words;
-                if (data.type === 'wake_word') c.sessions = (c.sessions || 0) + 1;
-                renderClients();
-                updateStats();
-            }
-        });
-        
-        function getIcon(wakeWord) {
-            const icons = {
-                cortana: '🤖', jarvis: '🦾', alexa: '🔵', 
-                siri: '🍎', computer: '💻', hey: '👋'
-            };
-            return icons[(wakeWord || '').toLowerCase()] || '🎤';
+        // Check browser support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            document.getElementById('browser-warning').style.display = 'flex';
+            document.getElementById('mic-button').classList.add('disabled');
+        } else {
+            initSpeechRecognition();
         }
         
-        function renderClients() {
-            const grid = document.getElementById('clients-grid');
-            const list = Object.values(clients);
+        // Generate device ID for this browser
+        let deviceId = localStorage.getItem('voicehub_device_id');
+        if (!deviceId) {
+            deviceId = 'device_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('voicehub_device_id', deviceId);
+        }
+        
+        // Load saved devices
+        const savedDevices = localStorage.getItem('voicehub_devices');
+        if (savedDevices) {
+            devices = JSON.parse(savedDevices);
+        }
+        
+        // Initialize current device
+        if (!devices[deviceId]) {
+            devices[deviceId] = {
+                id: deviceId,
+                name: 'This Device',
+                wakeWord: 'hey computer',
+                icon: '💻',
+                language: 'en-US',
+                wordsTyped: 0,
+                sessions: 0,
+                continuous: false,
+                autoType: true
+            };
+            saveDevices();
+        }
+        currentDevice = devices[deviceId];
+        
+        // ============================================================
+        // SPEECH RECOGNITION
+        // ============================================================
+        
+        function initSpeechRecognition() {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = currentDevice?.language || 'en-US';
             
-            if (!list.length) {
-                grid.innerHTML = `
-                    <div class="empty-state">
-                        <div class="icon">📡</div>
-                        <h3>No devices connected</h3>
-                        <p>Follow the setup steps above to connect your first device</p>
-                    </div>
-                `;
+            recognition.onstart = () => {
+                isListening = true;
+                updateUI();
+                addActivity('Started listening', 'info');
+                socket.emit('device_status', { deviceId, status: 'listening' });
+            };
+            
+            recognition.onend = () => {
+                isListening = false;
+                updateUI();
+                
+                // Restart if in continuous mode
+                if (continuousMode && currentDevice) {
+                    setTimeout(() => {
+                        if (continuousMode) startListening();
+                    }, 500);
+                }
+            };
+            
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                
+                // Show live transcript
+                const transcriptEl = document.getElementById('transcript');
+                if (interimTranscript) {
+                    transcriptEl.textContent = interimTranscript;
+                    transcriptEl.classList.add('active');
+                }
+                
+                if (finalTranscript) {
+                    // Check for wake word (if not already listening from button press)
+                    const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
+                    const lowerTranscript = finalTranscript.toLowerCase();
+                    
+                    if (lowerTranscript.includes(wakeWord)) {
+                        // Wake word detected - extract the command after it
+                        const parts = lowerTranscript.split(wakeWord);
+                        if (parts.length > 1) {
+                            const command = parts[1].trim();
+                            if (command) {
+                                handleTranscript(command);
+                            }
+                        }
+                        addActivity(`Wake word "${wakeWord}" detected!`, 'success');
+                        currentDevice.sessions++;
+                        saveDevices();
+                    } else {
+                        handleTranscript(finalTranscript);
+                    }
+                }
+            };
+            
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                if (event.error !== 'no-speech') {
+                    addActivity(`Error: ${event.error}`, 'warning');
+                }
+                isListening = false;
+                updateUI();
+            };
+        }
+        
+        function handleTranscript(text) {
+            // Apply formatting
+            text = formatTranscript(text);
+            
+            document.getElementById('transcript').textContent = text;
+            document.getElementById('transcript').classList.add('active');
+            
+            // Count words
+            const wordCount = text.split(/\\s+/).filter(w => w).length;
+            currentDevice.wordsTyped += wordCount;
+            saveDevices();
+            
+            // Auto-type if enabled
+            if (autoType) {
+                copyToClipboard(text);
+                addActivity(`Typed: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'success', wordCount);
+            } else {
+                addActivity(`Recognized: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
+            }
+            
+            // Emit to server
+            socket.emit('transcript', { 
+                deviceId, 
+                text, 
+                words: wordCount,
+                timestamp: new Date().toISOString()
+            });
+            
+            renderDeviceList();
+        }
+        
+        function formatTranscript(text) {
+            // Punctuation replacements
+            const replacements = {
+                'period': '.', 'comma': ',', 'question mark': '?',
+                'exclamation mark': '!', 'exclamation point': '!',
+                'colon': ':', 'semicolon': ';',
+                'new line': '\\n', 'newline': '\\n', 'new paragraph': '\\n\\n',
+                'open quote': '"', 'close quote': '"', 'quote': '"',
+                'open paren': '(', 'close paren': ')',
+                'hyphen': '-', 'dash': '—'
+            };
+            
+            for (const [word, symbol] of Object.entries(replacements)) {
+                const regex = new RegExp('\\\\b' + word + '\\\\b', 'gi');
+                text = text.replace(regex, symbol);
+            }
+            
+            // Capitalize first letter
+            text = text.charAt(0).toUpperCase() + text.slice(1);
+            
+            // Capitalize after periods
+            text = text.replace(/([.!?]\\s*)(\\w)/g, (m, p1, p2) => p1 + p2.toUpperCase());
+            
+            return text.trim();
+        }
+        
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                // Try to simulate paste (note: this won't work in all contexts due to browser security)
+                // The user can manually paste with Ctrl+V / Cmd+V
+            } catch (err) {
+                console.log('Clipboard write failed:', err);
+            }
+        }
+        
+        function startListening() {
+            if (!recognition || isListening) return;
+            recognition.lang = currentDevice?.language || 'en-US';
+            try {
+                recognition.start();
+            } catch (e) {
+                console.log('Recognition already started');
+            }
+        }
+        
+        function stopListening() {
+            if (!recognition || !isListening) return;
+            continuousMode = false;
+            document.getElementById('toggle-continuous').classList.remove('active');
+            recognition.stop();
+            socket.emit('device_status', { deviceId, status: 'idle' });
+        }
+        
+        function toggleListening() {
+            if (!recognition) return;
+            if (isListening) {
+                stopListening();
+            } else {
+                startListening();
+            }
+        }
+        
+        // ============================================================
+        // UI UPDATES
+        // ============================================================
+        
+        function updateUI() {
+            const micButton = document.getElementById('mic-button');
+            const voiceStatus = document.getElementById('voice-status');
+            const voiceHint = document.getElementById('voice-hint');
+            const wakeWordSpan = document.getElementById('current-wake-word');
+            
+            if (isListening) {
+                micButton.classList.add('listening');
+                micButton.innerHTML = '🔴';
+                voiceStatus.textContent = 'Listening...';
+                voiceHint.innerHTML = 'Click to stop or say <strong>"stop"</strong>';
+            } else {
+                micButton.classList.remove('listening');
+                micButton.innerHTML = '🎤';
+                voiceStatus.textContent = 'Click to Start';
+                voiceHint.innerHTML = `Or say your wake word: <strong>"${currentDevice?.wakeWord || 'hey computer'}"</strong>`;
+            }
+            
+            wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
+            
+            // Update settings inputs
+            document.getElementById('device-name-input').value = currentDevice?.name || '';
+            document.getElementById('wake-word-input').value = currentDevice?.wakeWord || '';
+            document.getElementById('language-select').value = currentDevice?.language || 'en-US';
+        }
+        
+        function renderDeviceList() {
+            const listEl = document.getElementById('device-list');
+            const deviceArray = Object.values(devices);
+            
+            if (deviceArray.length === 0) {
+                listEl.innerHTML = '<div class="empty-state"><p>No devices added yet</p></div>';
                 return;
             }
             
-            grid.innerHTML = list.map(c => `
-                <div class="client-card ${c.online ? 'online' : ''}">
-                    <div class="client-header">
-                        <div class="client-identity">
-                            <div class="client-avatar">${getIcon(c.wake_word)}</div>
-                            <div class="client-info">
-                                <h3>${c.name || c.wake_word}</h3>
-                                <span class="wake-word">"${c.wake_word}"</span>
-                            </div>
+            listEl.innerHTML = deviceArray.map(d => `
+                <div class="device-item ${d.id === currentDevice?.id ? 'active' : ''} ${d.id === deviceId && isListening ? 'listening' : ''}"
+                     onclick="selectDevice('${d.id}')">
+                    <div class="device-header">
+                        <div class="device-name">
+                            <span>${d.icon || '💻'}</span>
+                            ${d.name || 'Unnamed Device'}
                         </div>
-                        <div class="status-badge">
-                            <span class="status-dot ${c.online ? 'online' : ''}"></span>
-                            ${c.online ? 'Online' : 'Offline'}
-                        </div>
+                        <span class="device-status ${d.id === deviceId ? (isListening ? 'listening' : 'online') : 'offline'}">
+                            ${d.id === deviceId ? (isListening ? '● Listening' : '● Online') : '○ Offline'}
+                        </span>
                     </div>
-                    <div class="client-body">
-                        <div class="client-stats">
-                            <div class="mini-stat">
-                                <div class="value">${c.words_typed || 0}</div>
-                                <div class="label">Words</div>
-                            </div>
-                            <div class="mini-stat">
-                                <div class="value">${c.sessions || 0}</div>
-                                <div class="label">Sessions</div>
-                            </div>
-                            <div class="mini-stat">
-                                <div class="value">${(c.language || 'en').slice(0, 2).toUpperCase()}</div>
-                                <div class="label">Lang</div>
-                            </div>
-                        </div>
-                        <div class="activity-log">
-                            <h4>Recent Activity</h4>
-                            ${(c.logs || []).map(l => `
-                                <div class="log-entry">
-                                    <span class="log-time">${l.time}</span>
-                                    <span class="log-message ${l.type}">${l.message}</span>
-                                </div>
-                            `).join('') || '<div class="log-entry"><span class="log-message">Waiting for activity...</span></div>'}
-                        </div>
+                    <div class="device-wake-word">"${d.wakeWord || 'hey computer'}"</div>
+                    <div class="device-stats">
+                        <span>📝 ${d.wordsTyped || 0} words</span>
+                        <span>🎤 ${d.sessions || 0} sessions</span>
                     </div>
                 </div>
             `).join('');
         }
         
-        function updateStats() {
-            const list = Object.values(clients);
-            document.getElementById('total').textContent = list.length;
-            document.getElementById('online').textContent = list.filter(c => c.online).length;
-            document.getElementById('words').textContent = list.reduce((s, c) => s + (c.words_typed || 0), 0);
-            document.getElementById('sessions').textContent = list.reduce((s, c) => s + (c.sessions || 0), 0);
+        function addActivity(message, type = 'info', words = 0) {
+            const time = new Date().toLocaleTimeString();
+            activityLog.unshift({ message, type, time, words });
+            activityLog = activityLog.slice(0, 50); // Keep last 50
+            renderActivityLog();
         }
         
-        // Settings
-        function openSettings() {
-            document.getElementById('settings-modal').classList.add('active');
+        function renderActivityLog() {
+            const listEl = document.getElementById('activity-list');
+            
+            if (activityLog.length === 0) {
+                listEl.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📝</div>
+                        <h3>No activity yet</h3>
+                        <p>Start speaking to see your transcripts here</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const icons = { success: '✅', info: 'ℹ️', warning: '⚠️' };
+            
+            listEl.innerHTML = activityLog.map(a => `
+                <div class="activity-item">
+                    <div class="activity-icon ${a.type}">${icons[a.type] || 'ℹ️'}</div>
+                    <div class="activity-content">
+                        <p>${a.message}</p>
+                        <span class="time">${a.time}${a.words ? ` • ${a.words} words` : ''}</span>
+                    </div>
+                </div>
+            `).join('');
         }
         
-        function closeSettings() {
-            document.getElementById('settings-modal').classList.remove('active');
+        // ============================================================
+        // DEVICE MANAGEMENT
+        // ============================================================
+        
+        function selectDevice(id) {
+            if (devices[id]) {
+                currentDevice = devices[id];
+                if (recognition) {
+                    recognition.lang = currentDevice.language || 'en-US';
+                }
+                updateUI();
+                renderDeviceList();
+            }
         }
         
-        function toggleSetting(el) {
-            el.classList.toggle('active');
-            const id = el.id.replace('toggle-', '');
-            settings[id] = el.classList.contains('active');
-            socket.emit('update_settings', settings);
+        function updateDeviceSetting(setting, value) {
+            if (!currentDevice) return;
+            
+            if (setting === 'wakeWord') {
+                value = value.toLowerCase().trim();
+            }
+            
+            currentDevice[setting] = value;
+            devices[currentDevice.id] = currentDevice;
+            saveDevices();
+            
+            if (setting === 'language' && recognition) {
+                recognition.lang = value;
+            }
+            
+            updateUI();
+            renderDeviceList();
+            addActivity(`Updated ${setting} to "${value}"`, 'info');
+            
+            // Sync to server
+            socket.emit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
         }
         
-        function updateLanguage(lang) {
-            settings.language = lang;
-            socket.emit('update_settings', settings);
+        function toggleContinuous() {
+            continuousMode = !continuousMode;
+            document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
+            currentDevice.continuous = continuousMode;
+            saveDevices();
+            
+            if (continuousMode && !isListening) {
+                startListening();
+            }
+            
+            addActivity(continuousMode ? 'Continuous mode enabled' : 'Continuous mode disabled', 'info');
         }
         
-        function setAccent(color, el) {
-            document.querySelectorAll('.color-option').forEach(c => c.classList.remove('active'));
-            el.classList.add('active');
-            document.documentElement.style.setProperty('--accent', color);
-            settings.accent = color;
+        function toggleAutoType() {
+            autoType = !autoType;
+            document.getElementById('toggle-autotype').classList.toggle('active', autoType);
+            currentDevice.autoType = autoType;
+            saveDevices();
+            addActivity(autoType ? 'Auto-type enabled' : 'Auto-type disabled', 'info');
         }
+        
+        function saveDevices() {
+            localStorage.setItem('voicehub_devices', JSON.stringify(devices));
+        }
+        
+        // ============================================================
+        // MODAL HANDLERS
+        // ============================================================
+        
+        function openAddDeviceModal() {
+            document.getElementById('add-device-modal').classList.add('active');
+            document.getElementById('new-device-name').focus();
+        }
+        
+        function closeAddDeviceModal() {
+            document.getElementById('add-device-modal').classList.remove('active');
+            document.getElementById('new-device-name').value = '';
+            document.getElementById('new-device-wake').value = '';
+        }
+        
+        function addDevice() {
+            const name = document.getElementById('new-device-name').value.trim();
+            const wakeWord = document.getElementById('new-device-wake').value.trim().toLowerCase();
+            const icon = document.getElementById('new-device-icon').value;
+            
+            if (!name) {
+                alert('Please enter a device name');
+                return;
+            }
+            
+            const newId = 'device_' + Math.random().toString(36).substr(2, 9);
+            devices[newId] = {
+                id: newId,
+                name,
+                wakeWord: wakeWord || 'hey computer',
+                icon,
+                language: 'en-US',
+                wordsTyped: 0,
+                sessions: 0,
+                continuous: false,
+                autoType: true
+            };
+            
+            saveDevices();
+            renderDeviceList();
+            closeAddDeviceModal();
+            addActivity(`Added new device: ${name}`, 'success');
+            
+            socket.emit('device_add', devices[newId]);
+        }
+        
+        // ============================================================
+        // SOCKET EVENTS
+        // ============================================================
+        
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            socket.emit('dashboard_join', { deviceId });
+        });
+        
+        socket.on('devices_update', (data) => {
+            // Merge server devices with local
+            if (data.devices) {
+                for (const [id, device] of Object.entries(data.devices)) {
+                    if (!devices[id]) {
+                        devices[id] = device;
+                    }
+                }
+                saveDevices();
+                renderDeviceList();
+            }
+        });
+        
+        // ============================================================
+        // INITIALIZATION
+        // ============================================================
+        
+        // Initial render
+        updateUI();
+        renderDeviceList();
+        renderActivityLog();
+        
+        // Restore settings
+        continuousMode = currentDevice?.continuous || false;
+        autoType = currentDevice?.autoType ?? true;
+        document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
+        document.getElementById('toggle-autotype').classList.toggle('active', autoType);
+        
+        // Close modal on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAddDeviceModal();
+        });
         
         // Close modal on overlay click
-        document.getElementById('settings-modal').addEventListener('click', e => {
-            if (e.target.id === 'settings-modal') closeSettings();
+        document.getElementById('add-device-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'add-device-modal') closeAddDeviceModal();
         });
         
-        // Close modal on Escape
-        document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') closeSettings();
-        });
+        // Start continuous listening if enabled
+        if (continuousMode) {
+            setTimeout(startListening, 1000);
+        }
     </script>
 </body>
 </html>
-'''
-
-# ============================================================================
-# IMPROVED VOICE CLIENT SCRIPT
-# ============================================================================
-
-VOICE_CLIENT = r'''#!/usr/bin/env python3
-"""
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                       🎤 VOICE HUB - CLIENT v2.0                              ║
-╠═══════════════════════════════════════════════════════════════════════════════╣
-║  Features:                                                                    ║
-║  • Wake word activation OR continuous mode                                    ║
-║  • Hotkey support (Ctrl+Shift+V to toggle)                                   ║
-║  • Auto-punctuation                                                           ║
-║  • Multi-language support                                                     ║
-║  • Audio feedback                                                             ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-
-Usage:
-  python voice_client.py --wake-word cortana --server https://your-app.onrender.com
-  python voice_client.py --continuous --server https://your-app.onrender.com
-  python voice_client.py --hotkey --server https://your-app.onrender.com
-"""
-
-import argparse
-import sys
-import time
-import threading
-import re
-
-try:
-    import speech_recognition as sr
-    from pynput import keyboard
-    from pynput.keyboard import Controller as KeyboardController, Key
-    import pyautogui
-    import pyperclip
-    import socketio
-except ImportError as e:
-    print(f"""
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║  ❌ Missing Dependencies                                                      ║
-╠═══════════════════════════════════════════════════════════════════════════════╣
-║  Run this command to install:                                                 ║
-║  pip install SpeechRecognition pyaudio pynput pyautogui pyperclip            ║
-║             python-socketio                                                   ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-    """)
-    sys.exit(1)
-
-PLATFORM = __import__('platform').system()
-
-# Punctuation patterns for auto-formatting
-PUNCTUATION_MAP = {
-    r'\bperiod\b': '.', r'\bcomma\b': ',', r'\bquestion mark\b': '?',
-    r'\bexclamation mark\b': '!', r'\bexclamation point\b': '!',
-    r'\bcolon\b': ':', r'\bsemicolon\b': ';', r'\bhyphen\b': '-',
-    r'\bdash\b': '—', r'\bquote\b': '"', r'\bopen quote\b': '"',
-    r'\bclose quote\b': '"', r'\bapostrophe\b': "'", r'\bat sign\b': '@',
-    r'\bhashtag\b': '#', r'\bdollar sign\b': '$', r'\bpercent\b': '%',
-    r'\bampersand\b': '&', r'\basterisk\b': '*', r'\bplus sign\b': '+',
-    r'\bequals\b': '=', r'\bslash\b': '/', r'\bbackslash\b': '\\',
-    r'\bnew line\b': '\n', r'\bnewline\b': '\n', r'\bnew paragraph\b': '\n\n',
-    r'\btab\b': '\t', r'\bopen paren\b': '(', r'\bclose paren\b': ')',
-    r'\bopen bracket\b': '[', r'\bclose bracket\b': ']',
-    r'\bopen brace\b': '{', r'\bclose brace\b': '}',
-}
-
-class VoiceClient:
-    def __init__(self, args):
-        self.wake_word = args.wake_word.lower() if args.wake_word else None
-        self.server = args.server
-        self.language = args.language
-        self.continuous = args.continuous
-        self.hotkey_mode = args.hotkey
-        self.sound_feedback = not args.no_sound
-        self.auto_punctuation = not args.no_punctuation
-        self.sensitivity = args.sensitivity
-        
-        self.recognizer = sr.Recognizer()
-        self.microphone = None
-        self.running = False
-        self.listening = False
-        self.hotkey_active = False
-        
-        # Configure recognizer
-        self.recognizer.energy_threshold = 300 * self.sensitivity
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
-        
-        # Socket.IO client
-        self.sio = socketio.Client(reconnection=True, reconnection_attempts=0)
-        self._setup_socket_events()
-        
-    def _setup_socket_events(self):
-        @self.sio.event
-        def connect():
-            self._print_status("Connected to server!", "success")
-            mode = "continuous" if self.continuous else ("hotkey" if self.hotkey_mode else f'wake word "{self.wake_word}"')
-            self.sio.emit('client_register', {
-                'wake_word': self.wake_word or 'hotkey',
-                'language': self.language,
-                'name': f"{(self.wake_word or 'Voice').title()} Client",
-                'mode': mode
-            })
-            
-        @self.sio.event
-        def disconnect():
-            self._print_status("Disconnected from server", "warning")
-            
-        @self.sio.on('settings_update')
-        def on_settings(data):
-            if 'language' in data:
-                self.language = data['language']
-                self._print_status(f"Language changed to {self.language}", "info")
-            if 'continuous' in data:
-                self.continuous = data['continuous']
-            if 'sound' in data:
-                self.sound_feedback = data['sound']
-            if 'punctuation' in data:
-                self.auto_punctuation = data['punctuation']
-                
-    def _print_status(self, message, status_type="info"):
-        icons = {"success": "✅", "warning": "⚠️", "error": "❌", "info": "ℹ️", "listen": "🎙️"}
-        icon = icons.get(status_type, "•")
-        timestamp = time.strftime("%H:%M:%S")
-        print(f"  {icon} [{timestamp}] {message}")
-        
-    def _play_sound(self, sound_type="start"):
-        if not self.sound_feedback:
-            return
-        try:
-            if PLATFORM == "Darwin":
-                import subprocess
-                sounds = {
-                    "start": "/System/Library/Sounds/Pop.aiff",
-                    "stop": "/System/Library/Sounds/Bottle.aiff",
-                    "error": "/System/Library/Sounds/Basso.aiff"
-                }
-                subprocess.run(["afplay", sounds.get(sound_type, sounds["start"])], 
-                             capture_output=True, timeout=1)
-            elif PLATFORM == "Windows":
-                import winsound
-                freqs = {"start": 800, "stop": 600, "error": 400}
-                winsound.Beep(freqs.get(sound_type, 800), 150)
-        except:
-            pass
-            
-    def _send_activity(self, message, activity_type="info", words=0):
-        try:
-            self.sio.emit('client_activity', {
-                'message': message,
-                'type': activity_type,
-                'words': words
-            })
-        except:
-            pass
-            
-    def _apply_punctuation(self, text):
-        if not self.auto_punctuation:
-            return text
-        for pattern, replacement in PUNCTUATION_MAP.items():
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-        # Capitalize after sentence endings
-        text = re.sub(r'([.!?]\s*)(\w)', lambda m: m.group(1) + m.group(2).upper(), text)
-        # Capitalize first letter
-        if text:
-            text = text[0].upper() + text[1:]
-        return text
-        
-    def _type_text(self, text):
-        """Type text using clipboard for speed and reliability"""
-        try:
-            pyperclip.copy(text)
-            time.sleep(0.02)
-            if PLATFORM == "Darwin":
-                pyautogui.hotkey('command', 'v')
-            else:
-                pyautogui.hotkey('ctrl', 'v')
-            return True
-        except Exception as e:
-            self._print_status(f"Failed to type: {e}", "error")
-            return False
-            
-    def init_audio(self):
-        """Initialize microphone"""
-        try:
-            mics = sr.Microphone.list_microphone_names()
-            self._print_status(f"Found {len(mics)} microphones", "info")
-            
-            # Try to find preferred microphones
-            preferred = ["airpod", "bluetooth", "wireless", "usb", "external"]
-            selected_index = None
-            
-            for i, mic_name in enumerate(mics):
-                mic_lower = mic_name.lower()
-                if any(p in mic_lower for p in preferred):
-                    selected_index = i
-                    break
-                    
-            if selected_index is not None:
-                self.microphone = sr.Microphone(device_index=selected_index)
-                self._print_status(f"Using: {mics[selected_index]}", "success")
-            else:
-                self.microphone = sr.Microphone()
-                self._print_status("Using default microphone", "info")
-                
-            # Calibrate
-            self._print_status("Calibrating for ambient noise...", "info")
-            with self.microphone as source:
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
-            self._print_status("Audio ready!", "success")
-            return True
-            
-        except Exception as e:
-            self._print_status(f"Audio initialization failed: {e}", "error")
-            return False
-            
-    def connect_server(self):
-        """Connect to the Voice Hub server"""
-        try:
-            self._print_status(f"Connecting to {self.server}...", "info")
-            self.sio.connect(self.server)
-            return True
-        except Exception as e:
-            self._print_status(f"Connection failed: {e}", "error")
-            return False
-            
-    def listen_for_wake_word(self):
-        """Listen for wake word"""
-        try:
-            with self.microphone as source:
-                audio = self.recognizer.listen(source, timeout=None, phrase_time_limit=3)
-            text = self.recognizer.recognize_google(audio, language=self.language)
-            if self.wake_word and self.wake_word in text.lower():
-                self._print_status(f'Wake word detected: "{text}"', "success")
-                return True
-        except sr.WaitTimeoutError:
-            pass
-        except sr.UnknownValueError:
-            pass
-        except Exception as e:
-            if "connection" in str(e).lower():
-                self._print_status("Network error, retrying...", "warning")
-                time.sleep(1)
-        return False
-        
-    def capture_dictation(self):
-        """Capture and transcribe speech"""
-        self._play_sound("start")
-        self._print_status("Listening...", "listen")
-        self.listening = True
-        
-        try:
-            with self.microphone as source:
-                audio = self.recognizer.listen(
-                    source, 
-                    timeout=8 if self.continuous else 5,
-                    phrase_time_limit=30
-                )
-                
-            self._print_status("Processing...", "info")
-            text = self.recognizer.recognize_google(audio, language=self.language)
-            
-            # Check for stop commands
-            if text.lower().strip() in ["stop", "quit", "exit", "stop listening"]:
-                self._print_status("Stop command received", "info")
-                self.running = False
-                return None
-                
-            # Apply punctuation
-            text = self._apply_punctuation(text)
-            
-            # Type the text
-            if self._type_text(text):
-                word_count = len(text.split())
-                preview = text[:50] + "..." if len(text) > 50 else text
-                self._print_status(f'Typed: "{preview}"', "success")
-                self._send_activity(
-                    f'Typed: "{preview}"',
-                    "success",
-                    word_count
-                )
-                self._play_sound("stop")
-                return text
-                
-        except sr.WaitTimeoutError:
-            self._print_status("No speech detected", "warning")
-            self._play_sound("error")
-        except sr.UnknownValueError:
-            self._print_status("Couldn't understand audio", "warning")
-            self._play_sound("error")
-        except Exception as e:
-            self._print_status(f"Error: {e}", "error")
-            self._play_sound("error")
-        finally:
-            self.listening = False
-            
-        return None
-        
-    def _hotkey_listener(self):
-        """Listen for hotkey (Ctrl+Shift+V)"""
-        current_keys = set()
-        
-        def on_press(key):
-            current_keys.add(key)
-            # Check for Ctrl+Shift+V
-            if (keyboard.Key.ctrl_l in current_keys or keyboard.Key.ctrl_r in current_keys) and \
-               (keyboard.Key.shift_l in current_keys or keyboard.Key.shift_r in current_keys):
-                try:
-                    if hasattr(key, 'char') and key.char and key.char.lower() == 'v':
-                        if not self.listening:
-                            self.hotkey_active = True
-                except:
-                    pass
-                    
-        def on_release(key):
-            try:
-                current_keys.discard(key)
-            except:
-                pass
-                
-        listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-        listener.start()
-        return listener
-        
-    def run(self):
-        """Main run loop"""
-        print(f"""
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                       🎤 VOICE HUB CLIENT v2.0                                ║
-╠═══════════════════════════════════════════════════════════════════════════════╣
-║  Mode: {"Continuous" if self.continuous else ("Hotkey (Ctrl+Shift+V)" if self.hotkey_mode else f'Wake Word "{self.wake_word}"'):50} ║
-║  Language: {self.language:56} ║
-║  Server: {self.server[:55]:55} ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-        """)
-        
-        if not self.init_audio():
-            return
-            
-        self.connect_server()
-        self.running = True
-        
-        # Start hotkey listener if in hotkey mode
-        hotkey_listener = None
-        if self.hotkey_mode:
-            hotkey_listener = self._hotkey_listener()
-            self._print_status("Press Ctrl+Shift+V to start dictation", "info")
-            
-        print()
-        
-        try:
-            while self.running:
-                if self.continuous:
-                    # Continuous mode - always listening
-                    self._print_status("Listening continuously (say 'stop' to exit)...", "listen")
-                    self._send_activity("Continuous listening active", "wake_word")
-                    self.capture_dictation()
-                    time.sleep(0.5)
-                    
-                elif self.hotkey_mode:
-                    # Hotkey mode
-                    if self.hotkey_active:
-                        self._send_activity("Hotkey activated", "wake_word")
-                        self.capture_dictation()
-                        self.hotkey_active = False
-                    time.sleep(0.1)
-                    
-                else:
-                    # Wake word mode
-                    if self.listen_for_wake_word():
-                        self._send_activity("Wake word detected!", "wake_word")
-                        self.capture_dictation()
-                        print()
-                        self._print_status(f'Say "{self.wake_word}" to continue...', "info")
-                        
-        except KeyboardInterrupt:
-            print()
-            self._print_status("Shutting down...", "info")
-        finally:
-            self.running = False
-            if hotkey_listener:
-                hotkey_listener.stop()
-            try:
-                self.sio.disconnect()
-            except:
-                pass
-            self._print_status("Goodbye! 👋", "success")
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Voice Hub Client - Voice-to-text for your devices",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s --wake-word cortana --server https://myapp.onrender.com
-  %(prog)s --continuous --server https://myapp.onrender.com
-  %(prog)s --hotkey --server https://myapp.onrender.com
-  %(prog)s --list-mics
-        """
-    )
-    
-    parser.add_argument('--wake-word', '-w', 
-                        help='Wake word to trigger dictation (e.g., "cortana", "jarvis")')
-    parser.add_argument('--server', '-s', default='http://localhost:5000',
-                        help='Voice Hub server URL')
-    parser.add_argument('--language', '-l', default='en-US',
-                        help='Recognition language (e.g., en-US, es-ES, fr-FR)')
-    parser.add_argument('--continuous', '-c', action='store_true',
-                        help='Continuous listening mode (no wake word needed)')
-    parser.add_argument('--hotkey', '-k', action='store_true',
-                        help='Hotkey mode (Ctrl+Shift+V to toggle)')
-    parser.add_argument('--no-sound', action='store_true',
-                        help='Disable sound feedback')
-    parser.add_argument('--no-punctuation', action='store_true',
-                        help='Disable auto-punctuation')
-    parser.add_argument('--sensitivity', type=float, default=1.0,
-                        help='Microphone sensitivity multiplier (default: 1.0)')
-    parser.add_argument('--list-mics', action='store_true',
-                        help='List available microphones and exit')
-    
-    args = parser.parse_args()
-    
-    if args.list_mics:
-        print("\n📢 Available Microphones:\n")
-        for i, name in enumerate(sr.Microphone.list_microphone_names()):
-            print(f"  [{i}] {name}")
-        print()
-        return
-        
-    # Validate mode
-    if not args.wake_word and not args.continuous and not args.hotkey:
-        print("❌ Please specify a mode: --wake-word, --continuous, or --hotkey")
-        parser.print_help()
-        return
-        
-    # Ensure server URL has protocol
-    if not args.server.startswith('http'):
-        args.server = f'http://{args.server}'
-        
-    client = VoiceClient(args)
-    client.run()
-
-
-if __name__ == '__main__':
-    main()
 '''
 
 # ============================================================================
@@ -1677,7 +1478,7 @@ if __name__ == '__main__':
 @app.route('/')
 @login_required
 def dashboard():
-    return render_template_string(DASHBOARD_PAGE, user=current_user, server=request.host_url.rstrip('/'))
+    return render_template_string(DASHBOARD_PAGE, user=current_user)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -1696,73 +1497,76 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-@app.route('/download')
-def download():
-    return Response(VOICE_CLIENT, mimetype='text/plain', 
-                   headers={'Content-Disposition': 'attachment; filename=voice_client.py'})
-
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'clients': len(connected_clients)})
+    return jsonify({'status': 'ok', 'devices': len(devices)})
 
-@app.route('/api/settings', methods=['GET', 'POST'])
+@app.route('/api/devices', methods=['GET'])
 @login_required
-def api_settings():
-    if request.method == 'POST':
-        data = request.json
-        # Broadcast settings to all clients
-        socketio.emit('settings_update', data, room='clients')
+def get_devices():
+    return jsonify(devices)
+
+@app.route('/api/devices/<device_id>', methods=['PUT', 'DELETE'])
+@login_required
+def manage_device(device_id):
+    if request.method == 'DELETE':
+        if device_id in devices:
+            del devices[device_id]
         return jsonify({'status': 'ok'})
-    return jsonify(default_settings)
+    elif request.method == 'PUT':
+        data = request.json
+        if device_id in devices:
+            devices[device_id].update(data)
+        return jsonify(devices.get(device_id, {}))
 
 # ============================================================================
 # WEBSOCKET EVENTS
 # ============================================================================
 
 @socketio.on('dashboard_join')
-def on_dashboard_join():
+def on_dashboard_join(data):
+    device_id = data.get('deviceId')
     join_room('dashboard')
-    emit('clients_update', {'clients': connected_clients})
+    join_room(device_id)
+    emit('devices_update', {'devices': devices})
 
-@socketio.on('client_register')
-def on_client_register(data):
-    cid = request.sid
-    join_room('clients')
-    connected_clients[cid] = {
-        'id': cid,
-        'wake_word': data.get('wake_word', '?'),
-        'name': data.get('name', 'Client'),
-        'language': data.get('language', 'en-US'),
-        'mode': data.get('mode', 'wake_word'),
-        'online': True,
-        'words_typed': 0,
-        'sessions': 0,
-        'logs': [{
-            'time': datetime.now().strftime('%H:%M:%S'),
-            'message': 'Connected',
-            'type': 'success'
-        }]
-    }
-    socketio.emit('clients_update', {'clients': connected_clients}, room='dashboard')
-    print(f"✅ Client connected: {data.get('wake_word')} ({data.get('mode', 'wake_word')} mode)")
+@socketio.on('device_status')
+def on_device_status(data):
+    device_id = data.get('deviceId')
+    status = data.get('status')
+    if device_id:
+        active_sessions[device_id] = status
+        socketio.emit('device_status_update', data, room='dashboard')
 
-@socketio.on('client_activity')
-def on_activity(data):
-    cid = request.sid
-    if cid in connected_clients:
-        socketio.emit('client_activity', {'client_id': cid, **data}, room='dashboard')
+@socketio.on('device_update')
+def on_device_update(data):
+    device_id = data.get('deviceId')
+    settings = data.get('settings', {})
+    if device_id and device_id in devices:
+        devices[device_id].update(settings)
+    socketio.emit('devices_update', {'devices': devices}, room='dashboard')
 
-@socketio.on('update_settings')
-def on_update_settings(data):
-    socketio.emit('settings_update', data, room='clients')
+@socketio.on('device_add')
+def on_device_add(data):
+    device_id = data.get('id')
+    if device_id:
+        devices[device_id] = data
+    socketio.emit('devices_update', {'devices': devices}, room='dashboard')
+
+@socketio.on('transcript')
+def on_transcript(data):
+    device_id = data.get('deviceId')
+    text = data.get('text')
+    words = data.get('words', 0)
+    
+    if device_id and device_id in devices:
+        devices[device_id]['wordsTyped'] = devices[device_id].get('wordsTyped', 0) + words
+    
+    socketio.emit('transcript_received', data, room='dashboard')
 
 @socketio.on('disconnect')
 def on_disconnect():
-    cid = request.sid
-    if cid in connected_clients:
-        connected_clients[cid]['online'] = False
-        socketio.emit('clients_update', {'clients': connected_clients}, room='dashboard')
-        print(f"📴 Client disconnected: {connected_clients[cid]['wake_word']}")
+    pass
 
 # ============================================================================
 # START SERVER
@@ -1772,16 +1576,15 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"""
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║                       🎛️  VOICE HUB SERVER v2.0  🎛️                          ║
+║                       🎛️  VOICE HUB SERVER v3.0  🎛️                          ║
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║  URL: http://localhost:{port:<52} ║
 ║  Login: admin / {ADMIN_PASSWORD:<51} ║
 ║                                                                               ║
-║  Features:                                                                    ║
-║  • Modern dashboard with real-time updates                                    ║
-║  • Customizable settings (language, colors, modes)                            ║
-║  • Multiple client modes (wake word, continuous, hotkey)                      ║
-║  • Auto-punctuation and smart formatting                                      ║
+║  ✨ NEW: Browser-based voice recognition - no terminal needed!               ║
+║  • Click the mic button or say your wake word                                 ║
+║  • Add multiple devices with custom wake words                                ║
+║  • Edit device settings directly in the web app                               ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
     """)
     socketio.run(app, host='0.0.0.0', port=port)
