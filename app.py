@@ -1917,11 +1917,73 @@ DASHBOARD_PAGE = '''
         
         // Check browser support
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let micPermission = 'prompt'; // 'granted', 'denied', or 'prompt'
+        
         if (!SpeechRecognition) {
             document.getElementById('browser-warning').style.display = 'flex';
             document.getElementById('mic-button').classList.add('disabled');
         } else {
             initSpeechRecognition();
+            checkMicPermission();
+        }
+        
+        // Check and track microphone permission status
+        async function checkMicPermission() {
+            try {
+                const result = await navigator.permissions.query({ name: 'microphone' });
+                micPermission = result.state;
+                updateMicPermissionUI();
+                
+                // Listen for permission changes
+                result.onchange = () => {
+                    micPermission = result.state;
+                    updateMicPermissionUI();
+                    if (result.state === 'granted') {
+                        addActivity('🎤 Microphone access granted!', 'success');
+                    }
+                };
+            } catch (e) {
+                // Permissions API not supported, we'll find out when we try to use it
+                console.log('Permissions API not available');
+            }
+        }
+        
+        function updateMicPermissionUI() {
+            const micButton = document.getElementById('mic-button');
+            const warning = document.getElementById('browser-warning');
+            
+            if (micPermission === 'denied') {
+                warning.innerHTML = '⚠️ Microphone access blocked. <a href="#" onclick="showPermissionHelp()" style="color: var(--accent); text-decoration: underline;">Click here to fix</a>';
+                warning.style.display = 'flex';
+            } else if (micPermission === 'granted') {
+                warning.style.display = 'none';
+            }
+        }
+        
+        function showPermissionHelp() {
+            alert('To enable microphone access:\\n\\n1. Click the lock icon 🔒 in Chrome\\'s address bar\\n2. Find "Microphone" and set it to "Allow"\\n3. Refresh the page\\n\\nOr go to: chrome://settings/content/microphone');
+        }
+        
+        // Request microphone permission explicitly
+        async function requestMicPermission() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Permission granted! Stop the stream immediately (we just needed permission)
+                stream.getTracks().forEach(track => track.stop());
+                micPermission = 'granted';
+                updateMicPermissionUI();
+                addActivity('🎤 Microphone access granted!', 'success');
+                return true;
+            } catch (err) {
+                if (err.name === 'NotAllowedError') {
+                    micPermission = 'denied';
+                    updateMicPermissionUI();
+                    addActivity('⚠️ Microphone access denied. Click the lock icon in the address bar to allow.', 'warning');
+                } else {
+                    addActivity('⚠️ Could not access microphone: ' + err.message, 'warning');
+                }
+                return false;
+            }
         }
         
         // Generate device ID for this browser
@@ -2528,11 +2590,20 @@ DASHBOARD_PAGE = '''
             socket.emit('device_status', { deviceId, status: 'idle' });
         }
         
-        function toggleListening() {
-            if (!recognition) return;
+        async function toggleListening() {
+            if (!recognition) {
+                addActivity('⚠️ Speech recognition not available in this browser', 'warning');
+                return;
+            }
+            
             if (isListening) {
                 stopListening();
             } else {
+                // Check/request permission before starting
+                if (micPermission !== 'granted') {
+                    const granted = await requestMicPermission();
+                    if (!granted) return;
+                }
                 startListening();
             }
         }
@@ -2687,7 +2758,13 @@ DASHBOARD_PAGE = '''
             socket.emit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
         }
         
-        function toggleAlwaysListen() {
+        async function toggleAlwaysListen() {
+            // If enabling, check permission first
+            if (!alwaysListen && micPermission !== 'granted') {
+                const granted = await requestMicPermission();
+                if (!granted) return;
+            }
+            
             alwaysListen = !alwaysListen;
             document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
             currentDevice.alwaysListen = alwaysListen;
@@ -2705,7 +2782,13 @@ DASHBOARD_PAGE = '''
             updateUI();
         }
         
-        function toggleContinuous() {
+        async function toggleContinuous() {
+            // If enabling, check permission first
+            if (!continuousMode && micPermission !== 'granted') {
+                const granted = await requestMicPermission();
+                if (!granted) return;
+            }
+            
             continuousMode = !continuousMode;
             document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
             currentDevice.continuous = continuousMode;
