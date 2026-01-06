@@ -38,6 +38,709 @@ devices = {}
 # Store active listening sessions
 active_sessions = {}
 
+# ============================================================================
+# INSTALL PAGE - SUPER EASY SETUP
+# ============================================================================
+
+INSTALL_PAGE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Hub - Install Desktop Client</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --border: rgba(255,255,255,0.08);
+            --accent: #00f5d4;
+            --accent-2: #7b2cbf;
+            --text: #ffffff;
+            --text-muted: #6b7280;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+        .logo {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+        h1 {
+            font-size: 36px;
+            margin-bottom: 12px;
+        }
+        h1 span { color: var(--accent); }
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 18px;
+        }
+        .os-tabs {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 32px;
+            justify-content: center;
+        }
+        .os-tab {
+            padding: 14px 28px;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+        .os-tab:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+        .os-tab.active {
+            border-color: var(--accent);
+            background: rgba(0, 245, 212, 0.1);
+            color: var(--accent);
+        }
+        .os-tab .icon { font-size: 24px; }
+        .install-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            margin-bottom: 32px;
+        }
+        .step {
+            margin-bottom: 32px;
+        }
+        .step:last-child { margin-bottom: 0; }
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .step-number {
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .step h3 {
+            font-size: 20px;
+        }
+        .step p {
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            line-height: 1.6;
+        }
+        .code-box {
+            position: relative;
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--accent);
+            overflow-x: auto;
+            word-break: break-all;
+        }
+        .code-box code {
+            display: block;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 8px 16px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        .copy-btn:hover {
+            transform: scale(1.05);
+        }
+        .copy-btn.copied {
+            background: #10b981;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+        .feature {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .feature .icon {
+            font-size: 24px;
+        }
+        .feature span {
+            font-size: 14px;
+        }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-muted);
+            text-decoration: none;
+            margin-bottom: 32px;
+        }
+        .back-link:hover {
+            color: var(--accent);
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Dashboard</a>
+        
+        <div class="header">
+            <div class="logo">🎛️</div>
+            <h1><span>Voice Hub</span> Desktop Client</h1>
+            <p class="subtitle">Control any app on your computer with voice commands</p>
+        </div>
+        
+        <div class="os-tabs">
+            <button class="os-tab active" onclick="showOS('mac')" id="tab-mac">
+                <span class="icon">🍎</span> Mac
+            </button>
+            <button class="os-tab" onclick="showOS('windows')" id="tab-windows">
+                <span class="icon">🪟</span> Windows
+            </button>
+            <button class="os-tab" onclick="showOS('linux')" id="tab-linux">
+                <span class="icon">🐧</span> Linux
+            </button>
+        </div>
+        
+        <!-- Mac Instructions -->
+        <div id="os-mac" class="install-section">
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <h3>Open Terminal</h3>
+                </div>
+                <p>Press <strong>Cmd + Space</strong>, type "Terminal", and press Enter.</p>
+            </div>
+            
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <h3>Paste This Command</h3>
+                </div>
+                <p>Copy and paste this single command. It downloads, installs, and runs everything automatically:</p>
+                <div class="code-box">
+                    <code id="mac-command">curl -sL {{ server }}/install.sh | bash</code>
+                    <button class="copy-btn" onclick="copyCommand('mac-command', this)">📋 Copy</button>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <h3>Grant Permissions</h3>
+                </div>
+                <p>Mac will ask for Accessibility permissions. Go to <strong>System Preferences → Security & Privacy → Privacy → Accessibility</strong> and add Terminal.</p>
+            </div>
+            
+            <div class="features">
+                <div class="feature"><span class="icon">✅</span><span>Auto-installs Python packages</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Connects to your server</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Starts immediately</span></div>
+            </div>
+        </div>
+        
+        <!-- Windows Instructions -->
+        <div id="os-windows" class="install-section hidden">
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <h3>Open PowerShell</h3>
+                </div>
+                <p>Press <strong>Win + X</strong> and select "Windows PowerShell" or "Terminal".</p>
+            </div>
+            
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <h3>Paste This Command</h3>
+                </div>
+                <p>Copy and paste this single command:</p>
+                <div class="code-box">
+                    <code id="windows-command">irm {{ server }}/install.ps1 | iex</code>
+                    <button class="copy-btn" onclick="copyCommand('windows-command', this)">📋 Copy</button>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <h3>Allow Python (if prompted)</h3>
+                </div>
+                <p>If you don't have Python, download it from <a href="https://python.org" target="_blank" style="color: var(--accent);">python.org</a> (check "Add to PATH" during install).</p>
+            </div>
+            
+            <div class="features">
+                <div class="feature"><span class="icon">✅</span><span>Auto-installs dependencies</span></div>
+                <div class="feature"><span class="icon">✅</span><span>No admin required</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Works with PowerShell 5+</span></div>
+            </div>
+        </div>
+        
+        <!-- Linux Instructions -->
+        <div id="os-linux" class="install-section hidden">
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <h3>Open Terminal</h3>
+                </div>
+                <p>Press <strong>Ctrl + Alt + T</strong> or find Terminal in your applications.</p>
+            </div>
+            
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <h3>Paste This Command</h3>
+                </div>
+                <p>Copy and paste this single command:</p>
+                <div class="code-box">
+                    <code id="linux-command">curl -sL {{ server }}/install.sh | bash</code>
+                    <button class="copy-btn" onclick="copyCommand('linux-command', this)">📋 Copy</button>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <h3>Install Dependencies (if needed)</h3>
+                </div>
+                <p>For X11/Wayland support: <code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">sudo apt install python3-tk python3-dev</code></p>
+            </div>
+            
+            <div class="features">
+                <div class="feature"><span class="icon">✅</span><span>Works with bash/zsh</span></div>
+                <div class="feature"><span class="icon">✅</span><span>X11 and Wayland support</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Debian/Ubuntu/Fedora</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showOS(os) {
+            document.querySelectorAll('.os-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.install-section').forEach(s => s.classList.add('hidden'));
+            document.getElementById('tab-' + os).classList.add('active');
+            document.getElementById('os-' + os).classList.remove('hidden');
+        }
+        
+        function copyCommand(id, btn) {
+            const code = document.getElementById(id).textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                btn.innerHTML = '✅ Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.innerHTML = '📋 Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+        
+        // Auto-detect OS
+        const ua = navigator.userAgent;
+        if (ua.includes('Win')) showOS('windows');
+        else if (ua.includes('Linux')) showOS('linux');
+        // Default is Mac
+    </script>
+</body>
+</html>
+'''
+
+# ============================================================================
+# DESKTOP CLIENT - AUTO-CONFIGURED
+# ============================================================================
+
+DESKTOP_CLIENT = r'''#!/usr/bin/env python3
+"""
+Voice Hub Desktop Client - Controls apps on your computer
+Auto-configured for: {{SERVER_URL}}
+"""
+
+import os
+import sys
+import time
+import json
+import threading
+import subprocess
+import platform
+
+# Install dependencies if missing
+def ensure_deps():
+    deps = ['pyautogui', 'pyperclip', 'websocket-client', 'requests']
+    for dep in deps:
+        try:
+            __import__(dep.replace('-', '_'))
+        except ImportError:
+            print(f"Installing {dep}...")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', dep])
+
+ensure_deps()
+
+import pyautogui
+import pyperclip
+import websocket
+import requests
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+SERVER_URL = "{{SERVER_URL}}"
+WS_URL = SERVER_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/socket.io/?EIO=4&transport=websocket'
+PLATFORM = platform.system()
+
+# ============================================================================
+# APP CONTROL
+# ============================================================================
+
+# App identifiers for different platforms
+APPS = {
+    'cursor': {
+        'Darwin': 'Cursor',
+        'Windows': 'Cursor.exe',
+        'Linux': 'cursor'
+    },
+    'chrome': {
+        'Darwin': 'Google Chrome',
+        'Windows': 'chrome.exe',
+        'Linux': 'google-chrome'
+    },
+    'claude': {
+        'Darwin': 'Google Chrome',  # Claude runs in browser
+        'Windows': 'chrome.exe',
+        'Linux': 'google-chrome',
+        'url': 'https://claude.ai'
+    },
+    'chatgpt': {
+        'Darwin': 'Google Chrome',
+        'Windows': 'chrome.exe', 
+        'Linux': 'google-chrome',
+        'url': 'https://chat.openai.com'
+    },
+    'terminal': {
+        'Darwin': 'Terminal',
+        'Windows': 'cmd.exe',
+        'Linux': 'gnome-terminal'
+    },
+    'vscode': {
+        'Darwin': 'Visual Studio Code',
+        'Windows': 'Code.exe',
+        'Linux': 'code'
+    },
+    'slack': {
+        'Darwin': 'Slack',
+        'Windows': 'slack.exe',
+        'Linux': 'slack'
+    },
+    'discord': {
+        'Darwin': 'Discord',
+        'Windows': 'Discord.exe',
+        'Linux': 'discord'
+    },
+    'notes': {
+        'Darwin': 'Notes',
+        'Windows': 'notepad.exe',
+        'Linux': 'gedit'
+    },
+    'finder': {
+        'Darwin': 'Finder',
+        'Windows': 'explorer.exe',
+        'Linux': 'nautilus'
+    }
+}
+
+def focus_app(app_name):
+    """Bring an app to the foreground"""
+    app_name = app_name.lower().strip()
+    app_info = APPS.get(app_name, {})
+    app_id = app_info.get(PLATFORM, app_name)
+    
+    try:
+        if PLATFORM == 'Darwin':
+            # macOS
+            script = f'tell application "{app_id}" to activate'
+            subprocess.run(['osascript', '-e', script], capture_output=True)
+            print(f"✅ Focused: {app_id}")
+            
+            # If it's a web app, open the URL
+            if 'url' in app_info:
+                time.sleep(0.5)
+                subprocess.run(['open', app_info['url']], capture_output=True)
+                
+        elif PLATFORM == 'Windows':
+            # Windows - use PowerShell
+            if 'url' in app_info:
+                subprocess.run(['start', app_info['url']], shell=True, capture_output=True)
+            else:
+                # Try to focus the window
+                subprocess.run(['powershell', '-Command', 
+                    f'(New-Object -ComObject WScript.Shell).AppActivate("{app_id}")'], 
+                    capture_output=True)
+            print(f"✅ Focused: {app_id}")
+            
+        elif PLATFORM == 'Linux':
+            # Linux - use wmctrl or xdotool
+            if 'url' in app_info:
+                subprocess.run(['xdg-open', app_info['url']], capture_output=True)
+            else:
+                subprocess.run(['wmctrl', '-a', app_id], capture_output=True)
+            print(f"✅ Focused: {app_id}")
+            
+        time.sleep(0.3)  # Wait for app to focus
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Could not focus {app_name}: {e}")
+        return False
+
+def type_text(text):
+    """Type text using the keyboard"""
+    try:
+        # Use clipboard + paste for reliability
+        pyperclip.copy(text)
+        time.sleep(0.1)
+        
+        if PLATFORM == 'Darwin':
+            pyautogui.hotkey('command', 'v')
+        else:
+            pyautogui.hotkey('ctrl', 'v')
+            
+        print(f"✅ Typed: {text[:50]}...")
+        return True
+    except Exception as e:
+        print(f"⚠️ Could not type: {e}")
+        return False
+
+def press_enter():
+    """Press the Enter key"""
+    pyautogui.press('enter')
+
+def run_command(command, app=None):
+    """Run a command in terminal/shell"""
+    if app:
+        focus_app(app)
+        time.sleep(0.3)
+    
+    type_text(command)
+    time.sleep(0.1)
+    press_enter()
+
+# ============================================================================
+# WEBSOCKET CLIENT
+# ============================================================================
+
+class VoiceHubClient:
+    def __init__(self):
+        self.ws = None
+        self.device_id = self._get_device_id()
+        self.device_name = platform.node() or 'Desktop Client'
+        self.running = False
+        
+    def _get_device_id(self):
+        """Get or create a persistent device ID"""
+        id_file = os.path.expanduser('~/.voicehub/device_id')
+        os.makedirs(os.path.dirname(id_file), exist_ok=True)
+        
+        if os.path.exists(id_file):
+            with open(id_file, 'r') as f:
+                return f.read().strip()
+        else:
+            import uuid
+            device_id = f"desktop_{uuid.uuid4().hex[:8]}"
+            with open(id_file, 'w') as f:
+                f.write(device_id)
+            return device_id
+    
+    def on_message(self, ws, message):
+        """Handle incoming WebSocket messages"""
+        try:
+            # Socket.IO protocol parsing
+            if message.startswith('0'):
+                # Connection established
+                print("🔗 Connected to Voice Hub")
+                self._send_join()
+            elif message.startswith('42'):
+                # Event message
+                data = json.loads(message[2:])
+                event_name = data[0]
+                event_data = data[1] if len(data) > 1 else {}
+                self._handle_event(event_name, event_data)
+            elif message == '2':
+                # Ping - respond with pong
+                ws.send('3')
+            elif message == '3':
+                # Pong received
+                pass
+        except Exception as e:
+            print(f"⚠️ Message error: {e}")
+    
+    def _send_join(self):
+        """Join the dashboard room"""
+        self._emit('dashboard_join', {'deviceId': self.device_id})
+        self._emit('device_update', {
+            'deviceId': self.device_id,
+            'settings': {
+                'id': self.device_id,
+                'name': self.device_name,
+                'icon': '🖥️',
+                'wakeWord': self.device_name.lower(),
+                'type': 'desktop_client',
+                'platform': PLATFORM
+            }
+        })
+        print(f"📱 Registered as: {self.device_name} ({self.device_id})")
+    
+    def _emit(self, event, data):
+        """Emit a Socket.IO event"""
+        if self.ws:
+            message = f'42{json.dumps([event, data])}'
+            self.ws.send(message)
+    
+    def _handle_event(self, event_name, data):
+        """Handle incoming events"""
+        if event_name == 'command_received':
+            self._execute_command(data)
+        elif event_name == 'devices_update':
+            print(f"📱 {len(data.get('devices', {}))} devices online")
+    
+    def _execute_command(self, data):
+        """Execute a received command"""
+        command = data.get('command', '')
+        action = data.get('action', 'type')
+        target_app = data.get('targetApp')
+        from_device = data.get('fromDeviceId', 'unknown')
+        
+        print(f"\n📥 Command from {from_device}:")
+        print(f"   Action: {action}")
+        print(f"   Target: {target_app or 'current app'}")
+        print(f"   Text: {command[:50]}...")
+        
+        # Focus target app if specified
+        if target_app:
+            focus_app(target_app)
+            time.sleep(0.5)
+        
+        # Execute the action
+        if action == 'type':
+            type_text(command)
+        elif action == 'run':
+            run_command(command, target_app or 'terminal')
+        elif action == 'paste':
+            type_text(command)
+        elif action == 'search':
+            focus_app('chrome')
+            time.sleep(0.5)
+            pyautogui.hotkey('command' if PLATFORM == 'Darwin' else 'ctrl', 'l')
+            time.sleep(0.2)
+            type_text(command)
+            press_enter()
+        
+        print("✅ Command executed\n")
+    
+    def on_error(self, ws, error):
+        print(f"⚠️ WebSocket error: {error}")
+    
+    def on_close(self, ws, close_status_code, close_msg):
+        print("📴 Disconnected from Voice Hub")
+        if self.running:
+            print("🔄 Reconnecting in 5 seconds...")
+            time.sleep(5)
+            self.connect()
+    
+    def on_open(self, ws):
+        print("🌐 WebSocket connected")
+    
+    def connect(self):
+        """Connect to the Voice Hub server"""
+        print(f"🔌 Connecting to {SERVER_URL}...")
+        
+        self.ws = websocket.WebSocketApp(
+            WS_URL,
+            on_open=self.on_open,
+            on_message=self.on_message,
+            on_error=self.on_error,
+            on_close=self.on_close
+        )
+        
+        self.running = True
+        self.ws.run_forever()
+    
+    def run(self):
+        """Run the client"""
+        print(f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🎛️  Voice Hub Desktop Client                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Server: {SERVER_URL:<56} ║
+║  Device: {self.device_name:<56} ║
+║  Platform: {PLATFORM:<54} ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  This client receives voice commands from your Voice Hub dashboard           ║
+║  and executes them on this computer (switch apps, type text, etc.)           ║
+║                                                                               ║
+║  Press Ctrl+C to stop                                                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+        """)
+        
+        try:
+            self.connect()
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            self.running = False
+
+if __name__ == '__main__':
+    client = VoiceHubClient()
+    client.run()
+'''
+
 class User(UserMixin):
     def __init__(self, username):
         self.id = username
@@ -842,6 +1545,7 @@ DASHBOARD_PAGE = '''
             <span>Voice</span> Hub
         </div>
         <div class="header-actions">
+            <a href="/install" class="btn btn-primary">🖥️ Install Desktop Client</a>
             <span style="color: var(--text-muted); font-size: 14px;">👤 {{ user.name }}</span>
             <a href="/logout" class="btn btn-ghost">Logout</a>
         </div>
@@ -2111,6 +2815,111 @@ def logout():
 @app.route('/health')
 def health():
     return jsonify({'status': 'ok', 'devices': len(devices)})
+
+@app.route('/install')
+def install_page():
+    """Show easy install instructions"""
+    server_url = request.host_url.rstrip('/')
+    return render_template_string(INSTALL_PAGE, server=server_url)
+
+@app.route('/setup.py')
+def download_setup():
+    """Download the auto-setup script"""
+    server_url = request.host_url.rstrip('/')
+    script = DESKTOP_CLIENT.replace('{{SERVER_URL}}', server_url)
+    return Response(script, mimetype='text/plain', 
+                   headers={'Content-Disposition': 'attachment; filename=voice_hub_client.py'})
+
+@app.route('/install.sh')
+def download_install_sh():
+    """One-liner install script for Mac/Linux"""
+    server_url = request.host_url.rstrip('/')
+    script = f'''#!/bin/bash
+# Voice Hub Desktop Client - One-Click Installer
+# Run with: curl -sL {server_url}/install.sh | bash
+
+echo "🎛️  Voice Hub Desktop Client Installer"
+echo "========================================"
+echo ""
+
+# Check for Python
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 is required. Please install Python first."
+    echo "   Mac: brew install python3"
+    echo "   Linux: sudo apt install python3 python3-pip"
+    exit 1
+fi
+
+echo "✅ Python found: $(python3 --version)"
+echo ""
+
+# Create directory
+mkdir -p ~/.voicehub
+cd ~/.voicehub
+
+# Download the client
+echo "📥 Downloading Voice Hub client..."
+curl -sL {server_url}/setup.py -o voice_hub_client.py
+
+# Install dependencies
+echo "📦 Installing dependencies..."
+pip3 install --quiet pyautogui pyperclip websocket-client requests 2>/dev/null || pip install --quiet pyautogui pyperclip websocket-client requests
+
+echo ""
+echo "✅ Installation complete!"
+echo ""
+echo "🚀 Starting Voice Hub client..."
+echo "   (Press Ctrl+C to stop)"
+echo ""
+
+python3 voice_hub_client.py
+'''
+    return Response(script, mimetype='text/plain')
+
+@app.route('/install.ps1')
+def download_install_ps1():
+    """One-liner install script for Windows"""
+    server_url = request.host_url.rstrip('/')
+    script = f'''# Voice Hub Desktop Client - Windows Installer
+# Run with: irm {server_url}/install.ps1 | iex
+
+Write-Host "🎛️  Voice Hub Desktop Client Installer" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Check for Python
+try {{
+    $pythonVersion = python --version 2>&1
+    Write-Host "✅ Python found: $pythonVersion" -ForegroundColor Green
+}} catch {{
+    Write-Host "❌ Python 3 is required. Please install Python first." -ForegroundColor Red
+    Write-Host "   Download from: https://www.python.org/downloads/" -ForegroundColor Yellow
+    exit 1
+}}
+
+# Create directory
+$installDir = "$env:USERPROFILE\\.voicehub"
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+Set-Location $installDir
+
+# Download the client
+Write-Host "📥 Downloading Voice Hub client..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "{server_url}/setup.py" -OutFile "voice_hub_client.py"
+
+# Install dependencies
+Write-Host "📦 Installing dependencies..." -ForegroundColor Yellow
+pip install --quiet pyautogui pyperclip websocket-client requests 2>$null
+
+Write-Host ""
+Write-Host "✅ Installation complete!" -ForegroundColor Green
+Write-Host ""
+Write-Host "🚀 Starting Voice Hub client..." -ForegroundColor Cyan
+Write-Host "   (Press Ctrl+C to stop)" -ForegroundColor Gray
+Write-Host ""
+
+python voice_hub_client.py
+'''
+    return Response(script, mimetype='text/plain')
 
 @app.route('/api/devices', methods=['GET'])
 @login_required
