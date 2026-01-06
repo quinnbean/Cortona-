@@ -2816,6 +2816,11 @@ def logout():
 def health():
     return jsonify({'status': 'ok', 'devices': len(devices)})
 
+@app.route('/ping')
+def ping():
+    """Simple test endpoint"""
+    return 'pong', 200, {'Content-Type': 'text/plain'}
+
 @app.route('/install')
 def install_page():
     """Show easy install instructions"""
@@ -2831,9 +2836,11 @@ def download_setup():
                    headers={'Content-Disposition': 'attachment; filename=voice_hub_client.py'})
 
 @app.route('/install.sh')
+@app.route('/install/mac')
+@app.route('/install/linux')
 def download_install_sh():
-    """One-liner install script for Mac/Linux"""
-    server_url = request.host_url.rstrip('/')
+    """One-liner install script for Mac/Linux - no login required"""
+    server_url = request.host_url.rstrip('/').replace('http://', 'https://')
     script = f'''#!/bin/bash
 # Voice Hub Desktop Client - One-Click Installer
 # Run with: curl -sL {server_url}/install.sh | bash
@@ -2877,9 +2884,10 @@ python3 voice_hub_client.py
     return Response(script, mimetype='text/plain')
 
 @app.route('/install.ps1')
+@app.route('/install/windows')
 def download_install_ps1():
-    """One-liner install script for Windows"""
-    server_url = request.host_url.rstrip('/')
+    """One-liner install script for Windows - no login required"""
+    server_url = request.host_url.rstrip('/').replace('http://', 'https://')
     script = f'''# Voice Hub Desktop Client - Windows Installer
 # Run with: irm {server_url}/install.ps1 | iex
 
