@@ -240,6 +240,28 @@ INSTALL_PAGE = '''
             <p class="subtitle">Control any app on your computer with voice commands</p>
         </div>
         
+        <!-- Big Download Buttons -->
+        <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 40px;">
+            <a href="/download/mac" class="download-btn" style="padding: 20px 32px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--bg-primary); border-radius: 16px; text-decoration: none; font-weight: 600; font-size: 18px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+                <span style="font-size: 28px;">🍎</span>
+                <div style="text-align: left;">
+                    <div>Download for Mac</div>
+                    <div style="font-size: 12px; opacity: 0.8;">Double-click to install</div>
+                </div>
+            </a>
+            <a href="/download/windows" class="download-btn" style="padding: 20px 32px; background: linear-gradient(135deg, #0078d4, #00bcf2); color: white; border-radius: 16px; text-decoration: none; font-weight: 600; font-size: 18px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+                <span style="font-size: 28px;">🪟</span>
+                <div style="text-align: left;">
+                    <div>Download for Windows</div>
+                    <div style="font-size: 12px; opacity: 0.8;">Double-click to install</div>
+                </div>
+            </a>
+        </div>
+        
+        <p style="text-align: center; color: var(--text-muted); margin-bottom: 32px;">
+            Or use the terminal commands below for advanced setup
+        </p>
+        
         <div class="os-tabs">
             <button class="os-tab active" onclick="showOS('mac')" id="tab-mac">
                 <span class="icon">🍎</span> Mac
@@ -257,21 +279,17 @@ INSTALL_PAGE = '''
             <div class="step">
                 <div class="step-header">
                     <div class="step-number">1</div>
-                    <h3>Open Terminal</h3>
+                    <h3>Download & Open</h3>
                 </div>
-                <p>Press <strong>Cmd + Space</strong>, type "Terminal", and press Enter.</p>
+                <p>Click the <strong>"Download for Mac"</strong> button above. Find <strong>VoiceHub.command</strong> in your Downloads folder.</p>
             </div>
             
             <div class="step">
                 <div class="step-header">
                     <div class="step-number">2</div>
-                    <h3>Paste This Command</h3>
+                    <h3>First Time Only: Allow to Run</h3>
                 </div>
-                <p>Copy and paste this single command. It downloads, installs, and runs everything automatically:</p>
-                <div class="code-box">
-                    <code id="mac-command">curl -sL {{ server }}/install.sh | bash</code>
-                    <button class="copy-btn" onclick="copyCommand('mac-command', this)">📋 Copy</button>
-                </div>
+                <p>Right-click the file → <strong>Open</strong> → Click <strong>"Open"</strong> in the popup. (Mac blocks unsigned apps by default)</p>
             </div>
             
             <div class="step">
@@ -279,13 +297,21 @@ INSTALL_PAGE = '''
                     <div class="step-number">3</div>
                     <h3>Grant Permissions</h3>
                 </div>
-                <p>Mac will ask for Accessibility permissions. Go to <strong>System Preferences → Security & Privacy → Privacy → Accessibility</strong> and add Terminal.</p>
+                <p>Mac will ask for Accessibility permissions. Go to <strong>System Settings → Privacy & Security → Accessibility</strong> and enable Terminal.</p>
+            </div>
+            
+            <div style="background: var(--bg-primary); border-radius: 12px; padding: 16px; margin-top: 20px;">
+                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px;">Alternative: Terminal command</p>
+                <div class="code-box" style="margin: 0;">
+                    <code id="mac-command">curl -sL {{ server }}/install.sh | bash</code>
+                    <button class="copy-btn" onclick="copyCommand('mac-command', this)">📋 Copy</button>
+                </div>
             </div>
             
             <div class="features">
-                <div class="feature"><span class="icon">✅</span><span>Auto-installs Python packages</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Connects to your server</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Starts immediately</span></div>
+                <div class="feature"><span class="icon">✅</span><span>No Terminal knowledge needed</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Auto-installs everything</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Double-click to run anytime</span></div>
             </div>
         </div>
         
@@ -294,35 +320,39 @@ INSTALL_PAGE = '''
             <div class="step">
                 <div class="step-header">
                     <div class="step-number">1</div>
-                    <h3>Open PowerShell</h3>
+                    <h3>Download & Open</h3>
                 </div>
-                <p>Press <strong>Win + X</strong> and select "Windows PowerShell" or "Terminal".</p>
+                <p>Click the <strong>"Download for Windows"</strong> button above. Find <strong>VoiceHub.bat</strong> in your Downloads folder and double-click it.</p>
             </div>
             
             <div class="step">
                 <div class="step-header">
                     <div class="step-number">2</div>
-                    <h3>Paste This Command</h3>
+                    <h3>Allow to Run</h3>
                 </div>
-                <p>Copy and paste this single command:</p>
-                <div class="code-box">
-                    <code id="windows-command">irm {{ server }}/install.ps1 | iex</code>
-                    <button class="copy-btn" onclick="copyCommand('windows-command', this)">📋 Copy</button>
-                </div>
+                <p>If Windows shows a security warning, click <strong>"More info"</strong> → <strong>"Run anyway"</strong>.</p>
             </div>
             
             <div class="step">
                 <div class="step-header">
                     <div class="step-number">3</div>
-                    <h3>Allow Python (if prompted)</h3>
+                    <h3>Install Python (if needed)</h3>
                 </div>
-                <p>If you don't have Python, download it from <a href="https://python.org" target="_blank" style="color: var(--accent);">python.org</a> (check "Add to PATH" during install).</p>
+                <p>If prompted, download Python from <a href="https://python.org" target="_blank" style="color: var(--accent);">python.org</a>. <strong>Important:</strong> Check "Add Python to PATH" during install!</p>
+            </div>
+            
+            <div style="background: var(--bg-primary); border-radius: 12px; padding: 16px; margin-top: 20px;">
+                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px;">Alternative: PowerShell command</p>
+                <div class="code-box" style="margin: 0;">
+                    <code id="windows-command">irm {{ server }}/install.ps1 | iex</code>
+                    <button class="copy-btn" onclick="copyCommand('windows-command', this)">📋 Copy</button>
+                </div>
             </div>
             
             <div class="features">
-                <div class="feature"><span class="icon">✅</span><span>Auto-installs dependencies</span></div>
-                <div class="feature"><span class="icon">✅</span><span>No admin required</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Works with PowerShell 5+</span></div>
+                <div class="feature"><span class="icon">✅</span><span>No command line needed</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Auto-installs everything</span></div>
+                <div class="feature"><span class="icon">✅</span><span>Double-click to run anytime</span></div>
             </div>
         </div>
         
@@ -2820,6 +2850,169 @@ def health():
 def ping():
     """Simple test endpoint"""
     return 'pong', 200, {'Content-Type': 'text/plain'}
+
+@app.route('/download/mac')
+def download_mac_app():
+    """Download a double-clickable .command file for Mac"""
+    server_url = request.host_url.rstrip('/').replace('http://', 'https://')
+    
+    script = f'''#!/bin/bash
+# Voice Hub Desktop Client
+# Just double-click this file to install and run!
+
+clear
+echo ""
+echo "🎛️  Voice Hub Desktop Client Installer"
+echo "========================================"
+echo ""
+
+# Check for Python
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 is required."
+    echo ""
+    echo "📥 Opening Python download page..."
+    open "https://www.python.org/downloads/"
+    echo ""
+    echo "After installing Python, double-click this file again."
+    echo ""
+    read -p "Press Enter to close..."
+    exit 1
+fi
+
+echo "✅ Python found: $(python3 --version)"
+echo ""
+
+# Create directory
+mkdir -p ~/.voicehub
+cd ~/.voicehub
+
+# Download the client
+echo "📥 Downloading Voice Hub client..."
+curl -sL {server_url}/setup.py -o voice_hub_client.py
+
+if [ ! -f voice_hub_client.py ]; then
+    echo "❌ Download failed. Check your internet connection."
+    read -p "Press Enter to close..."
+    exit 1
+fi
+
+# Install dependencies
+echo "📦 Installing dependencies (this may take a minute)..."
+pip3 install --quiet --user pyautogui pyperclip websocket-client requests 2>/dev/null
+
+echo ""
+echo "✅ Installation complete!"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🚀 Starting Voice Hub client..."
+echo "   Keep this window open while using voice commands."
+echo "   Press Ctrl+C to stop."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+python3 voice_hub_client.py
+
+echo ""
+read -p "Press Enter to close..."
+'''
+    
+    response = Response(script, mimetype='application/octet-stream')
+    response.headers['Content-Disposition'] = 'attachment; filename=VoiceHub.command'
+    return response
+
+@app.route('/download/windows')
+def download_windows_app():
+    """Download a double-clickable .bat file for Windows"""
+    server_url = request.host_url.rstrip('/').replace('http://', 'https://')
+    
+    script = f'''@echo off
+title Voice Hub Desktop Client
+color 0A
+
+echo.
+echo  🎛️  Voice Hub Desktop Client Installer
+echo  ========================================
+echo.
+
+:: Check for Python
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo  ❌ Python 3 is required.
+    echo.
+    echo  📥 Opening Python download page...
+    start https://www.python.org/downloads/
+    echo.
+    echo  After installing Python, double-click this file again.
+    echo  IMPORTANT: Check "Add Python to PATH" during installation!
+    echo.
+    pause
+    exit /b 1
+)
+
+echo  ✅ Python found
+echo.
+
+:: Create directory
+if not exist "%USERPROFILE%\\.voicehub" mkdir "%USERPROFILE%\\.voicehub"
+cd /d "%USERPROFILE%\\.voicehub"
+
+:: Download the client
+echo  📥 Downloading Voice Hub client...
+powershell -Command "Invoke-WebRequest -Uri '{server_url}/setup.py' -OutFile 'voice_hub_client.py'"
+
+if not exist voice_hub_client.py (
+    echo  ❌ Download failed. Check your internet connection.
+    pause
+    exit /b 1
+)
+
+:: Install dependencies
+echo  📦 Installing dependencies (this may take a minute)...
+pip install --quiet pyautogui pyperclip websocket-client requests 2>nul
+
+echo.
+echo  ✅ Installation complete!
+echo.
+echo  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo  🚀 Starting Voice Hub client...
+echo     Keep this window open while using voice commands.
+echo     Press Ctrl+C to stop.
+echo  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo.
+
+python voice_hub_client.py
+
+echo.
+pause
+'''
+    
+    response = Response(script, mimetype='application/octet-stream')
+    response.headers['Content-Disposition'] = 'attachment; filename=VoiceHub.bat'
+    return response
+
+@app.route('/download/linux')
+def download_linux_app():
+    """Download a .desktop file for Linux"""
+    server_url = request.host_url.rstrip('/').replace('http://', 'https://')
+    
+    # First create the shell script content
+    shell_script = f'''#!/bin/bash
+# Voice Hub Desktop Client for Linux
+
+cd ~/.voicehub 2>/dev/null || mkdir -p ~/.voicehub && cd ~/.voicehub
+
+if [ ! -f voice_hub_client.py ]; then
+    echo "📥 Downloading Voice Hub client..."
+    curl -sL {server_url}/setup.py -o voice_hub_client.py
+    pip3 install --user pyautogui pyperclip websocket-client requests
+fi
+
+python3 voice_hub_client.py
+'''
+    
+    response = Response(shell_script, mimetype='application/octet-stream')
+    response.headers['Content-Disposition'] = 'attachment; filename=voicehub.sh'
+    return response
 
 @app.route('/install')
 def install_page():
