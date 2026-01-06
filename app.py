@@ -958,6 +958,13 @@ DASHBOARD_PAGE = '''
                     </div>
                     <div class="toggle active" id="toggle-autotype" onclick="toggleAutoType()"></div>
                 </div>
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Spell Check</h4>
+                        <p>Auto-correct common misspellings and grammar</p>
+                    </div>
+                    <div class="toggle active" id="toggle-spellcheck" onclick="toggleSpellCheck()"></div>
+                </div>
             </div>
             
             <!-- Command Routing Panel -->
@@ -1093,6 +1100,7 @@ DASHBOARD_PAGE = '''
         let alwaysListen = false;
         let continuousMode = false;
         let autoType = true;
+        let spellCheckEnabled = true;
         let sensitivity = 3; // 1-5, higher = more strict matching
         let isActiveDictation = false; // true when wake word triggered dictation
         
@@ -1447,16 +1455,32 @@ DASHBOARD_PAGE = '''
                     }
                 }
                 
-                // Show live transcript
                 const transcriptEl = document.getElementById('transcript');
-                if (interimTranscript) {
-                    transcriptEl.textContent = interimTranscript;
+                const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
+                
+                // In always-listen mode, only show transcript when wake word detected or in active dictation
+                if (alwaysListen && !isActiveDictation && !continuousMode) {
+                    // Check interim transcript for wake word
+                    if (interimTranscript) {
+                        const interimDetection = detectWakeWord(interimTranscript, wakeWord);
+                        if (interimDetection.detected) {
+                            // Show that we're detecting the wake word
+                            transcriptEl.textContent = '🎯 Wake word detected...';
+                            transcriptEl.classList.add('active');
+                        } else {
+                            // Don't update transcript, just show waiting message
+                            transcriptEl.textContent = `👂 Listening for "${wakeWord}"...`;
+                            transcriptEl.classList.remove('active');
+                        }
+                    }
+                } else if (interimTranscript) {
+                    // In active dictation or continuous mode, show live transcript with spell check preview
+                    const previewText = spellCheck(interimTranscript);
+                    transcriptEl.textContent = previewText;
                     transcriptEl.classList.add('active');
                 }
                 
                 if (finalTranscript) {
-                    const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
-                    
                     // Check for wake word with fuzzy matching
                     const detection = detectWakeWord(finalTranscript, wakeWord);
                     
@@ -1480,17 +1504,23 @@ DASHBOARD_PAGE = '''
                             // Just activated, waiting for command
                             isActiveDictation = true;
                             document.getElementById('voice-status').textContent = '🎯 Activated! Speak now...';
-                            transcriptEl.textContent = 'Listening for your command...';
+                            transcriptEl.textContent = '🎤 Listening for your command...';
+                            transcriptEl.classList.add('active');
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
                         // In active dictation mode, type everything
                         handleTranscript(finalTranscript);
                         isActiveDictation = false;
-                    } else {
-                        // In always-listen mode, just show what was heard
-                        transcriptEl.textContent = `Heard: "${finalTranscript}" (waiting for wake word)`;
-                        transcriptEl.classList.remove('active');
+                        
+                        // Reset transcript display after typing
+                        if (alwaysListen && !continuousMode) {
+                            setTimeout(() => {
+                                transcriptEl.textContent = `👂 Listening for "${wakeWord}"...`;
+                                transcriptEl.classList.remove('active');
+                            }, 2000);
+                        }
                     }
+                    // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
                 }
             };
             
@@ -1586,7 +1616,63 @@ DASHBOARD_PAGE = '''
             renderAvailableDevices();
         }
         
+        // Common misspellings and corrections
+        const spellCheckDict = {
+            'teh': 'the', 'thier': 'their', 'recieve': 'receive', 'wierd': 'weird',
+            'occured': 'occurred', 'untill': 'until', 'seperate': 'separate',
+            'definately': 'definitely', 'occassion': 'occasion', 'accomodate': 'accommodate',
+            'occurence': 'occurrence', 'persistant': 'persistent', 'refered': 'referred',
+            'apparant': 'apparent', 'calender': 'calendar', 'collegue': 'colleague',
+            'concious': 'conscious', 'enviroment': 'environment', 'existance': 'existence',
+            'fourty': 'forty', 'goverment': 'government', 'harrass': 'harass',
+            'immediatly': 'immediately', 'independant': 'independent', 'knowlege': 'knowledge',
+            'liason': 'liaison', 'millenium': 'millennium', 'neccessary': 'necessary',
+            'noticable': 'noticeable', 'parliment': 'parliament', 'posession': 'possession',
+            'prefered': 'preferred', 'publically': 'publicly', 'recomend': 'recommend',
+            'reffering': 'referring', 'relevent': 'relevant', 'religous': 'religious',
+            'repitition': 'repetition', 'resistence': 'resistance', 'responsability': 'responsibility',
+            'succesful': 'successful', 'supercede': 'supersede', 'suprise': 'surprise',
+            'tommorow': 'tomorrow', 'tounge': 'tongue', 'truely': 'truly',
+            'unforseen': 'unforeseen', 'unfortunatly': 'unfortunately', 'wich': 'which',
+            'writting': 'writing', 'your welcome': "you're welcome", 'alot': 'a lot',
+            'shouldnt': "shouldn't", 'couldnt': "couldn't", 'wouldnt': "wouldn't",
+            'dont': "don't", 'wont': "won't", 'cant': "can't", 'didnt': "didn't",
+            'isnt': "isn't", 'wasnt': "wasn't", 'havent': "haven't", 'hasnt': "hasn't",
+            'im': "I'm", 'ive': "I've", 'youre': "you're", 'theyre': "they're",
+            'weve': "we've", 'its a': "it's a", 'lets': "let's",
+            // Common speech recognition errors
+            'gonna': 'going to', 'wanna': 'want to', 'gotta': 'got to',
+            'kinda': 'kind of', 'sorta': 'sort of', 'dunno': "don't know",
+            'lemme': 'let me', 'gimme': 'give me', 'coulda': 'could have',
+            'shoulda': 'should have', 'woulda': 'would have', 'musta': 'must have',
+        };
+        
+        function spellCheck(text) {
+            if (!spellCheckEnabled) return text;
+            
+            let corrected = text;
+            let corrections = [];
+            
+            for (const [wrong, right] of Object.entries(spellCheckDict)) {
+                const regex = new RegExp('\\b' + wrong + '\\b', 'gi');
+                if (regex.test(corrected)) {
+                    corrections.push({ from: wrong, to: right });
+                    corrected = corrected.replace(regex, right);
+                }
+            }
+            
+            if (corrections.length > 0) {
+                console.log('Spell corrections:', corrections);
+                addActivity(`📝 Auto-corrected: ${corrections.map(c => c.from + ' → ' + c.to).join(', ')}`, 'info');
+            }
+            
+            return corrected;
+        }
+        
         function formatTranscript(text) {
+            // Apply spell check first
+            text = spellCheck(text);
+            
             // Punctuation replacements
             const replacements = {
                 'period': '.', 'comma': ',', 'question mark': '?',
@@ -1846,6 +1932,14 @@ DASHBOARD_PAGE = '''
             addActivity(`Wake word sensitivity set to: ${sensitivityLabels[sensitivity]}`, 'info');
         }
         
+        function toggleSpellCheck() {
+            spellCheckEnabled = !spellCheckEnabled;
+            document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
+            currentDevice.spellCheck = spellCheckEnabled;
+            saveDevices();
+            addActivity(spellCheckEnabled ? '✓ Spell check enabled' : 'Spell check disabled', 'info');
+        }
+        
         function saveDevices() {
             localStorage.setItem('voicehub_devices', JSON.stringify(devices));
         }
@@ -1956,11 +2050,13 @@ DASHBOARD_PAGE = '''
         alwaysListen = currentDevice?.alwaysListen || false;
         continuousMode = currentDevice?.continuous || false;
         autoType = currentDevice?.autoType ?? true;
+        spellCheckEnabled = currentDevice?.spellCheck ?? true;
         sensitivity = currentDevice?.sensitivity || 3;
         
         document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
         document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
         document.getElementById('toggle-autotype').classList.toggle('active', autoType);
+        document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
         document.getElementById('sensitivity-slider').value = sensitivity;
         document.getElementById('sensitivity-label').textContent = sensitivityLabels[sensitivity];
         
