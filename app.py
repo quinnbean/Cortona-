@@ -30,7 +30,7 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.remember_cookie_duration = timedelta(days=30)
 
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'voicehub123')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '1281Cherry!')
 USERS = {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD), 'name': 'Admin'}}
 
 # Store devices and their settings
@@ -2856,21 +2856,23 @@ def download_mac_app():
     """Download a double-clickable .command file for Mac"""
     server_url = request.host_url.rstrip('/').replace('http://', 'https://')
     
-    script = f'''#!/bin/bash
+    script = '''#!/bin/bash
 # Voice Hub Desktop Client
 # Just double-click this file to install and run!
 
+SERVER_URL="''' + server_url + '''"
+
 clear
 echo ""
-echo "🎛️  Voice Hub Desktop Client Installer"
+echo "Voice Hub Desktop Client Installer"
 echo "========================================"
 echo ""
 
 # Check for Python
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is required."
+    echo "Python 3 is required."
     echo ""
-    echo "📥 Opening Python download page..."
+    echo "Opening Python download page..."
     open "https://www.python.org/downloads/"
     echo ""
     echo "After installing Python, double-click this file again."
@@ -2879,7 +2881,7 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-echo "✅ Python found: $(python3 --version)"
+echo "Python found: $(python3 --version)"
 echo ""
 
 # Create directory
@@ -2887,27 +2889,25 @@ mkdir -p ~/.voicehub
 cd ~/.voicehub
 
 # Download the client
-echo "📥 Downloading Voice Hub client..."
-curl -sL {server_url}/setup.py -o voice_hub_client.py
+echo "Downloading Voice Hub client..."
+curl -sL "$SERVER_URL/setup.py" -o voice_hub_client.py
 
 if [ ! -f voice_hub_client.py ]; then
-    echo "❌ Download failed. Check your internet connection."
+    echo "Download failed. Check your internet connection."
     read -p "Press Enter to close..."
     exit 1
 fi
 
 # Install dependencies
-echo "📦 Installing dependencies (this may take a minute)..."
+echo "Installing dependencies (this may take a minute)..."
 pip3 install --quiet --user pyautogui pyperclip websocket-client requests 2>/dev/null
 
 echo ""
-echo "✅ Installation complete!"
+echo "Installation complete!"
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🚀 Starting Voice Hub client..."
-echo "   Keep this window open while using voice commands."
-echo "   Press Ctrl+C to stop."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Starting Voice Hub client..."
+echo "Keep this window open while using voice commands."
+echo "Press Ctrl+C to stop."
 echo ""
 
 python3 voice_hub_client.py
@@ -2925,21 +2925,23 @@ def download_windows_app():
     """Download a double-clickable .bat file for Windows"""
     server_url = request.host_url.rstrip('/').replace('http://', 'https://')
     
-    script = f'''@echo off
+    script = '''@echo off
 title Voice Hub Desktop Client
 color 0A
 
+set SERVER_URL=''' + server_url + '''
+
 echo.
-echo  🎛️  Voice Hub Desktop Client Installer
+echo  Voice Hub Desktop Client Installer
 echo  ========================================
 echo.
 
 :: Check for Python
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo  ❌ Python 3 is required.
+    echo  Python 3 is required.
     echo.
-    echo  📥 Opening Python download page...
+    echo  Opening Python download page...
     start https://www.python.org/downloads/
     echo.
     echo  After installing Python, double-click this file again.
@@ -2949,7 +2951,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo  ✅ Python found
+echo  Python found
 echo.
 
 :: Create directory
@@ -2957,27 +2959,25 @@ if not exist "%USERPROFILE%\\.voicehub" mkdir "%USERPROFILE%\\.voicehub"
 cd /d "%USERPROFILE%\\.voicehub"
 
 :: Download the client
-echo  📥 Downloading Voice Hub client...
-powershell -Command "Invoke-WebRequest -Uri '{server_url}/setup.py' -OutFile 'voice_hub_client.py'"
+echo  Downloading Voice Hub client...
+powershell -Command "Invoke-WebRequest -Uri '%SERVER_URL%/setup.py' -OutFile 'voice_hub_client.py'"
 
 if not exist voice_hub_client.py (
-    echo  ❌ Download failed. Check your internet connection.
+    echo  Download failed. Check your internet connection.
     pause
     exit /b 1
 )
 
 :: Install dependencies
-echo  📦 Installing dependencies (this may take a minute)...
+echo  Installing dependencies (this may take a minute)...
 pip install --quiet pyautogui pyperclip websocket-client requests 2>nul
 
 echo.
-echo  ✅ Installation complete!
+echo  Installation complete!
 echo.
-echo  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-echo  🚀 Starting Voice Hub client...
-echo     Keep this window open while using voice commands.
-echo     Press Ctrl+C to stop.
-echo  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo  Starting Voice Hub client...
+echo  Keep this window open while using voice commands.
+echo  Press Ctrl+C to stop.
 echo.
 
 python voice_hub_client.py
@@ -2992,18 +2992,19 @@ pause
 
 @app.route('/download/linux')
 def download_linux_app():
-    """Download a .desktop file for Linux"""
+    """Download a shell script for Linux"""
     server_url = request.host_url.rstrip('/').replace('http://', 'https://')
     
-    # First create the shell script content
-    shell_script = f'''#!/bin/bash
+    shell_script = '''#!/bin/bash
 # Voice Hub Desktop Client for Linux
+
+SERVER_URL="''' + server_url + '''"
 
 cd ~/.voicehub 2>/dev/null || mkdir -p ~/.voicehub && cd ~/.voicehub
 
 if [ ! -f voice_hub_client.py ]; then
-    echo "📥 Downloading Voice Hub client..."
-    curl -sL {server_url}/setup.py -o voice_hub_client.py
+    echo "Downloading Voice Hub client..."
+    curl -sL "$SERVER_URL/setup.py" -o voice_hub_client.py
     pip3 install --user pyautogui pyperclip websocket-client requests
 fi
 
