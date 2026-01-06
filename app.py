@@ -751,6 +751,24 @@ class VoiceHubClient:
         @self.sio.on('command_received')
         def on_command_received(data):
             self._execute_command(data)
+        
+        @self.sio.on('update_available')
+        def on_update_available(data):
+            """Server notified us of a new version - update now!"""
+            new_version = data.get('version', 'unknown')
+            print(f"\n{'='*60}")
+            print(f"New version available: v{new_version} (current: v{VERSION})")
+            print(f"{'='*60}")
+            if compare_versions(new_version, VERSION) > 0:
+                download_url = data.get('download_url')
+                # If relative URL, prepend server URL
+                if download_url and not download_url.startswith('http'):
+                    download_url = SERVER_URL + download_url
+                if download_url:
+                    print(f"Downloading update from {download_url}...")
+                    update_client(download_url)
+            else:
+                print("Already up to date!")
     
     def _execute_command(self, data):
         """Execute a received command"""
@@ -3290,6 +3308,18 @@ def on_disconnect():
 # START SERVER
 # ============================================================================
 
+def notify_clients_of_update():
+    """Notify all connected desktop clients of the new version after server restart"""
+    import time
+    time.sleep(10)  # Wait for clients to reconnect after server restart
+    print(f"Broadcasting update notification (v{CLIENT_VERSION}) to all clients...")
+    # Use the Render URL or localhost for download
+    base_url = os.environ.get('RENDER_EXTERNAL_URL', 'http://localhost:5000')
+    socketio.emit('update_available', {
+        'version': CLIENT_VERSION,
+        'download_url': f"{base_url}/setup.py"
+    }, room='dashboard')
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"""
@@ -3298,11 +3328,19 @@ if __name__ == '__main__':
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║  URL: http://localhost:{port:<52} ║
 ║  Login: admin / {ADMIN_PASSWORD:<51} ║
+║  Client Version: {CLIENT_VERSION:<50} ║
 ║                                                                               ║
 ║  ✨ NEW: Browser-based voice recognition - no terminal needed!               ║
 ║  • Click the mic button or say your wake word                                 ║
 ║  • Add multiple devices with custom wake words                                ║
 ║  • Edit device settings directly in the web app                               ║
+║  • Desktop clients auto-update when you push changes!                         ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
     """)
+    
+    # Start background thread to notify clients after startup
+    import threading
+    update_thread = threading.Thread(target=notify_clients_of_update, daemon=True)
+    update_thread.start()
+    
     socketio.run(app, host='0.0.0.0', port=port)
