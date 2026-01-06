@@ -437,17 +437,16 @@ Auto-configured for: {{SERVER_URL}}
 import os
 import sys
 import time
-import json
-import threading
 import subprocess
 import platform
 
 # Install dependencies if missing
 def ensure_deps():
-    deps = ['pyautogui', 'pyperclip', 'websocket-client', 'requests']
+    deps = ['pyautogui', 'pyperclip', 'python-socketio[client]', 'requests']
     for dep in deps:
+        pkg_name = dep.split('[')[0].replace('-', '_')
         try:
-            __import__(dep.replace('-', '_'))
+            __import__(pkg_name)
         except ImportError:
             print(f"Installing {dep}...")
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', dep])
@@ -456,15 +455,16 @@ ensure_deps()
 
 import pyautogui
 import pyperclip
-import websocket
-import requests
+import socketio
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 SERVER_URL = "{{SERVER_URL}}"
-WS_URL = SERVER_URL.replace('https://', 'wss://').replace('http://', 'ws://') + '/socket.io/?EIO=4&transport=websocket'
+# Ensure HTTPS for Render
+if SERVER_URL.startswith('http://') and 'onrender.com' in SERVER_URL:
+    SERVER_URL = SERVER_URL.replace('http://', 'https://')
 PLATFORM = platform.system()
 
 # ============================================================================
@@ -604,15 +604,15 @@ def run_command(command, app=None):
     press_enter()
 
 # ============================================================================
-# WEBSOCKET CLIENT
+# SOCKET.IO CLIENT
 # ============================================================================
 
 class VoiceHubClient:
     def __init__(self):
-        self.ws = None
+        self.sio = socketio.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=5)
         self.device_id = self._get_device_id()
         self.device_name = platform.node() or 'Desktop Client'
-        self.running = False
+        self._setup_handlers()
         
     def _get_device_id(self):
         """Get or create a persistent device ID"""
@@ -629,57 +629,42 @@ class VoiceHubClient:
                 f.write(device_id)
             return device_id
     
-    def on_message(self, ws, message):
-        """Handle incoming WebSocket messages"""
-        try:
-            # Socket.IO protocol parsing
-            if message.startswith('0'):
-                # Connection established
-                print("🔗 Connected to Voice Hub")
-                self._send_join()
-            elif message.startswith('42'):
-                # Event message
-                data = json.loads(message[2:])
-                event_name = data[0]
-                event_data = data[1] if len(data) > 1 else {}
-                self._handle_event(event_name, event_data)
-            elif message == '2':
-                # Ping - respond with pong
-                ws.send('3')
-            elif message == '3':
-                # Pong received
-                pass
-        except Exception as e:
-            print(f"⚠️ Message error: {e}")
-    
-    def _send_join(self):
-        """Join the dashboard room"""
-        self._emit('dashboard_join', {'deviceId': self.device_id})
-        self._emit('device_update', {
-            'deviceId': self.device_id,
-            'settings': {
-                'id': self.device_id,
-                'name': self.device_name,
-                'icon': '🖥️',
-                'wakeWord': self.device_name.lower(),
-                'type': 'desktop_client',
-                'platform': PLATFORM
-            }
-        })
-        print(f"📱 Registered as: {self.device_name} ({self.device_id})")
-    
-    def _emit(self, event, data):
-        """Emit a Socket.IO event"""
-        if self.ws:
-            message = f'42{json.dumps([event, data])}'
-            self.ws.send(message)
-    
-    def _handle_event(self, event_name, data):
-        """Handle incoming events"""
-        if event_name == 'command_received':
+    def _setup_handlers(self):
+        """Set up Socket.IO event handlers"""
+        
+        @self.sio.event
+        def connect():
+            print("Connected to Voice Hub!")
+            self.sio.emit('dashboard_join', {'deviceId': self.device_id})
+            self.sio.emit('device_update', {
+                'deviceId': self.device_id,
+                'settings': {
+                    'id': self.device_id,
+                    'name': self.device_name,
+                    'icon': 'desktop',
+                    'wakeWord': self.device_name.lower().split('.')[0],
+                    'type': 'desktop_client',
+                    'platform': PLATFORM
+                }
+            })
+            print(f"Registered as: {self.device_name} ({self.device_id})")
+        
+        @self.sio.event
+        def disconnect():
+            print("Disconnected from Voice Hub")
+        
+        @self.sio.event
+        def connect_error(data):
+            print(f"Connection error: {data}")
+        
+        @self.sio.on('devices_update')
+        def on_devices_update(data):
+            count = len(data.get('devices', {}))
+            print(f"Devices online: {count}")
+        
+        @self.sio.on('command_received')
+        def on_command_received(data):
             self._execute_command(data)
-        elif event_name == 'devices_update':
-            print(f"📱 {len(data.get('devices', {}))} devices online")
     
     def _execute_command(self, data):
         """Execute a received command"""
@@ -688,10 +673,10 @@ class VoiceHubClient:
         target_app = data.get('targetApp')
         from_device = data.get('fromDeviceId', 'unknown')
         
-        print(f"\n📥 Command from {from_device}:")
-        print(f"   Action: {action}")
-        print(f"   Target: {target_app or 'current app'}")
-        print(f"   Text: {command[:50]}...")
+        print(f"\nCommand from {from_device}:")
+        print(f"  Action: {action}")
+        print(f"  Target: {target_app or 'current app'}")
+        print(f"  Text: {command[:50]}{'...' if len(command) > 50 else ''}")
         
         # Focus target app if specified
         if target_app:
@@ -699,12 +684,10 @@ class VoiceHubClient:
             time.sleep(0.5)
         
         # Execute the action
-        if action == 'type':
+        if action == 'type' or action == 'paste':
             type_text(command)
         elif action == 'run':
             run_command(command, target_app or 'terminal')
-        elif action == 'paste':
-            type_text(command)
         elif action == 'search':
             focus_app('chrome')
             time.sleep(0.5)
@@ -713,58 +696,36 @@ class VoiceHubClient:
             type_text(command)
             press_enter()
         
-        print("✅ Command executed\n")
-    
-    def on_error(self, ws, error):
-        print(f"⚠️ WebSocket error: {error}")
-    
-    def on_close(self, ws, close_status_code, close_msg):
-        print("📴 Disconnected from Voice Hub")
-        if self.running:
-            print("🔄 Reconnecting in 5 seconds...")
-            time.sleep(5)
-            self.connect()
-    
-    def on_open(self, ws):
-        print("🌐 WebSocket connected")
-    
-    def connect(self):
-        """Connect to the Voice Hub server"""
-        print(f"🔌 Connecting to {SERVER_URL}...")
-        
-        self.ws = websocket.WebSocketApp(
-            WS_URL,
-            on_open=self.on_open,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close
-        )
-        
-        self.running = True
-        self.ws.run_forever()
+        print("Command executed!\n")
     
     def run(self):
         """Run the client"""
         print(f"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                    🎛️  Voice Hub Desktop Client                              ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  Server: {SERVER_URL:<56} ║
-║  Device: {self.device_name:<56} ║
-║  Platform: {PLATFORM:<54} ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  This client receives voice commands from your Voice Hub dashboard           ║
-║  and executes them on this computer (switch apps, type text, etc.)           ║
-║                                                                               ║
-║  Press Ctrl+C to stop                                                         ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+==============================================================================
+                    Voice Hub Desktop Client                              
+==============================================================================
+  Server: {SERVER_URL}
+  Device: {self.device_name}
+  Platform: {PLATFORM}
+------------------------------------------------------------------------------
+  This client receives voice commands from your Voice Hub dashboard
+  and executes them on this computer (switch apps, type text, etc.)
+
+  Press Ctrl+C to stop
+==============================================================================
         """)
         
         try:
-            self.connect()
+            print(f"Connecting to {SERVER_URL}...")
+            self.sio.connect(SERVER_URL, transports=['websocket', 'polling'])
+            self.sio.wait()
         except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
-            self.running = False
+            print("\nGoodbye!")
+        except Exception as e:
+            print(f"Connection error: {e}")
+        finally:
+            if self.sio.connected:
+                self.sio.disconnect()
 
 if __name__ == '__main__':
     client = VoiceHubClient()
