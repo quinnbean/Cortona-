@@ -57,11 +57,19 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true
+      webSecurity: true,
+      // Required for Chrome Speech Recognition to work
+      allowRunningInsecureContent: false,
+      webviewTag: false
     },
     show: false,
     icon: path.join(__dirname, 'assets', 'icon.png')
   });
+  
+  // Set user agent to standard Chrome (helps with Speech API compatibility)
+  mainWindow.webContents.setUserAgent(
+    mainWindow.webContents.getUserAgent().replace(/Electron\/\S+\s/, '')
+  );
 
   // Load the app
   const appUrl = IS_DEV ? DEV_URL : RENDER_URL;
@@ -414,21 +422,19 @@ app.whenReady().then(async () => {
 
   // Set up permission handler for microphone access
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'microphone', 'audio', 'audioCapture'];
-    if (allowedPermissions.includes(permission)) {
-      console.log(`✅ Granting permission: ${permission}`);
-      callback(true);
-    } else {
-      console.log(`⚠️ Permission requested: ${permission}`);
-      callback(true); // Allow all for now, can restrict later
-    }
+    const allowedPermissions = ['media', 'microphone', 'audio', 'audioCapture', 'clipboard-read', 'clipboard-write'];
+    console.log(`[PERMISSION] Requested: ${permission}`);
+    callback(true); // Allow all permissions
   });
 
   // Also handle permission checks (for some Electron versions)
-  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
-    const allowedPermissions = ['media', 'microphone', 'audio', 'audioCapture'];
-    return allowedPermissions.includes(permission) || true;
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    console.log(`[PERMISSION CHECK] ${permission} from ${requestingOrigin}`);
+    return true; // Allow all permission checks
   });
+  
+  // Clear any cached data that might interfere with Speech API
+  session.defaultSession.clearCache();
 
   // Create tray first (so it appears in menubar)
   createTray();
