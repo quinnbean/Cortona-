@@ -3530,11 +3530,18 @@ def manage_device(device_id):
 @socketio.on('dashboard_join')
 def on_dashboard_join(data):
     device_id = data.get('deviceId')
+    print(f"\n🔌 dashboard_join from: {device_id}")
+    print(f"   Socket ID: {request.sid}")
+    
     join_room('dashboard')
     join_room(device_id)  # Join own room to receive routed commands
+    print(f"   Joined rooms: 'dashboard' and '{device_id}'")
     
-    # Track this device's socket session
-    if device_id and device_id in devices:
+    # Track this device's socket session (even if not in devices dict yet)
+    if device_id:
+        if device_id not in devices:
+            devices[device_id] = {'id': device_id}
+            print(f"   Created placeholder device entry")
         devices[device_id]['sid'] = request.sid
         devices[device_id]['online'] = True
         # Notify others this device is online
@@ -3617,6 +3624,12 @@ def on_route_command(data):
     print(f"{'='*60}")
     
     # Send the command to the target device
+    print(f"   Emitting command_received to room: '{to_device_id}'")
+    
+    # Check if target device exists and has a socket session
+    target_device = devices.get(to_device_id, {})
+    print(f"   Target device info: {target_device.get('name', 'unknown')}, sid: {target_device.get('sid', 'NONE')}")
+    
     socketio.emit('command_received', {
         'fromDeviceId': from_device_id,
         'command': command,
@@ -3624,6 +3637,8 @@ def on_route_command(data):
         'targetApp': target_app,
         'timestamp': data.get('timestamp')
     }, room=to_device_id)
+    
+    print(f"   ✅ command_received emitted!")
     
     # Also notify the dashboard
     socketio.emit('command_routed', data, room='dashboard')
