@@ -3046,15 +3046,24 @@ DASHBOARD_PAGE = '''
                     const isStopCommand = checkForStopCommand(lowerTranscript);
                     
                     if (isStopCommand) {
-                        // Stop recording
-                        addActivity('🛑 Stop command detected', 'info');
+                        // Stop the current dictation session, but keep always-listen mode if enabled
+                        addActivity('🛑 Stop command - ending dictation', 'info');
                         addToTranscriptHistory(lowerTranscript, 'stop');
-                        stopListening();
-                        alwaysListen = false;
-                        document.getElementById('toggle-always-listen').classList.remove('active');
-                        currentDevice.alwaysListen = false;
-                        saveDevices();
-                        transcriptEl.textContent = 'Stopped.';
+                        
+                        // End active dictation
+                        isActiveDictation = false;
+                        
+                        if (alwaysListen) {
+                            // Stay in always-listen mode, just go back to waiting for wake word
+                            transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                            transcriptEl.classList.remove('active');
+                            document.getElementById('voice-status').textContent = 'Standby';
+                            // Recognition keeps running to listen for wake word
+                        } else {
+                            // Not in always-listen mode, fully stop
+                            stopListening();
+                            transcriptEl.textContent = 'Stopped.';
+                        }
                         updateUI();
                         return;
                     }
@@ -3101,25 +3110,50 @@ DASHBOARD_PAGE = '''
                         // If there's text after the wake word, type it
                         if (afterWakeWord) {
                             handleTranscript(afterWakeWord);
+                            // After processing command with wake word, go back to standby
+                            isActiveDictation = false;
+                            if (alwaysListen && !continuousMode) {
+                                setTimeout(() => {
+                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                    transcriptEl.classList.remove('active');
+                                    document.getElementById('voice-status').textContent = 'Standby';
+                                }, 1500);
+                            }
                         } else {
                             // Just activated, waiting for command
                             isActiveDictation = true;
-                            document.getElementById('voice-status').textContent = 'Activated';
-                            transcriptEl.textContent = 'Speak now...';
+                            document.getElementById('voice-status').textContent = 'Listening...';
+                            transcriptEl.textContent = 'Speak your command...';
                             transcriptEl.classList.add('active');
+                            document.getElementById('voice-hint').innerHTML = 'Say "stop" when done';
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
                         // In active dictation mode, type everything
                         addToTranscriptHistory(finalTranscript, 'command');
                         handleTranscript(finalTranscript);
+                        
+                        // End the active dictation session
                         isActiveDictation = false;
                         
-                        // Reset transcript display after typing
+                        // Reset to standby mode after processing command
                         if (alwaysListen && !continuousMode) {
+                            // Go back to waiting for wake word
                             setTimeout(() => {
                                 transcriptEl.textContent = `Ready for "${wakeWord}"`;
                                 transcriptEl.classList.remove('active');
+                                document.getElementById('voice-status').textContent = 'Standby';
+                                document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
                             }, 1500);
+                            addActivity('💬 Command processed - waiting for wake word', 'info');
+                        } else if (!alwaysListen && !continuousMode) {
+                            // Manual mode without continuous - stop after command
+                            setTimeout(() => {
+                                if (!isActiveDictation && !continuousMode) {
+                                    stopListening();
+                                    transcriptEl.textContent = 'Click mic to start again';
+                                    addActivity('🎤 Dictation ended', 'info');
+                                }
+                            }, 2000);
                         }
                     }
                     // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
@@ -3537,13 +3571,20 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
+                    // In always-listen mode, waiting for wake word
                     micButton.innerHTML = 'ON';
                     voiceStatus.textContent = 'Standby';
-                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
+                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
+                } else if (isActiveDictation) {
+                    // Active dictation after wake word
+                    micButton.innerHTML = 'REC';
+                    voiceStatus.textContent = 'Listening...';
+                    voiceHint.innerHTML = 'Speak your command. Say "<strong>stop</strong>" when done.';
                 } else {
+                    // Manual recording mode
                     micButton.innerHTML = 'REC';
                     voiceStatus.textContent = 'Recording';
-                    voiceHint.innerHTML = 'Speak now. Click to stop.';
+                    voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
                 }
             } else {
                 micButton.classList.remove('listening');
