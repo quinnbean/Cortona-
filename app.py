@@ -2321,6 +2321,12 @@ DASHBOARD_PAGE = '''
         let sensitivity = 3; // 1-5, higher = more strict matching
         let isActiveDictation = false; // true when wake word triggered dictation
         
+        // Whisper mode (for Electron when Web Speech API doesn't work)
+        let useWhisper = false;
+        let whisperRecorder = null;
+        let whisperMediaStream = null;
+        const WHISPER_URL = 'http://localhost:5051';
+        
         // Transcript history
         let transcriptHistory = [];
         const sessionStartTime = new Date();
@@ -3361,6 +3367,14 @@ DASHBOARD_PAGE = '''
                     isRestarting = false;
                     updateUI();
                 } else if (event.error === 'network') {
+                    // In Electron, switch to local Whisper
+                    if (isElectron && !useWhisper) {
+                        console.log('[MIC] Network error in Electron - switching to local Whisper');
+                        addActivity('🔄 Switching to local Whisper for speech recognition...', 'info');
+                        useWhisper = true;
+                        startWhisperRecording();
+                        return;
+                    }
                     addActivity('⚠️ Network error. Speech recognition requires internet.', 'warning');
                 } else if (event.error === 'service-not-allowed') {
                     addActivity('❌ Speech service blocked. Try: System Preferences > Security > Privacy > Microphone', 'warning');
@@ -3372,6 +3386,214 @@ DASHBOARD_PAGE = '''
                 isListening = false;
                 updateUI();
             };
+        }
+        
+        // ============================================================
+        // WHISPER SPEECH RECOGNITION (for Electron)
+        // ============================================================
+        
+        async function checkWhisperService() {
+            try {
+                const response = await fetch(`${WHISPER_URL}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.model_loaded;
+                }
+                return false;
+            } catch (e) {
+                console.log('[WHISPER] Service not available:', e.message);
+                return false;
+            }
+        }
+        
+        async function startWhisperRecording() {
+            console.log('[WHISPER] Starting Whisper recording mode...');
+            
+            // Check if Whisper service is running
+            const whisperAvailable = await checkWhisperService();
+            if (!whisperAvailable) {
+                addActivity('⚠️ Local Whisper service not running. Restart the app.', 'warning');
+                useWhisper = false;
+                return;
+            }
+            
+            addActivity('✅ Connected to local Whisper service', 'success');
+            
+            try {
+                // Get microphone access
+                whisperMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Start continuous recording loop
+                whisperContinuousRecord();
+                
+            } catch (e) {
+                console.error('[WHISPER] Failed to get microphone:', e);
+                addActivity('❌ Microphone access denied', 'warning');
+                useWhisper = false;
+            }
+        }
+        
+        function whisperContinuousRecord() {
+            if (!useWhisper || !whisperMediaStream) return;
+            
+            const chunks = [];
+            whisperRecorder = new MediaRecorder(whisperMediaStream, { mimeType: 'audio/webm' });
+            
+            whisperRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    chunks.push(e.data);
+                }
+            };
+            
+            whisperRecorder.onstop = async () => {
+                if (chunks.length === 0) {
+                    // No audio, restart
+                    if (useWhisper && (alwaysListen || continuousMode)) {
+                        setTimeout(whisperContinuousRecord, 100);
+                    }
+                    return;
+                }
+                
+                const blob = new Blob(chunks, { type: 'audio/webm' });
+                
+                // Only transcribe if there's meaningful audio (> 1KB)
+                if (blob.size > 1000) {
+                    await transcribeWithWhisper(blob);
+                }
+                
+                // Continue recording if in always-listen mode
+                if (useWhisper && (alwaysListen || continuousMode || isActiveDictation)) {
+                    setTimeout(whisperContinuousRecord, 100);
+                }
+            };
+            
+            // Record for 3 seconds at a time
+            whisperRecorder.start();
+            isListening = true;
+            updateUI();
+            
+            setTimeout(() => {
+                if (whisperRecorder && whisperRecorder.state === 'recording') {
+                    whisperRecorder.stop();
+                }
+            }, 3000);
+        }
+        
+        async function transcribeWithWhisper(audioBlob) {
+            try {
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'audio.webm');
+                
+                const response = await fetch(`${WHISPER_URL}/transcribe`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    console.error('[WHISPER] Transcription failed:', response.status);
+                    return;
+                }
+                
+                const data = await response.json();
+                const text = data.text?.trim();
+                
+                if (text && text.length > 0) {
+                    console.log('[WHISPER] Transcribed:', text);
+                    // Process the transcription like we would with Web Speech API
+                    processWhisperTranscript(text);
+                }
+                
+            } catch (e) {
+                console.error('[WHISPER] Transcription error:', e);
+            }
+        }
+        
+        function processWhisperTranscript(text) {
+            // This mirrors the logic from recognition.onresult
+            const transcriptEl = document.getElementById('transcript');
+            const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
+            const lowerText = text.toLowerCase().trim();
+            
+            console.log('🎤 WHISPER HEARD:', text);
+            
+            // Check for stop command
+            if (checkForStopCommand(lowerText)) {
+                addActivity('🛑 Stop command - ending dictation', 'info');
+                isActiveDictation = false;
+                
+                if (alwaysListen) {
+                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                    transcriptEl.classList.remove('active');
+                    document.getElementById('voice-status').textContent = 'Standby';
+                } else {
+                    stopWhisperRecording();
+                    transcriptEl.textContent = 'Stopped.';
+                }
+                updateUI();
+                return;
+            }
+            
+            // Check for wake word
+            const detection = detectWakeWord(text, wakeWord);
+            
+            if (detection.detected || isActiveDictation || continuousMode || !alwaysListen) {
+                let commandText = text;
+                
+                if (detection.detected) {
+                    commandText = text.substring(detection.index + detection.length).trim();
+                    playSound('activate');
+                    addActivity('🎯 Wake word detected!', 'success');
+                    
+                    if (!commandText) {
+                        isActiveDictation = true;
+                        document.getElementById('voice-status').textContent = 'Listening...';
+                        transcriptEl.textContent = 'Speak your command...';
+                        transcriptEl.classList.add('active');
+                        return;
+                    }
+                }
+                
+                if (commandText) {
+                    transcriptEl.textContent = commandText;
+                    transcriptEl.classList.add('active');
+                    
+                    // Process command
+                    (async () => {
+                        const result = await handleTranscript(commandText);
+                        
+                        if (result && result.isStop) {
+                            handleStopCommand();
+                            return;
+                        }
+                        
+                        isActiveDictation = false;
+                        if (alwaysListen && !continuousMode) {
+                            setTimeout(() => {
+                                transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                transcriptEl.classList.remove('active');
+                                document.getElementById('voice-status').textContent = 'Standby';
+                            }, 1500);
+                        }
+                    })();
+                }
+            }
+        }
+        
+        function stopWhisperRecording() {
+            useWhisper = false;
+            
+            if (whisperRecorder && whisperRecorder.state === 'recording') {
+                whisperRecorder.stop();
+            }
+            whisperRecorder = null;
+            
+            if (whisperMediaStream) {
+                whisperMediaStream.getTracks().forEach(track => track.stop());
+                whisperMediaStream = null;
+            }
+            
+            isListening = false;
+            updateUI();
         }
         
         // Audio context - initialized on first user interaction
@@ -3964,15 +4186,51 @@ DASHBOARD_PAGE = '''
         }
         
         function stopListening() {
-            if (!recognition || !isListening) return;
             continuousMode = false;
             document.getElementById('toggle-continuous').classList.remove('active');
-            recognition.stop();
+            
+            // Stop Whisper if active
+            if (useWhisper) {
+                stopWhisperRecording();
+            }
+            
+            // Stop Web Speech API if active
+            if (recognition && isListening) {
+                recognition.stop();
+            }
+            
             socket.emit('device_status', { deviceId, status: 'idle' });
         }
         
         async function toggleListening() {
-            console.log('toggleListening called, recognition:', !!recognition, 'isListening:', isListening);
+            console.log('toggleListening called, recognition:', !!recognition, 'isListening:', isListening, 'useWhisper:', useWhisper);
+            
+            if (isListening) {
+                console.log('Stopping...');
+                stopListening();
+                return;
+            }
+            
+            // If we're in Electron and Whisper mode is active, use Whisper
+            if (useWhisper) {
+                addActivity('🎤 Starting Whisper microphone...', 'info');
+                startWhisperRecording();
+                return;
+            }
+            
+            // In Electron, try Whisper first since Web Speech API often fails
+            if (isElectron) {
+                const whisperAvailable = await checkWhisperService();
+                if (whisperAvailable) {
+                    console.log('[WHISPER] Using local Whisper service');
+                    useWhisper = true;
+                    addActivity('🎤 Starting local Whisper...', 'info');
+                    startWhisperRecording();
+                    return;
+                }
+                // If Whisper not available, fall through to Web Speech API
+                console.log('[WHISPER] Service not available, trying Web Speech API...');
+            }
             
             if (!recognition) {
                 console.error('No recognition object!');
@@ -3980,34 +4238,28 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            if (isListening) {
-                console.log('Stopping...');
-                stopListening();
-            } else {
-                // Just try to start - the recognition.onerror will handle permission issues
-                try {
-                    console.log('Starting recognition...');
-                    recognition.lang = currentDevice?.language || 'en-US';
-                    recognition.start();
-                    addActivity('🎤 Starting microphone...', 'info');
-                } catch (e) {
-                    // Handle "already started" or stale recognition object
-                    if (e.name === 'InvalidStateError') {
-                        console.log('Recognition in invalid state, reinitializing...');
-                        // Reinitialize recognition object and try again
-                        initSpeechRecognition();
-                        setTimeout(() => {
-                            try {
-                                recognition.lang = currentDevice?.language || 'en-US';
-                                recognition.start();
-                                addActivity('🎤 Starting microphone...', 'info');
-                            } catch (e2) {
-                                addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
-                            }
-                        }, 100);
-                    } else {
-                        addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
-                    }
+            // Try Web Speech API - will fall back to Whisper on network error
+            try {
+                console.log('Starting recognition...');
+                recognition.lang = currentDevice?.language || 'en-US';
+                recognition.start();
+                addActivity('🎤 Starting microphone...', 'info');
+            } catch (e) {
+                // Handle "already started" or stale recognition object
+                if (e.name === 'InvalidStateError') {
+                    console.log('Recognition in invalid state, reinitializing...');
+                    initSpeechRecognition();
+                    setTimeout(() => {
+                        try {
+                            recognition.lang = currentDevice?.language || 'en-US';
+                            recognition.start();
+                            addActivity('🎤 Starting microphone...', 'info');
+                        } catch (e2) {
+                            addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
+                        }
+                    }, 100);
+                } else {
+                    addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
                 }
             }
         }

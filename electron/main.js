@@ -38,6 +38,58 @@ const autoLauncher = new AutoLaunch({
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
+let whisperProcess = null;
+
+// ============================================================================
+// WHISPER SERVICE MANAGEMENT
+// ============================================================================
+
+function startWhisperService() {
+  const whisperPath = path.join(__dirname, '..', 'whisper-service', 'whisper_server.py');
+  
+  console.log('[WHISPER] Starting local Whisper service...');
+  console.log('[WHISPER] Path:', whisperPath);
+  
+  // Check if whisper_server.py exists
+  const fs = require('fs');
+  if (!fs.existsSync(whisperPath)) {
+    console.error('[WHISPER] whisper_server.py not found at:', whisperPath);
+    return;
+  }
+  
+  // Start the Whisper service
+  const { spawn } = require('child_process');
+  whisperProcess = spawn('python3', [whisperPath], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false
+  });
+  
+  whisperProcess.stdout.on('data', (data) => {
+    console.log('[WHISPER]', data.toString().trim());
+  });
+  
+  whisperProcess.stderr.on('data', (data) => {
+    console.error('[WHISPER ERROR]', data.toString().trim());
+  });
+  
+  whisperProcess.on('close', (code) => {
+    console.log('[WHISPER] Service exited with code:', code);
+    whisperProcess = null;
+  });
+  
+  whisperProcess.on('error', (err) => {
+    console.error('[WHISPER] Failed to start service:', err);
+    whisperProcess = null;
+  });
+}
+
+function stopWhisperService() {
+  if (whisperProcess) {
+    console.log('[WHISPER] Stopping service...');
+    whisperProcess.kill();
+    whisperProcess = null;
+  }
+}
 
 // ============================================================================
 // WINDOW MANAGEMENT
@@ -590,6 +642,9 @@ async function requestMicrophonePermission() {
 
 // App ready
 app.whenReady().then(async () => {
+  // Start local Whisper service for speech-to-text
+  startWhisperService();
+  
   // Request microphone permission FIRST on macOS
   const micGranted = await requestMicrophonePermission();
   console.log('[MIC] Microphone permission result:', micGranted);
@@ -650,6 +705,7 @@ app.on('before-quit', () => {
 // Cleanup on quit
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  stopWhisperService();
 });
 
 // Handle certificate errors for development
