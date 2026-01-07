@@ -2487,6 +2487,15 @@ DASHBOARD_PAGE = '''
         function parseCommand(text) {
             // Trim whitespace - speech recognition often adds leading/trailing spaces
             text = text.trim();
+            
+            // Fix common speech recognition mishearings
+            // "right" at the start of a command is often "write"
+            if (/^right\s/i.test(text)) {
+                text = text.replace(/^right\s/i, 'write ');
+            }
+            // Handle "cursor right" → "cursor write" 
+            text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
+            
             const lowerText = text.toLowerCase();
             const result = {
                 originalText: text,
@@ -2536,10 +2545,9 @@ DASHBOARD_PAGE = '''
                         // "paste in cursor something"
                         new RegExp(`^paste\\s+(in|into|to)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "write in cursor something" or "type into cursor something"
-                        // Note: "right" is a common mishearing of "write"
-                        new RegExp(`^(write|right|type|put|enter|say)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^(write|type|put|enter|say)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "write cursor something" (without preposition)
-                        new RegExp(`^(write|right|type|put|enter|say)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^(write|type|put|enter|say)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "tell cursor to write something"
                         new RegExp(`^tell\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
                         // "use cursor to write something"  
@@ -2566,13 +2574,21 @@ DASHBOARD_PAGE = '''
             
             // Check for action keywords
             const actionPatterns = {
-                'type': /^(type|write|right|enter|input|say)\s+(.+)/i,
+                'type': /^(type|write|enter|input|say)\s+(.+)/i,
                 'paste': /^paste\s+(.+)/i,
                 'search': /^(search|google|look up|search for)\s+(.+)/i,
                 'run': /^(run|execute|do)\s+(.+)/i,
                 'open_tab': /^open\s+(a\s+)?new\s+tab$/i,
                 'open_url': /^(open|go to|navigate to|launch)\s+(.+)/i,
             };
+            
+            // If we have a target app but no action keyword match, default to typing the rest
+            // e.g., "cursor hello world" → type "hello world" in cursor
+            if (result.targetApp && result.command && !Object.values(actionPatterns).some(p => p.test(result.command))) {
+                // No action keyword found - just type the content
+                result.action = 'type';
+                // result.command is already set to the text after the app name
+            }
             
             // Common website shortcuts
             const websiteShortcuts = {
@@ -3311,6 +3327,16 @@ DASHBOARD_PAGE = '''
         
         async function handleTranscript(text, skipRouting = false) {
             text = text.trim();
+            
+            // Fix common speech recognition errors before processing
+            // "right" is often misheard as "write"
+            if (/^right\s/i.test(text)) {
+                text = text.replace(/^right\s/i, 'write ');
+                console.log('Corrected "right" to "write":', text);
+            }
+            // "cursor right something" → "cursor write something"
+            text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
+            
             console.log('Voice:', text);
             
             let parsed = null;
