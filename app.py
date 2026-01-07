@@ -2535,8 +2535,17 @@ DASHBOARD_PAGE = '''
         }
         
         function handleTranscript(text, skipRouting = false) {
+            // DEBUG: Show what we're processing
+            console.log('=== VOICE INPUT ===');
+            console.log('Raw text:', text);
+            
             // Parse the command to check for device/app targeting
             const parsed = parseCommand(text);
+            console.log('Parsed:', {
+                targetApp: parsed.targetApp?.name || 'NONE',
+                targetDevice: parsed.targetDevice?.name || 'NONE', 
+                command: parsed.command
+            });
             
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
