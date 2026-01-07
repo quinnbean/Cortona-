@@ -2947,22 +2947,30 @@ DASHBOARD_PAGE = '''
                 // Check if we should auto-restart (keep listening in always-listen or continuous mode)
                 const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
                 
+                // Always set isListening to false when recognition ends
+                isListening = false;
+                
                 if (shouldRestart) {
-                    // DON'T set isListening to false - keep it true to prevent UI flicker
-                    // Just restart after a brief delay
+                    // Restart after a brief delay
                     setTimeout(() => {
+                        // Only restart if still in always-listen or continuous mode
                         if ((alwaysListen || continuousMode) && !isListening) {
                             try {
                                 recognition.start();
-                                isListening = true;
+                                // isListening will be set to true by onstart
                             } catch (e) {
-                                // Already started, ignore
+                                console.log('Restart failed, reinitializing...', e.message);
+                                // Reinitialize and try again
+                                initSpeechRecognition();
+                                setTimeout(() => {
+                                    if (alwaysListen || continuousMode) {
+                                        try { recognition.start(); } catch (e2) {}
+                                    }
+                                }, 100);
                             }
                         }
                     }, 300);
                 } else {
-                    // Only set false and update UI when NOT in always-listen mode
-                    isListening = false;
                     updateUI();
                 }
             };
@@ -3093,10 +3101,11 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onerror = (event) => {
-                // Ignore common non-errors
+                // Handle common non-fatal errors - these will trigger onend which handles restart
                 if (event.error === 'no-speech' || event.error === 'aborted') {
-                    isListening = false;
-                    updateUI();
+                    // Don't set isListening = false here - let onend handle it
+                    // This prevents race conditions with the restart logic
+                    console.log('Recognition ended:', event.error);
                     return;
                 }
                 
@@ -3461,9 +3470,20 @@ DASHBOARD_PAGE = '''
                     recognition.start();
                     addActivity('🎤 Starting microphone...', 'info');
                 } catch (e) {
-                    // Handle "already started" error
+                    // Handle "already started" or stale recognition object
                     if (e.name === 'InvalidStateError') {
-                        console.log('Recognition already running');
+                        console.log('Recognition in invalid state, reinitializing...');
+                        // Reinitialize recognition object and try again
+                        initSpeechRecognition();
+                        setTimeout(() => {
+                            try {
+                                recognition.lang = currentDevice?.language || 'en-US';
+                                recognition.start();
+                                addActivity('🎤 Starting microphone...', 'info');
+                            } catch (e2) {
+                                addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
+                            }
+                        }, 100);
                     } else {
                         addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
                     }
