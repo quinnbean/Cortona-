@@ -2290,6 +2290,8 @@ DASHBOARD_PAGE = '''
         // Render available devices for routing
         function renderAvailableDevices() {
             const container = document.getElementById('available-devices');
+            if (!container) return; // Element may not exist
+            
             const deviceList = Object.values(devices);
             
             if (deviceList.length === 0) {
@@ -2914,36 +2916,8 @@ DASHBOARD_PAGE = '''
         }
         
         function renderDeviceList() {
-            const listEl = document.getElementById('device-list');
-            const deviceArray = Object.values(devices);
-            
-            if (deviceArray.length === 0) {
-                listEl.innerHTML = '<div class="empty-state"><p>No devices added yet</p></div>';
-                return;
-            }
-            
-            listEl.innerHTML = deviceArray.map(d => `
-                <div class="device-item ${d.id === currentDevice?.id ? 'active editing' : ''} ${d.id === deviceId && isListening ? 'listening' : ''}"
-                     onclick="selectDevice('${d.id}')"
-                     style="cursor: pointer; position: relative;">
-                    ${d.id === currentDevice?.id ? '<div style="position: absolute; top: 8px; right: 8px; background: var(--accent); color: var(--bg-primary); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">EDITING</div>' : ''}
-                    ${d.id !== deviceId ? `<button onclick="event.stopPropagation(); deleteDevice('${d.id}')" style="position: absolute; top: 8px; right: ${d.id === currentDevice?.id ? '70px' : '8px'}; background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; opacity: 0.5;" title="Delete device">✕</button>` : ''}
-                    <div class="device-header">
-                        <div class="device-name">
-                            <span>${d.icon || '💻'}</span>
-                            ${d.name || 'Unnamed Device'}
-                            ${d.type === 'desktop_client' ? '<span style="font-size: 10px; background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; margin-left: 6px;">DESKTOP</span>' : ''}
-                        </div>
-                        <span class="device-status ${d.id === deviceId ? (isListening ? 'listening' : 'online') : (d.online ? 'online' : 'offline')}">
-                            ${d.id === deviceId ? (isListening ? '● Listening' : '● This Browser') : (d.online ? '● Online' : '○ Offline')}
-                        </span>
-                    </div>
-                    <div class="device-wake-word">"${d.wakeWord || 'hey computer'}"</div>
-                    <div class="device-stats">
-                        <span>📝 ${d.wordsTyped || 0} words</span>
-                        <span>🎤 ${d.sessions || 0} sessions</span>
-                    </div>
-                </div>
+            // Device list removed - single device mode
+            return;
             `).join('');
         }
         
