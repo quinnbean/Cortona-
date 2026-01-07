@@ -153,10 +153,23 @@ class CortonaClient:
         self._setup_handlers()
         
     def _get_device_id(self):
-        """Generate a unique device ID"""
+        """Get or create a persistent device ID (matches embedded client)"""
         import hashlib
+        id_file = os.path.expanduser('~/.voicehub/device_id')
+        os.makedirs(os.path.dirname(id_file), exist_ok=True)
+        
+        if os.path.exists(id_file):
+            with open(id_file, 'r') as f:
+                return f.read().strip()
+        
+        # Generate new ID if none exists
         unique_str = f"{platform.node()}-{platform.system()}-desktop"
-        return hashlib.md5(unique_str.encode()).hexdigest()[:12]
+        new_id = f"desktop_{hashlib.md5(unique_str.encode()).hexdigest()[:8]}"
+        
+        with open(id_file, 'w') as f:
+            f.write(new_id)
+        
+        return new_id
     
     def _setup_handlers(self):
         @self.sio.event
