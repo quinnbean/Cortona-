@@ -2815,15 +2815,19 @@ DASHBOARD_PAGE = '''
             }
             
             listEl.innerHTML = deviceArray.map(d => `
-                <div class="device-item ${d.id === currentDevice?.id ? 'active' : ''} ${d.id === deviceId && isListening ? 'listening' : ''}"
-                     onclick="selectDevice('${d.id}')">
+                <div class="device-item ${d.id === currentDevice?.id ? 'active editing' : ''} ${d.id === deviceId && isListening ? 'listening' : ''}"
+                     onclick="selectDevice('${d.id}')"
+                     style="cursor: pointer; position: relative;">
+                    ${d.id === currentDevice?.id ? '<div style="position: absolute; top: 8px; right: 8px; background: var(--accent); color: var(--bg-primary); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">EDITING</div>' : ''}
+                    ${d.id !== deviceId ? `<button onclick="event.stopPropagation(); deleteDevice('${d.id}')" style="position: absolute; top: 8px; right: ${d.id === currentDevice?.id ? '70px' : '8px'}; background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; opacity: 0.5;" title="Delete device">✕</button>` : ''}
                     <div class="device-header">
                         <div class="device-name">
                             <span>${d.icon || '💻'}</span>
                             ${d.name || 'Unnamed Device'}
+                            ${d.type === 'desktop_client' ? '<span style="font-size: 10px; background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; margin-left: 6px;">DESKTOP</span>' : ''}
                         </div>
                         <span class="device-status ${d.id === deviceId ? (isListening ? 'listening' : 'online') : (d.online ? 'online' : 'offline')}">
-                            ${d.id === deviceId ? (isListening ? '● Listening' : '● Online') : (d.online ? '● Online' : '○ Offline')}
+                            ${d.id === deviceId ? (isListening ? '● Listening' : '● This Browser') : (d.online ? '● Online' : '○ Offline')}
                         </span>
                     </div>
                     <div class="device-wake-word">"${d.wakeWord || 'hey computer'}"</div>
@@ -2872,6 +2876,25 @@ DASHBOARD_PAGE = '''
         // ============================================================
         // DEVICE MANAGEMENT
         // ============================================================
+        
+        function deleteDevice(id) {
+            if (id === deviceId) {
+                addActivity('Cannot delete this browser device', 'warning');
+                return;
+            }
+            
+            const device = devices[id];
+            const name = device?.name || 'Unknown';
+            
+            if (confirm(`Delete device "${name}"? This cannot be undone.`)) {
+                delete devices[id];
+                saveDevices();
+                socket.emit('device_delete', { deviceId: id });
+                renderDeviceList();
+                renderAvailableDevices();
+                addActivity(`Deleted device: ${name}`, 'info');
+            }
+        }
         
         function selectDevice(id) {
             if (devices[id]) {
@@ -3531,6 +3554,15 @@ def on_device_update(data):
         socketio.emit('device_online', {'deviceId': device_id}, room='dashboard')
     
     socketio.emit('devices_update', {'devices': devices}, room='dashboard')
+
+@socketio.on('device_delete')
+def on_device_delete(data):
+    device_id = data.get('deviceId')
+    if device_id and device_id in devices:
+        name = devices[device_id].get('name', device_id)
+        del devices[device_id]
+        print(f"🗑️ Device deleted: {name}")
+        socketio.emit('devices_update', {'devices': devices}, room='dashboard')
 
 @socketio.on('device_add')
 def on_device_add(data):
