@@ -797,6 +797,35 @@ def run_command(command, app=None):
     time.sleep(0.1)
     press_enter()
 
+def open_url_native(url):
+    """Open a URL using the system's native method - more reliable than webbrowser module"""
+    try:
+        if PLATFORM == 'Darwin':
+            # macOS - use 'open' command
+            subprocess.run(['open', url], check=True)
+            print(f"✅ Opened URL (macOS): {url}")
+        elif PLATFORM == 'Windows':
+            # Windows - use os.startfile or start command
+            # os.startfile is most reliable on Windows
+            os.startfile(url)
+            print(f"✅ Opened URL (Windows): {url}")
+        else:
+            # Linux - use xdg-open
+            subprocess.run(['xdg-open', url], check=True)
+            print(f"✅ Opened URL (Linux): {url}")
+        return True
+    except Exception as e:
+        print(f"⚠️ Native open failed: {e}, trying webbrowser...")
+        # Fallback to webbrowser module
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            print(f"✅ Opened URL (webbrowser fallback): {url}")
+            return True
+        except Exception as e2:
+            print(f"❌ Could not open URL: {e2}")
+            return False
+
 # ============================================================================
 # SOCKET.IO CLIENT
 # ============================================================================
@@ -912,9 +941,8 @@ class VoiceHubClient:
             print(f"Opened {target_app or command}")
         elif action == 'open_tab':
             # Open a new browser tab
-            import webbrowser
             if command:
-                webbrowser.open_new_tab(command)
+                open_url_native(command)
                 print(f"Opened new tab: {command}")
             else:
                 # Just open a new tab in default browser
@@ -924,21 +952,19 @@ class VoiceHubClient:
                 print("Opened new tab")
         elif action == 'open_url':
             # Open a specific URL
-            import webbrowser
             url = command if command else 'https://google.com'
             # Add https if missing
             if not url.startswith('http'):
                 url = 'https://' + url
-            webbrowser.open_new_tab(url)
+            open_url_native(url)
             print(f"Opened URL: {url}")
         elif action == 'run':
             run_command(command, target_app or 'terminal')
             print("Command executed")
         elif action == 'search':
             # Search in browser
-            import webbrowser
             search_url = f"https://www.google.com/search?q={command.replace(' ', '+')}"
-            webbrowser.open_new_tab(search_url)
+            open_url_native(search_url)
             print(f"Searching: {command}")
         else:
             # Default: just type
@@ -3020,15 +3046,24 @@ DASHBOARD_PAGE = '''
                     const isStopCommand = checkForStopCommand(lowerTranscript);
                     
                     if (isStopCommand) {
-                        // Stop recording
-                        addActivity('🛑 Stop command detected', 'info');
+                        // Stop the current dictation session, but keep always-listen mode if enabled
+                        addActivity('🛑 Stop command - ending dictation', 'info');
                         addToTranscriptHistory(lowerTranscript, 'stop');
-                        stopListening();
-                        alwaysListen = false;
-                        document.getElementById('toggle-always-listen').classList.remove('active');
-                        currentDevice.alwaysListen = false;
-                        saveDevices();
-                        transcriptEl.textContent = 'Stopped.';
+                        
+                        // End active dictation
+                        isActiveDictation = false;
+                        
+                        if (alwaysListen) {
+                            // Stay in always-listen mode, just go back to waiting for wake word
+                            transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                            transcriptEl.classList.remove('active');
+                            document.getElementById('voice-status').textContent = 'Standby';
+                            // Recognition keeps running to listen for wake word
+                        } else {
+                            // Not in always-listen mode, fully stop
+                            stopListening();
+                            transcriptEl.textContent = 'Stopped.';
+                        }
                         updateUI();
                         return;
                     }
@@ -3075,25 +3110,50 @@ DASHBOARD_PAGE = '''
                         // If there's text after the wake word, type it
                         if (afterWakeWord) {
                             handleTranscript(afterWakeWord);
+                            // After processing command with wake word, go back to standby
+                            isActiveDictation = false;
+                            if (alwaysListen && !continuousMode) {
+                                setTimeout(() => {
+                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                    transcriptEl.classList.remove('active');
+                                    document.getElementById('voice-status').textContent = 'Standby';
+                                }, 1500);
+                            }
                         } else {
                             // Just activated, waiting for command
                             isActiveDictation = true;
-                            document.getElementById('voice-status').textContent = 'Activated';
-                            transcriptEl.textContent = 'Speak now...';
+                            document.getElementById('voice-status').textContent = 'Listening...';
+                            transcriptEl.textContent = 'Speak your command...';
                             transcriptEl.classList.add('active');
+                            document.getElementById('voice-hint').innerHTML = 'Say "stop" when done';
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
                         // In active dictation mode, type everything
                         addToTranscriptHistory(finalTranscript, 'command');
                         handleTranscript(finalTranscript);
+                        
+                        // End the active dictation session
                         isActiveDictation = false;
                         
-                        // Reset transcript display after typing
+                        // Reset to standby mode after processing command
                         if (alwaysListen && !continuousMode) {
+                            // Go back to waiting for wake word
                             setTimeout(() => {
                                 transcriptEl.textContent = `Ready for "${wakeWord}"`;
                                 transcriptEl.classList.remove('active');
+                                document.getElementById('voice-status').textContent = 'Standby';
+                                document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
                             }, 1500);
+                            addActivity('💬 Command processed - waiting for wake word', 'info');
+                        } else if (!alwaysListen && !continuousMode) {
+                            // Manual mode without continuous - stop after command
+                            setTimeout(() => {
+                                if (!isActiveDictation && !continuousMode) {
+                                    stopListening();
+                                    transcriptEl.textContent = 'Click mic to start again';
+                                    addActivity('🎤 Dictation ended', 'info');
+                                }
+                            }, 2000);
                         }
                     }
                     // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
@@ -3128,9 +3188,32 @@ DASHBOARD_PAGE = '''
             };
         }
         
+        // Audio context - initialized on first user interaction
+        let audioCtx = null;
+        
+        function initAudioContext() {
+            if (!audioCtx) {
+                try {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.log('AudioContext not available');
+                }
+            }
+            // Resume if suspended (browsers suspend until user gesture)
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+        
+        // Initialize audio on first user click
+        document.addEventListener('click', () => initAudioContext(), { once: true });
+        
         function playSound(type) {
+            const ctx = initAudioContext();
+            if (!ctx) return;
+            
             try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = ctx.createOscillator();
                 const gainNode = ctx.createGain();
                 
@@ -3150,7 +3233,7 @@ DASHBOARD_PAGE = '''
                 oscillator.start(ctx.currentTime);
                 oscillator.stop(ctx.currentTime + 0.2);
             } catch (e) {
-                console.log('Sound playback not available');
+                // Silently fail - sounds are optional
             }
         }
         
@@ -3511,13 +3594,20 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
+                    // In always-listen mode, waiting for wake word
                     micButton.innerHTML = 'ON';
                     voiceStatus.textContent = 'Standby';
-                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
+                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
+                } else if (isActiveDictation) {
+                    // Active dictation after wake word
+                    micButton.innerHTML = 'REC';
+                    voiceStatus.textContent = 'Listening...';
+                    voiceHint.innerHTML = 'Speak your command. Say "<strong>stop</strong>" when done.';
                 } else {
+                    // Manual recording mode
                     micButton.innerHTML = 'REC';
                     voiceStatus.textContent = 'Recording';
-                    voiceHint.innerHTML = 'Speak now. Click to stop.';
+                    voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
                 }
             } else {
                 micButton.classList.remove('listening');
@@ -4486,6 +4576,16 @@ def ping():
     """Simple test endpoint"""
     return 'pong', 200, {'Content-Type': 'text/plain'}
 
+@app.route('/favicon.ico')
+def favicon():
+    """Return a simple SVG favicon"""
+    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <rect width="100" height="100" rx="20" fill="#0a0a0f"/>
+        <circle cx="50" cy="45" r="25" fill="#00f5d4"/>
+        <rect x="45" y="65" width="10" height="20" rx="2" fill="#00f5d4"/>
+    </svg>'''
+    return Response(svg, mimetype='image/svg+xml')
+
 @app.route('/download/mac')
 def download_mac_app():
     """Download a double-clickable .command file for Mac"""
@@ -4657,7 +4757,7 @@ def install_page():
     return render_template_string(INSTALL_PAGE, server=server_url)
 
 # Desktop client version - increment this when you update the client
-CLIENT_VERSION = "1.3.0"
+CLIENT_VERSION = "1.4.0"
 
 # ============================================================================
 # CLAUDE AI COMMAND PARSING
@@ -4669,8 +4769,8 @@ The user has multiple devices (e.g., "MacBook", "Windows PC") each with their ow
 
 Parse voice commands and return JSON:
 {
-  "targetApp": "cursor" | "claude" | "chatgpt" | "terminal" | "browser" | "notes" | "slack" | "discord" | null,
-  "action": "type" | "type_and_send" | "open" | "search" | "run" | "stop" | "route" | null,
+  "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
+  "action": "type" | "paste" | "type_and_send" | "open" | "open_tab" | "open_url" | "search" | "run" | "stop" | "route" | null,
   "content": "the text to type or action to take",
   "response": "Brief friendly confirmation (5 words max)",
   "isStopCommand": true | false,
@@ -4679,53 +4779,104 @@ Parse voice commands and return JSON:
 }
 
 ACTIONS:
-- "type" = just type the text locally
-- "type_and_send" = type the text AND press Enter to send it
-- "open" = open the app
-- "open_tab" = open a new browser tab (optionally with a URL)
+- "type" = type the text (triggered by: type, write, say, enter, input)
+- "paste" = paste the text
+- "type_and_send" = type AND press Enter to send (triggered by: send, submit, ask, tell)
+- "open" = open/focus an app
+- "open_tab" = open a new browser tab
 - "open_url" = open a specific URL in browser
-- "search" = search in browser
-- "run" = run a command
+- "search" = search Google in browser (triggered by: search, google, look up)
+- "run" = run a command in terminal (triggered by: run, execute, do)
 - "stop" = stop listening/recording
 - "route" = send command to another device
+
+APPS (recognize these names and variations):
+- cursor/curser/coursor = Cursor IDE (code editor)
+- vscode/vs code/visual studio code = VS Code
+- claude/cloud/claud = Claude AI chat
+- chatgpt/chat gpt/GPT/gpt = ChatGPT
+- copilot/co-pilot/github copilot = GitHub Copilot
+- gemini/bard/google ai = Google Gemini
+- terminal/command/shell/console/cmd = Terminal
+- browser/chrome/safari/firefox/edge = Web browser
+- notes/notepad/text editor = Notes app
+- slack = Slack
+- discord = Discord
+- finder/explorer/files = File manager
+
+WEBSITE SHORTCUTS (use these URLs for open_url):
+- google → https://google.com
+- youtube → https://youtube.com
+- github → https://github.com
+- twitter/x → https://twitter.com
+- facebook → https://facebook.com
+- reddit → https://reddit.com
+- amazon → https://amazon.com
+- netflix → https://netflix.com
+- spotify → https://spotify.com
+- linkedin → https://linkedin.com
+- instagram → https://instagram.com
+- gmail → https://gmail.com
+- google docs → https://docs.google.com
+- google sheets → https://sheets.google.com
+- google drive → https://drive.google.com
+- chatgpt → https://chat.openai.com
+- claude → https://claude.ai
+- stackoverflow/stack overflow → https://stackoverflow.com
 
 CROSS-DEVICE ROUTING (IMPORTANT):
 When user says "send to [device]" or "[device name] type", they want to route to that device:
 - "send to mac hello world" → route "hello world" to the mac device
 - "send to windows pc check this" → route to Windows PC
 - "tell macbook to type hello" → route to MacBook
-- "Windows PC type testing" → route "testing" to Windows PC
-
-Distinguish between ROUTING and LOCAL ACTIVATION:
-- "send to mac hello" = ROUTING (isRoutingCommand: true, routeToDevice: "mac")
-- "mac type hello" on the mac itself = LOCAL ACTIVATION (isRoutingCommand: false)
-- When in doubt with "send to" prefix = always routing
 
 STOP COMMAND DETECTION:
-- "stop", "stop listening", "stop recording" → isStopCommand: true
-- "don't stop believing" or "stop sign" → isStopCommand: false
-
-APPS:
-- cursor/curser = Code editor (Cursor IDE)
-- claude/cloud = Claude AI chat
-- chatgpt/GPT = ChatGPT
-- terminal/command = Terminal/shell
-- browser/chrome/safari = Web browser
+- "stop", "stop listening", "stop recording", "that's enough", "cancel" → isStopCommand: true
+- "don't stop believing" or "stop sign" or other sentences containing stop → isStopCommand: false
 
 EXAMPLES:
-"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
-"send to windows pc type this message" → {"action":"route","content":"this message","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
-"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
-"cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","isRoutingCommand":false,"response":"Typing in Cursor"}
-"stop" → {"action":"stop","isStopCommand":true,"isRoutingCommand":false,"response":"Stopping"}
+
+Type commands:
+"type hello world" → {"action":"type","content":"hello world","response":"Typing"}
+"write this is a test" → {"action":"type","content":"this is a test","response":"Writing"}
+"say good morning" → {"action":"type","content":"good morning","response":"Typing"}
+"enter my name is John" → {"action":"type","content":"my name is John","response":"Entering"}
+
+Type and send (includes Enter key):
+"send hello" → {"action":"type_and_send","content":"hello","response":"Sending"}
+"ask Claude what is python" → {"targetApp":"claude","action":"type_and_send","content":"what is python","response":"Asking Claude"}
+"submit the form" → {"action":"type_and_send","content":"","response":"Submitting"}
+
+App targeting:
+"cursor write a function that adds two numbers" → {"targetApp":"cursor","action":"type","content":"a function that adds two numbers","response":"Typing in Cursor"}
+"vs code open" → {"targetApp":"vscode","action":"open","response":"Opening VS Code"}
+"claude explain recursion" → {"targetApp":"claude","action":"type_and_send","content":"explain recursion","response":"Asking Claude"}
+"chatgpt help me debug this" → {"targetApp":"chatgpt","action":"type_and_send","content":"help me debug this","response":"Asking ChatGPT"}
+"terminal run npm install" → {"targetApp":"terminal","action":"run","content":"npm install","response":"Running command"}
+
+Browser commands:
 "open a new tab" → {"targetApp":"browser","action":"open_tab","content":null,"response":"Opening new tab"}
 "open google" → {"targetApp":"browser","action":"open_url","content":"https://google.com","response":"Opening Google"}
 "open youtube" → {"targetApp":"browser","action":"open_url","content":"https://youtube.com","response":"Opening YouTube"}
 "open github" → {"targetApp":"browser","action":"open_url","content":"https://github.com","response":"Opening GitHub"}
-"open twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
-"go to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
-"open new tab with reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"go to twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
+"navigate to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
+"launch netflix" → {"targetApp":"browser","action":"open_url","content":"https://netflix.com","response":"Opening Netflix"}
+"open reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"open spotify" → {"targetApp":"browser","action":"open_url","content":"https://spotify.com","response":"Opening Spotify"}
 "search for python tutorials" → {"targetApp":"browser","action":"search","content":"python tutorials","response":"Searching"}
+"google best restaurants near me" → {"targetApp":"browser","action":"search","content":"best restaurants near me","response":"Searching"}
+"look up weather forecast" → {"targetApp":"browser","action":"search","content":"weather forecast","response":"Searching"}
+
+Cross-device routing:
+"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
+"send to windows pc check this" → {"action":"route","content":"check this","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
+"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
+
+Stop commands:
+"stop" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
+"stop listening" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
+"that's enough" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
 
 Return ONLY valid JSON, nothing else."""
 
@@ -4737,11 +4888,17 @@ def api_parse_command():
     if not CLAUDE_AVAILABLE or not claude_client:
         return jsonify({'error': 'Claude not available', 'fallback': True}), 200
     
-    data = request.get_json()
+    # Try to get JSON data, handle errors gracefully
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
+    
     text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
     
-    if not text:
-        return jsonify({'error': 'No text provided'}), 400
+    if not text or len(text.strip()) == 0:
+        # Return fallback instead of 400 - let regex handle it
+        return jsonify({'error': 'No text provided', 'fallback': True}), 200
     
     try:
         message = claude_client.messages.create(
