@@ -4531,11 +4531,21 @@ def parse_command_with_claude():
     if not CLAUDE_AVAILABLE or not claude_client:
         return jsonify({'error': 'Claude not available', 'fallback': True}), 200
     
-    data = request.get_json()
+    try:
+        data = request.get_json(force=True, silent=True)
+    except Exception as e:
+        print(f"JSON parse error: {e}")
+        return jsonify({'error': f'Invalid JSON: {str(e)}', 'fallback': True}), 200
+    
+    if not data:
+        print(f"No JSON data received. Content-Type: {request.content_type}, Data: {request.data[:100] if request.data else 'empty'}")
+        return jsonify({'error': 'No JSON data received', 'fallback': True}), 200
+    
     text = data.get('text', '')
     
     if not text:
-        return jsonify({'error': 'No text provided'}), 400
+        print(f"Empty text in request. Data keys: {list(data.keys())}")
+        return jsonify({'error': 'No text provided', 'fallback': True}), 200
     
     try:
         message = claude_client.messages.create(
