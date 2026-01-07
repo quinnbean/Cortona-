@@ -4695,8 +4695,8 @@ The user has multiple devices (e.g., "MacBook", "Windows PC") each with their ow
 
 Parse voice commands and return JSON:
 {
-  "targetApp": "cursor" | "claude" | "chatgpt" | "terminal" | "browser" | "notes" | "slack" | "discord" | null,
-  "action": "type" | "type_and_send" | "open" | "search" | "run" | "stop" | "route" | null,
+  "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
+  "action": "type" | "paste" | "type_and_send" | "open" | "open_tab" | "open_url" | "search" | "run" | "stop" | "route" | null,
   "content": "the text to type or action to take",
   "response": "Brief friendly confirmation (5 words max)",
   "isStopCommand": true | false,
@@ -4705,53 +4705,104 @@ Parse voice commands and return JSON:
 }
 
 ACTIONS:
-- "type" = just type the text locally
-- "type_and_send" = type the text AND press Enter to send it
-- "open" = open the app
-- "open_tab" = open a new browser tab (optionally with a URL)
+- "type" = type the text (triggered by: type, write, say, enter, input)
+- "paste" = paste the text
+- "type_and_send" = type AND press Enter to send (triggered by: send, submit, ask, tell)
+- "open" = open/focus an app
+- "open_tab" = open a new browser tab
 - "open_url" = open a specific URL in browser
-- "search" = search in browser
-- "run" = run a command
+- "search" = search Google in browser (triggered by: search, google, look up)
+- "run" = run a command in terminal (triggered by: run, execute, do)
 - "stop" = stop listening/recording
 - "route" = send command to another device
+
+APPS (recognize these names and variations):
+- cursor/curser/coursor = Cursor IDE (code editor)
+- vscode/vs code/visual studio code = VS Code
+- claude/cloud/claud = Claude AI chat
+- chatgpt/chat gpt/GPT/gpt = ChatGPT
+- copilot/co-pilot/github copilot = GitHub Copilot
+- gemini/bard/google ai = Google Gemini
+- terminal/command/shell/console/cmd = Terminal
+- browser/chrome/safari/firefox/edge = Web browser
+- notes/notepad/text editor = Notes app
+- slack = Slack
+- discord = Discord
+- finder/explorer/files = File manager
+
+WEBSITE SHORTCUTS (use these URLs for open_url):
+- google → https://google.com
+- youtube → https://youtube.com
+- github → https://github.com
+- twitter/x → https://twitter.com
+- facebook → https://facebook.com
+- reddit → https://reddit.com
+- amazon → https://amazon.com
+- netflix → https://netflix.com
+- spotify → https://spotify.com
+- linkedin → https://linkedin.com
+- instagram → https://instagram.com
+- gmail → https://gmail.com
+- google docs → https://docs.google.com
+- google sheets → https://sheets.google.com
+- google drive → https://drive.google.com
+- chatgpt → https://chat.openai.com
+- claude → https://claude.ai
+- stackoverflow/stack overflow → https://stackoverflow.com
 
 CROSS-DEVICE ROUTING (IMPORTANT):
 When user says "send to [device]" or "[device name] type", they want to route to that device:
 - "send to mac hello world" → route "hello world" to the mac device
 - "send to windows pc check this" → route to Windows PC
 - "tell macbook to type hello" → route to MacBook
-- "Windows PC type testing" → route "testing" to Windows PC
-
-Distinguish between ROUTING and LOCAL ACTIVATION:
-- "send to mac hello" = ROUTING (isRoutingCommand: true, routeToDevice: "mac")
-- "mac type hello" on the mac itself = LOCAL ACTIVATION (isRoutingCommand: false)
-- When in doubt with "send to" prefix = always routing
 
 STOP COMMAND DETECTION:
-- "stop", "stop listening", "stop recording" → isStopCommand: true
-- "don't stop believing" or "stop sign" → isStopCommand: false
-
-APPS:
-- cursor/curser = Code editor (Cursor IDE)
-- claude/cloud = Claude AI chat
-- chatgpt/GPT = ChatGPT
-- terminal/command = Terminal/shell
-- browser/chrome/safari = Web browser
+- "stop", "stop listening", "stop recording", "that's enough", "cancel" → isStopCommand: true
+- "don't stop believing" or "stop sign" or other sentences containing stop → isStopCommand: false
 
 EXAMPLES:
-"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
-"send to windows pc type this message" → {"action":"route","content":"this message","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
-"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
-"cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","isRoutingCommand":false,"response":"Typing in Cursor"}
-"stop" → {"action":"stop","isStopCommand":true,"isRoutingCommand":false,"response":"Stopping"}
+
+Type commands:
+"type hello world" → {"action":"type","content":"hello world","response":"Typing"}
+"write this is a test" → {"action":"type","content":"this is a test","response":"Writing"}
+"say good morning" → {"action":"type","content":"good morning","response":"Typing"}
+"enter my name is John" → {"action":"type","content":"my name is John","response":"Entering"}
+
+Type and send (includes Enter key):
+"send hello" → {"action":"type_and_send","content":"hello","response":"Sending"}
+"ask Claude what is python" → {"targetApp":"claude","action":"type_and_send","content":"what is python","response":"Asking Claude"}
+"submit the form" → {"action":"type_and_send","content":"","response":"Submitting"}
+
+App targeting:
+"cursor write a function that adds two numbers" → {"targetApp":"cursor","action":"type","content":"a function that adds two numbers","response":"Typing in Cursor"}
+"vs code open" → {"targetApp":"vscode","action":"open","response":"Opening VS Code"}
+"claude explain recursion" → {"targetApp":"claude","action":"type_and_send","content":"explain recursion","response":"Asking Claude"}
+"chatgpt help me debug this" → {"targetApp":"chatgpt","action":"type_and_send","content":"help me debug this","response":"Asking ChatGPT"}
+"terminal run npm install" → {"targetApp":"terminal","action":"run","content":"npm install","response":"Running command"}
+
+Browser commands:
 "open a new tab" → {"targetApp":"browser","action":"open_tab","content":null,"response":"Opening new tab"}
 "open google" → {"targetApp":"browser","action":"open_url","content":"https://google.com","response":"Opening Google"}
 "open youtube" → {"targetApp":"browser","action":"open_url","content":"https://youtube.com","response":"Opening YouTube"}
 "open github" → {"targetApp":"browser","action":"open_url","content":"https://github.com","response":"Opening GitHub"}
-"open twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
-"go to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
-"open new tab with reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"go to twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
+"navigate to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
+"launch netflix" → {"targetApp":"browser","action":"open_url","content":"https://netflix.com","response":"Opening Netflix"}
+"open reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"open spotify" → {"targetApp":"browser","action":"open_url","content":"https://spotify.com","response":"Opening Spotify"}
 "search for python tutorials" → {"targetApp":"browser","action":"search","content":"python tutorials","response":"Searching"}
+"google best restaurants near me" → {"targetApp":"browser","action":"search","content":"best restaurants near me","response":"Searching"}
+"look up weather forecast" → {"targetApp":"browser","action":"search","content":"weather forecast","response":"Searching"}
+
+Cross-device routing:
+"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
+"send to windows pc check this" → {"action":"route","content":"check this","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
+"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
+
+Stop commands:
+"stop" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
+"stop listening" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
+"that's enough" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
 
 Return ONLY valid JSON, nothing else."""
 
