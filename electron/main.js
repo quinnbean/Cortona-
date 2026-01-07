@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, Notification, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, Notification, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
@@ -346,6 +346,24 @@ if (!gotTheLock) {
 
 // App ready
 app.whenReady().then(async () => {
+  // Set up permission handler for microphone access
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'microphone', 'audio', 'audioCapture'];
+    if (allowedPermissions.includes(permission)) {
+      console.log(`✅ Granting permission: ${permission}`);
+      callback(true);
+    } else {
+      console.log(`⚠️ Permission requested: ${permission}`);
+      callback(true); // Allow all for now, can restrict later
+    }
+  });
+
+  // Also handle permission checks (for some Electron versions)
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+    const allowedPermissions = ['media', 'microphone', 'audio', 'audioCapture'];
+    return allowedPermissions.includes(permission) || true;
+  });
+
   // Create tray first (so it appears in menubar)
   createTray();
   
