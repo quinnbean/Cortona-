@@ -2300,6 +2300,7 @@ DASHBOARD_PAGE = '''
         const socket = io();
         let recognition = null;
         let isListening = false;
+        let isRestarting = false; // Flag to prevent UI flicker during mic restart
         let currentDevice = null;
         let devices = {};
         let activityLog = [];
@@ -3069,6 +3070,7 @@ DASHBOARD_PAGE = '''
             let restartTimeout = null;
             let restartAttempts = 0;
             const MAX_RESTART_ATTEMPTS = 3;
+            let lastRestartTime = 0;
             
             recognition.onend = () => {
                 // Check if we should auto-restart (keep listening in always-listen or continuous mode)
@@ -3078,51 +3080,66 @@ DASHBOARD_PAGE = '''
                 isListening = false;
                 
                 if (shouldRestart) {
+                    isRestarting = true; // Mark as restarting - don't update UI
+                    
                     // Clear any pending restart
                     if (restartTimeout) {
                         clearTimeout(restartTimeout);
                     }
                     
-                    // Restart after a longer delay to prevent flickering
+                    // Prevent restart spam - ensure at least 800ms between restarts
+                    const now = Date.now();
+                    const timeSinceLastRestart = now - lastRestartTime;
+                    const delay = Math.max(800, 800 - timeSinceLastRestart);
+                    
+                    // Restart after delay to prevent flickering
                     restartTimeout = setTimeout(() => {
                         // Only restart if still in always-listen or continuous mode
                         if ((alwaysListen || continuousMode) && !isListening) {
                             // Check restart attempts to prevent infinite loop
                             if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-                                console.log('Too many restart attempts, pausing...');
+                                console.log('Too many restart attempts, taking longer pause...');
                                 restartAttempts = 0;
+                                isRestarting = false;
                                 // Wait longer before trying again
                                 setTimeout(() => {
                                     if ((alwaysListen || continuousMode) && !isListening) {
+                                        lastRestartTime = Date.now();
                                         try { recognition.start(); } catch (e) {}
                                     }
-                                }, 2000);
+                                }, 3000); // Increased from 2000 to 3000
                                 return;
                             }
                             
                             restartAttempts++;
+                            lastRestartTime = Date.now();
                             try {
                                 recognition.start();
                                 // Reset attempts on successful start (will be confirmed in onstart)
                             } catch (e) {
                                 console.log('Restart failed, reinitializing...', e.message);
+                                isRestarting = false;
                                 // Reinitialize and try again
                                 initSpeechRecognition();
                                 setTimeout(() => {
                                     if (alwaysListen || continuousMode) {
                                         try { recognition.start(); } catch (e2) {}
                                     }
-                                }, 500);
+                                }, 1000); // Increased from 500 to 1000
                             }
+                        } else {
+                            isRestarting = false;
                         }
-                    }, 500); // Increased from 300ms to 500ms
+                    }, delay);
                 } else {
+                    isRestarting = false;
                     updateUI();
                 }
             };
             
             recognition.onstart = () => {
                 isListening = true;
+                isRestarting = false; // Restart complete
                 restartAttempts = 0; // Reset on successful start
                 updateUI();
                 if (!alwaysListen) {
@@ -3957,6 +3974,16 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
+            // During restart, keep UI stable - don't flicker between states
+            if (isRestarting && alwaysListen && hasInitialized) {
+                // Keep showing stable "Standby" state during restart
+                micButton.classList.add('listening');
+                micButton.innerHTML = 'ON';
+                voiceStatus.textContent = 'Standby';
+                // Don't update other elements - prevent flicker
+                return;
+            }
+            
             if (isListening) {
                 hasInitialized = true; // Mark as initialized once we're listening
                 micButton.classList.add('listening');
@@ -4021,9 +4048,11 @@ DASHBOARD_PAGE = '''
             const badgeAlways = document.getElementById('badge-always');
             const badgeContinuous = document.getElementById('badge-continuous');
             
-            if (nameInput) nameInput.value = currentDevice?.name || '';
-            if (wakeWordInput) wakeWordInput.value = currentDevice?.wakeWord || '';
-            if (langSelect) langSelect.value = currentDevice?.language || 'en-US';
+            // Only update inputs if they're NOT focused (to prevent overwriting user's typing)
+            const activeElement = document.activeElement;
+            if (nameInput && activeElement !== nameInput) nameInput.value = currentDevice?.name || '';
+            if (wakeWordInput && activeElement !== wakeWordInput) wakeWordInput.value = currentDevice?.wakeWord || '';
+            if (langSelect && activeElement !== langSelect) langSelect.value = currentDevice?.language || 'en-US';
             if (sensitivitySlider) sensitivitySlider.value = sensitivity;
             if (sensitivityLabel) sensitivityLabel.textContent = sensitivityLabels[sensitivity];
             if (alwaysListenToggle) alwaysListenToggle.classList.toggle('active', alwaysListen);
