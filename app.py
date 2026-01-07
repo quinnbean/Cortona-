@@ -1257,7 +1257,7 @@ DASHBOARD_PAGE = '''
         }
         .device-item.listening {
             border-color: var(--success);
-            animation: listening-pulse 2s infinite;
+            background: rgba(16, 185, 129, 0.08);
         }
         @keyframes listening-pulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
@@ -1291,9 +1291,9 @@ DASHBOARD_PAGE = '''
             color: var(--text-muted);
         }
         .device-status.listening {
-            background: rgba(16, 185, 129, 0.2);
+            background: rgba(16, 185, 129, 0.3);
             color: var(--success);
-            animation: blink 1s infinite;
+            font-weight: 600;
         }
         @keyframes blink {
             0%, 100% { opacity: 1; }
@@ -1356,8 +1356,8 @@ DASHBOARD_PAGE = '''
             box-shadow: 0 15px 50px rgba(0, 245, 212, 0.4);
         }
         .mic-button.listening {
-            animation: mic-pulse 1.5s infinite;
             background: linear-gradient(135deg, var(--success), var(--accent));
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
         }
         .mic-button.disabled {
             opacity: 0.5;
@@ -2684,23 +2684,23 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
-                    micButton.innerHTML = '🎙️';
-                    voiceStatus.textContent = 'Ready';
-                    voiceHint.innerHTML = `Say <strong>"${currentDevice?.wakeWord || 'hey computer'}"</strong> to activate`;
+                    micButton.innerHTML = 'ON';
+                    voiceStatus.textContent = 'Standby';
+                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
                 } else {
-                    micButton.innerHTML = '🔴';
-                    voiceStatus.textContent = 'Listening...';
-                    voiceHint.innerHTML = 'Speak now! Click to stop.';
+                    micButton.innerHTML = 'REC';
+                    voiceStatus.textContent = 'Recording';
+                    voiceHint.innerHTML = 'Speak now. Click to stop.';
                 }
             } else {
                 micButton.classList.remove('listening');
-                micButton.innerHTML = '🎤';
+                micButton.innerHTML = 'MIC';
                 if (alwaysListen) {
-                    voiceStatus.textContent = 'Ready';
-                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
+                    voiceStatus.textContent = 'Starting';
+                    voiceHint.innerHTML = 'Initializing microphone...';
                 } else {
-                    voiceStatus.textContent = 'Click to Start';
-                    voiceHint.innerHTML = `Or enable "Always Listen" for hands-free activation`;
+                    voiceStatus.textContent = 'Off';
+                    voiceHint.innerHTML = 'Click to start listening';
                 }
             }
             
