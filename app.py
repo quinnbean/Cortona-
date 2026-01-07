@@ -2509,7 +2509,16 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onerror = (event) => {
-                console.error('Speech recognition error:', event.error);
+                // Ignore common non-errors
+                if (event.error === 'no-speech' || event.error === 'aborted') {
+                    isListening = false;
+                    updateUI();
+                    return;
+                }
+                
+                // Log actual errors
+                console.warn('Speech recognition error:', event.error);
+                
                 if (event.error === 'not-allowed') {
                     addActivity('Microphone access denied. Please allow microphone access.', 'warning');
                     alwaysListen = false;
@@ -2518,7 +2527,7 @@ DASHBOARD_PAGE = '''
                     addActivity('No microphone detected. Check your audio settings.', 'warning');
                 } else if (event.error === 'network') {
                     addActivity('Network error. Check your internet connection.', 'warning');
-                } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                } else {
                     addActivity(`Speech error: ${event.error}`, 'warning');
                 }
                 isListening = false;
