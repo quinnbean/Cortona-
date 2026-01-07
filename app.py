@@ -5363,6 +5363,38 @@ def claude_status():
         'features': ['adaptive', 'context-aware', 'speech-correction'] if CLAUDE_AVAILABLE else []
     })
 
+@app.route('/api/debug-claude')
+def debug_claude():
+    """Debug endpoint to check Claude configuration"""
+    import os
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    
+    # Try to actually call Claude with a simple test
+    test_error = None
+    if CLAUDE_AVAILABLE and claude_client:
+        try:
+            test = claude_client.messages.create(
+                model="claude-opus-4-5-20251101",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Say hi"}]
+            )
+            test_result = "SUCCESS: " + test.content[0].text
+        except Exception as e:
+            test_result = "FAILED"
+            test_error = str(e)
+    else:
+        test_result = "CLIENT NOT CREATED"
+    
+    return jsonify({
+        'key_exists': bool(api_key),
+        'key_length': len(api_key) if api_key else 0,
+        'key_prefix': api_key[:10] + '...' if len(api_key) > 10 else 'TOO_SHORT',
+        'claude_available': CLAUDE_AVAILABLE,
+        'client_created': claude_client is not None,
+        'test_result': test_result,
+        'test_error': test_error
+    })
+
 @app.route('/api/version')
 def get_version():
     """Return the current client version"""
