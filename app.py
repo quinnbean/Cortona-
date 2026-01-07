@@ -3444,8 +3444,8 @@ DASHBOARD_PAGE = '''
                     body: JSON.stringify(contextData)
                 });
                 const data = await response.json();
-                if (data.error || data.fallback) return null;
                 
+                // Claude ALWAYS returns a valid response now (no fallback)
                 // Log if Claude corrected the transcription
                 if (data.correctedText && data.correctedText !== text) {
                     console.log('🔧 Speech corrected:', text, '→', data.correctedText);
@@ -3455,7 +3455,13 @@ DASHBOARD_PAGE = '''
                 return data;
             } catch (e) {
                 console.error('Claude parse error:', e);
-                return null;
+                // Return a safe default instead of null
+                return {
+                    action: 'clarify',
+                    speak: 'Sorry, connection issue. Please try again.',
+                    response: 'Error',
+                    needsClarification: true
+                };
             }
         }
         
@@ -3564,14 +3570,22 @@ DASHBOARD_PAGE = '''
                     }
                 }
             } else {
-                // No Claude result - show user message anyway
+                // Claude always returns a result now, but handle edge case
                 addChatMessage(text, 'user');
+                addChatMessage('Processing...', 'jarvis');
             }
             
-            // Fallback to regex if Claude didn't parse
+            // Claude is the SOLE decision maker - no regex fallback
+            // If parsed is still null (shouldn't happen), create minimal action
             if (!parsed) {
-                parsed = parseCommand(text);
-                console.log('Regex:', parsed.targetApp?.name || 'local', '→', parsed.command);
+                console.log('⚠️ No Claude result - using text as-is');
+                parsed = {
+                    originalText: text,
+                    targetDevice: null,
+                    targetApp: null,
+                    command: text,
+                    action: 'type'
+                };
             }
             
             // If targeting another device, route the command
@@ -5180,9 +5194,16 @@ RECENT CONVERSATION:
 @login_required
 @api_limit
 def api_parse_command():
-    """Use Claude to intelligently parse a voice command with context"""
+    """Use Claude to intelligently parse a voice command with context - NO FALLBACK"""
     if not CLAUDE_AVAILABLE or not claude_client:
-        return jsonify({'error': 'Claude not available', 'fallback': True}), 200
+        # No Claude = tell user to configure it, but still return a valid response
+        return jsonify({
+            'action': 'clarify',
+            'speak': 'AI is not configured. Please add your ANTHROPIC_API_KEY in Render settings.',
+            'response': 'AI unavailable',
+            'needsClarification': True,
+            'claude': False
+        }), 200
     
     # Try to get JSON data, handle errors gracefully
     try:
@@ -5201,8 +5222,13 @@ def api_parse_command():
     }
     
     if not text or len(text.strip()) == 0:
-        # Return fallback instead of 400 - let regex handle it
-        return jsonify({'error': 'No text provided', 'fallback': True}), 200
+        return jsonify({
+            'action': 'clarify',
+            'speak': "I didn't catch that. Could you say it again?",
+            'response': 'No input',
+            'needsClarification': True,
+            'claude': True
+        }), 200
     
     try:
         # Get conversation history for context
@@ -5226,6 +5252,12 @@ def api_parse_command():
         # Parse the response
         response_text = message.content[0].text.strip()
         
+        # Clean up response - remove markdown code blocks if Claude added them
+        if response_text.startswith('```'):
+            response_text = response_text.split('\n', 1)[-1]
+        if response_text.endswith('```'):
+            response_text = response_text[:-3].strip()
+        
         # Try to parse as JSON
         try:
             parsed = json.loads(response_text)
@@ -5237,16 +5269,27 @@ def api_parse_command():
             
             return jsonify(parsed)
         except json.JSONDecodeError:
-            # If Claude didn't return valid JSON, return the raw response
+            # Claude returned non-JSON - treat as conversational response
+            print(f"Claude returned non-JSON: {response_text[:100]}")
+            add_to_history(session_id, 'jarvis', response_text[:100])
             return jsonify({
-                'error': 'Invalid JSON from Claude',
-                'raw': response_text,
-                'fallback': True
+                'action': 'type',  # Default: just type what user said
+                'content': text,
+                'speak': response_text[:150] if len(response_text) < 200 else None,
+                'response': 'Processed',
+                'claude': True
             })
             
     except Exception as e:
         print(f"Claude API error: {e}")
-        return jsonify({'error': str(e), 'fallback': True}), 200
+        return jsonify({
+            'action': 'clarify',
+            'speak': 'Sorry, I had trouble understanding. Could you try again?',
+            'response': 'Error',
+            'needsClarification': True,
+            'claude': True,
+            'error': str(e)
+        }), 200
 
 
 @app.route('/api/clear-history', methods=['POST'])
