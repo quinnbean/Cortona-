@@ -3444,8 +3444,8 @@ DASHBOARD_PAGE = '''
                     body: JSON.stringify(contextData)
                 });
                 const data = await response.json();
-                if (data.error || data.fallback) return null;
                 
+                // Claude ALWAYS returns a valid response now (no fallback)
                 // Log if Claude corrected the transcription
                 if (data.correctedText && data.correctedText !== text) {
                     console.log('🔧 Speech corrected:', text, '→', data.correctedText);
@@ -3455,7 +3455,13 @@ DASHBOARD_PAGE = '''
                 return data;
             } catch (e) {
                 console.error('Claude parse error:', e);
-                return null;
+                // Return a safe default instead of null
+                return {
+                    action: 'clarify',
+                    speak: 'Sorry, connection issue. Please try again.',
+                    response: 'Error',
+                    needsClarification: true
+                };
             }
         }
         
@@ -3564,14 +3570,22 @@ DASHBOARD_PAGE = '''
                     }
                 }
             } else {
-                // No Claude result - show user message anyway
+                // Claude always returns a result now, but handle edge case
                 addChatMessage(text, 'user');
+                addChatMessage('Processing...', 'jarvis');
             }
             
-            // Fallback to regex if Claude didn't parse
+            // Claude is the SOLE decision maker - no regex fallback
+            // If parsed is still null (shouldn't happen), create minimal action
             if (!parsed) {
-                parsed = parseCommand(text);
-                console.log('Regex:', parsed.targetApp?.name || 'local', '→', parsed.command);
+                console.log('⚠️ No Claude result - using text as-is');
+                parsed = {
+                    originalText: text,
+                    targetDevice: null,
+                    targetApp: null,
+                    command: text,
+                    action: 'type'
+                };
             }
             
             // If targeting another device, route the command
@@ -5038,20 +5052,53 @@ def add_to_history(session_id, role, content):
         conversation_history[session_id] = history[-MAX_HISTORY_LENGTH:]
 
 def format_history_for_claude(session_id, limit=10):
-    """Format recent history for Claude context"""
+    """Format recent history as message objects for Claude API.
+    
+    Returns a list of message dicts with proper alternating user/assistant roles.
+    Ensures no two consecutive messages have the same role.
+    """
     history = get_session_history(session_id)[-limit:]
     if not history:
-        return ""
+        return []
     
-    formatted = []
+    messages = []
+    last_role = None
+    
     for msg in history:
-        role_label = "User" if msg['role'] == 'user' else "Jarvis"
-        formatted.append(f"{role_label}: {msg['content']}")
+        # Map 'jarvis' to 'assistant' for Claude API
+        role = 'assistant' if msg['role'] == 'jarvis' else msg['role']
+        content = msg.get('content', '').strip()
+        
+        if not content:
+            continue
+            
+        # Handle consecutive same-role messages by merging
+        if role == last_role and messages:
+            # Merge with previous message
+            messages[-1]['content'] += f"\n{content}"
+        else:
+            messages.append({
+                'role': role,
+                'content': content
+            })
+            last_role = role
     
-    return "\n".join(formatted)
+    # Claude API requires messages to start with 'user' role
+    # If first message is 'assistant', prepend a context message
+    if messages and messages[0]['role'] == 'assistant':
+        messages.insert(0, {
+            'role': 'user',
+            'content': '(continuing conversation)'
+        })
+    
+    return messages
 
-def build_adaptive_prompt(context=None, history_text=None):
-    """Build a dynamic, context-aware system prompt"""
+def build_adaptive_prompt(context=None):
+    """Build a dynamic, context-aware system prompt.
+    
+    Note: Conversation history is now passed as proper message turns in the API call,
+    not embedded in the system prompt. This gives Claude better context understanding.
+    """
     
     base_prompt = """You are Jarvis, an intelligent, ADAPTIVE voice assistant. You understand context, remember recent conversation, and can infer what the user means even from incomplete commands.
 
@@ -5157,32 +5204,32 @@ Return ONLY valid JSON."""
     if context:
         context_section = f"""
 
-CURRENT CONTEXT:
+CURRENT SESSION CONTEXT:
 - Current app in focus: {context.get('currentApp', 'unknown')}
 - Last action: {context.get('lastAction', 'none')}
 - User activity: {context.get('activity', 'general')}
 """
 
-    # Add conversation history if provided
-    history_section = ""
-    if history_text:
-        history_section = f"""
+    # Note: Conversation history is now passed as proper message turns in the API call,
+    # not embedded in the system prompt. This gives Claude better context understanding.
 
-RECENT CONVERSATION:
-{history_text}
----
-"""
-
-    return base_prompt + context_section + history_section
+    return base_prompt + context_section
 
 @app.route('/api/parse-command', methods=['POST'])
 @csrf.exempt
 @login_required
 @api_limit
 def api_parse_command():
-    """Use Claude to intelligently parse a voice command with context"""
+    """Use Claude to intelligently parse a voice command with context - NO FALLBACK"""
     if not CLAUDE_AVAILABLE or not claude_client:
-        return jsonify({'error': 'Claude not available', 'fallback': True}), 200
+        # No Claude = tell user to configure it, but still return a valid response
+        return jsonify({
+            'action': 'clarify',
+            'speak': 'AI is not configured. Please add your ANTHROPIC_API_KEY in Render settings.',
+            'response': 'AI unavailable',
+            'needsClarification': True,
+            'claude': False
+        }), 200
     
     # Try to get JSON data, handle errors gracefully
     try:
@@ -5201,30 +5248,52 @@ def api_parse_command():
     }
     
     if not text or len(text.strip()) == 0:
-        # Return fallback instead of 400 - let regex handle it
-        return jsonify({'error': 'No text provided', 'fallback': True}), 200
+        return jsonify({
+            'action': 'clarify',
+            'speak': "I didn't catch that. Could you say it again?",
+            'response': 'No input',
+            'needsClarification': True,
+            'claude': True
+        }), 200
     
     try:
-        # Get conversation history for context
-        history_text = format_history_for_claude(session_id)
+        # Get conversation history as proper message objects (not embedded in system prompt)
+        history_messages = format_history_for_claude(session_id, limit=10)
         
-        # Build adaptive prompt with context
-        system_prompt = build_adaptive_prompt(context, history_text)
+        # Build system prompt with context (no history - that's in messages now)
+        system_prompt = build_adaptive_prompt(context)
         
-        # Add user's message to history
+        # Add user's message to history BEFORE the API call
         add_to_history(session_id, 'user', text)
+        
+        # Build the full messages array: history + current command
+        # This gives Claude proper conversation context through message turns
+        all_messages = history_messages + [
+            {"role": "user", "content": f"Parse this voice command: \"{text}\""}
+        ]
+        
+        # Ensure we don't have consecutive same-role messages (API requirement)
+        # This can happen if the last history message was 'user' and we're adding another 'user'
+        if len(all_messages) >= 2:
+            if all_messages[-2]['role'] == 'user':
+                # Merge with previous user message or insert assistant acknowledgment
+                all_messages.insert(-1, {"role": "assistant", "content": '{"response": "Listening..."}'})
         
         message = claude_client.messages.create(
             model="claude-opus-4-5-20251101",  # Opus 4.5 - most intelligent model
-            max_tokens=500,
-            messages=[
-                {"role": "user", "content": f"Parse this voice command: \"{text}\""}
-            ],
+            max_tokens=2048,  # Increased for quality responses
+            messages=all_messages,
             system=system_prompt
         )
         
         # Parse the response
         response_text = message.content[0].text.strip()
+        
+        # Clean up response - remove markdown code blocks if Claude added them
+        if response_text.startswith('```'):
+            response_text = response_text.split('\n', 1)[-1]
+        if response_text.endswith('```'):
+            response_text = response_text[:-3].strip()
         
         # Try to parse as JSON
         try:
@@ -5237,16 +5306,27 @@ def api_parse_command():
             
             return jsonify(parsed)
         except json.JSONDecodeError:
-            # If Claude didn't return valid JSON, return the raw response
+            # Claude returned non-JSON - treat as conversational response
+            print(f"Claude returned non-JSON: {response_text[:100]}")
+            add_to_history(session_id, 'jarvis', response_text[:100])
             return jsonify({
-                'error': 'Invalid JSON from Claude',
-                'raw': response_text,
-                'fallback': True
+                'action': 'type',  # Default: just type what user said
+                'content': text,
+                'speak': response_text[:150] if len(response_text) < 200 else None,
+                'response': 'Processed',
+                'claude': True
             })
             
     except Exception as e:
         print(f"Claude API error: {e}")
-        return jsonify({'error': str(e), 'fallback': True}), 200
+        return jsonify({
+            'action': 'clarify',
+            'speak': 'Sorry, I had trouble understanding. Could you try again?',
+            'response': 'Error',
+            'needsClarification': True,
+            'claude': True,
+            'error': str(e)
+        }), 200
 
 
 @app.route('/api/clear-history', methods=['POST'])
