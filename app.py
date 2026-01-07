@@ -3065,14 +3065,10 @@ DASHBOARD_PAGE = '''
             recognition.interimResults = true;
             recognition.lang = currentDevice?.language || 'en-US';
             
-            recognition.onstart = () => {
-                isListening = true;
-                updateUI();
-                if (!alwaysListen) {
-                    addActivity('Started listening', 'info');
-                }
-                socket.emit('device_status', { deviceId, status: 'listening' });
-            };
+            // Debounce restart to prevent rapid on/off flickering
+            let restartTimeout = null;
+            let restartAttempts = 0;
+            const MAX_RESTART_ATTEMPTS = 3;
             
             recognition.onend = () => {
                 // Check if we should auto-restart (keep listening in always-listen or continuous mode)
@@ -3082,13 +3078,32 @@ DASHBOARD_PAGE = '''
                 isListening = false;
                 
                 if (shouldRestart) {
-                    // Restart after a brief delay
-                    setTimeout(() => {
+                    // Clear any pending restart
+                    if (restartTimeout) {
+                        clearTimeout(restartTimeout);
+                    }
+                    
+                    // Restart after a longer delay to prevent flickering
+                    restartTimeout = setTimeout(() => {
                         // Only restart if still in always-listen or continuous mode
                         if ((alwaysListen || continuousMode) && !isListening) {
+                            // Check restart attempts to prevent infinite loop
+                            if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+                                console.log('Too many restart attempts, pausing...');
+                                restartAttempts = 0;
+                                // Wait longer before trying again
+                                setTimeout(() => {
+                                    if ((alwaysListen || continuousMode) && !isListening) {
+                                        try { recognition.start(); } catch (e) {}
+                                    }
+                                }, 2000);
+                                return;
+                            }
+                            
+                            restartAttempts++;
                             try {
                                 recognition.start();
-                                // isListening will be set to true by onstart
+                                // Reset attempts on successful start (will be confirmed in onstart)
                             } catch (e) {
                                 console.log('Restart failed, reinitializing...', e.message);
                                 // Reinitialize and try again
@@ -3097,13 +3112,23 @@ DASHBOARD_PAGE = '''
                                     if (alwaysListen || continuousMode) {
                                         try { recognition.start(); } catch (e2) {}
                                     }
-                                }, 100);
+                                }, 500);
                             }
                         }
-                    }, 300);
+                    }, 500); // Increased from 300ms to 500ms
                 } else {
                     updateUI();
                 }
+            };
+            
+            recognition.onstart = () => {
+                isListening = true;
+                restartAttempts = 0; // Reset on successful start
+                updateUI();
+                if (!alwaysListen) {
+                    addActivity('Started listening', 'info');
+                }
+                socket.emit('device_status', { deviceId, status: 'listening' });
             };
             
             recognition.onresult = (event) => {
@@ -5839,3 +5864,4 @@ if __name__ == '__main__':
     update_thread.start()
     
     socketio.run(app, host='0.0.0.0', port=port)
+
