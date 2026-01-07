@@ -1720,6 +1720,34 @@ DASHBOARD_PAGE = '''
         .transcript-text.active {
             color: var(--text);
         }
+        .chat-message {
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+        .chat-message.user {
+            background: rgba(0, 245, 212, 0.15);
+            border: 1px solid rgba(0, 245, 212, 0.3);
+            align-self: flex-end;
+            color: var(--text);
+        }
+        .chat-message.jarvis {
+            background: rgba(123, 44, 191, 0.15);
+            border: 1px solid rgba(123, 44, 191, 0.3);
+            align-self: flex-start;
+            color: var(--text);
+        }
+        .chat-message .sender {
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            opacity: 0.7;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
         
         /* Browser Support Warning */
         .browser-warning {
@@ -2021,13 +2049,15 @@ DASHBOARD_PAGE = '''
                         🔄 Continuous Mode
                     </span>
                 </div>
-                <div class="transcript-box">
+                <div class="transcript-box" id="chat-box">
                     <h4 id="transcript-header" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                        📝 Live Transcript 
+                        💬 Chat with Jarvis
                         <span id="transcript-count" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; display: none;">0</span>
                         <span style="font-size: 10px; color: var(--text-muted); margin-left: auto;">Click for history</span>
                     </h4>
-                    <div class="transcript-text" id="transcript">Waiting for speech...</div>
+                    <div id="chat-messages" style="display: flex; flex-direction: column; gap: 12px; max-height: 200px; overflow-y: auto;">
+                        <div class="transcript-text" id="transcript">Say your wake word or click the mic...</div>
+                    </div>
                 </div>
             </div>
             
@@ -2487,6 +2517,15 @@ DASHBOARD_PAGE = '''
         function parseCommand(text) {
             // Trim whitespace - speech recognition often adds leading/trailing spaces
             text = text.trim();
+            
+            // Fix common speech recognition mishearings
+            // "right" at the start of a command is often "write"
+            if (/^right\s/i.test(text)) {
+                text = text.replace(/^right\s/i, 'write ');
+            }
+            // Handle "cursor right" → "cursor write" 
+            text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
+            
             const lowerText = text.toLowerCase();
             const result = {
                 originalText: text,
@@ -2536,10 +2575,9 @@ DASHBOARD_PAGE = '''
                         // "paste in cursor something"
                         new RegExp(`^paste\\s+(in|into|to)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "write in cursor something" or "type into cursor something"
-                        // Note: "right" is a common mishearing of "write"
-                        new RegExp(`^(write|right|type|put|enter|say)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^(write|type|put|enter|say)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "write cursor something" (without preposition)
-                        new RegExp(`^(write|right|type|put|enter|say)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^(write|type|put|enter|say)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "tell cursor to write something"
                         new RegExp(`^tell\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
                         // "use cursor to write something"  
@@ -2566,13 +2604,21 @@ DASHBOARD_PAGE = '''
             
             // Check for action keywords
             const actionPatterns = {
-                'type': /^(type|write|right|enter|input|say)\s+(.+)/i,
+                'type': /^(type|write|enter|input|say)\s+(.+)/i,
                 'paste': /^paste\s+(.+)/i,
                 'search': /^(search|google|look up|search for)\s+(.+)/i,
                 'run': /^(run|execute|do)\s+(.+)/i,
                 'open_tab': /^open\s+(a\s+)?new\s+tab$/i,
                 'open_url': /^(open|go to|navigate to|launch)\s+(.+)/i,
             };
+            
+            // If we have a target app but no action keyword match, default to typing the rest
+            // e.g., "cursor hello world" → type "hello world" in cursor
+            if (result.targetApp && result.command && !Object.values(actionPatterns).some(p => p.test(result.command))) {
+                // No action keyword found - just type the content
+                result.action = 'type';
+                // result.command is already set to the text after the app name
+            }
             
             // Common website shortcuts
             const websiteShortcuts = {
@@ -3249,6 +3295,42 @@ DASHBOARD_PAGE = '''
             };
         }
         
+        // Add a message to the chat
+        function addChatMessage(text, sender = 'user') {
+            const chatMessages = document.getElementById('chat-messages');
+            const transcript = document.getElementById('transcript');
+            
+            // Clear the initial "waiting" message
+            if (transcript.textContent.includes('Say your wake word')) {
+                transcript.style.display = 'none';
+            }
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${sender}`;
+            messageDiv.innerHTML = `
+                <div class="sender">${sender === 'jarvis' ? '🤖 Jarvis' : '🎤 You'}</div>
+                <div>${text}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Keep only last 10 messages
+            while (chatMessages.children.length > 11) {
+                chatMessages.removeChild(chatMessages.children[1]);
+            }
+        }
+        
+        // Clear chat messages
+        function clearChat() {
+            const chatMessages = document.getElementById('chat-messages');
+            const transcript = document.getElementById('transcript');
+            chatMessages.innerHTML = '';
+            transcript.style.display = 'block';
+            transcript.textContent = 'Say your wake word or click the mic...';
+            chatMessages.appendChild(transcript);
+        }
+        
         function playSound(type) {
             const ctx = initAudioContext();
             if (!ctx) return;
@@ -3311,6 +3393,16 @@ DASHBOARD_PAGE = '''
         
         async function handleTranscript(text, skipRouting = false) {
             text = text.trim();
+            
+            // Fix common speech recognition errors before processing
+            // "right" is often misheard as "write"
+            if (/^right\s/i.test(text)) {
+                text = text.replace(/^right\s/i, 'write ');
+                console.log('Corrected "right" to "write":', text);
+            }
+            // "cursor right something" → "cursor write something"
+            text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
+            
             console.log('Voice:', text);
             
             let parsed = null;
@@ -3320,14 +3412,15 @@ DASHBOARD_PAGE = '''
                 const claudeResult = await parseWithClaude(text);
                 
                 if (claudeResult) {
+                    // Show what user said in chat
+                    addChatMessage(text, 'user');
+                    
                     // Check if Claude needs clarification
                     if (claudeResult.needsClarification || claudeResult.action === 'clarify') {
                         const clarifyMessage = claudeResult.speak || 'Could you be more specific?';
                         
-                        // Show clarification in transcript
-                        const transcriptEl = document.getElementById('transcript');
-                        transcriptEl.innerHTML = `<span style="color: var(--accent);">🤖 Jarvis:</span> ${clarifyMessage}`;
-                        transcriptEl.classList.add('active');
+                        // Show Jarvis response in chat
+                        addChatMessage(clarifyMessage, 'jarvis');
                         
                         // Speak the clarification
                         speakText(clarifyMessage);
@@ -3343,9 +3436,8 @@ DASHBOARD_PAGE = '''
                     
                     // Claude has a response to speak (but still executing)
                     if (claudeResult.speak && !claudeResult.needsClarification) {
+                        addChatMessage(claudeResult.speak, 'jarvis');
                         speakText(claudeResult.speak);
-                        const transcriptEl = document.getElementById('transcript');
-                        transcriptEl.innerHTML = `<span style="color: var(--accent);">🤖</span> ${claudeResult.speak}`;
                     }
                     
                     // Normal execution
@@ -3364,9 +3456,16 @@ DASHBOARD_PAGE = '''
                         console.log('🧠 Claude:', claudeResult.response || `${parsed.action} → ${appId || 'local'}`);
                         if (claudeResult.response) {
                             addActivity(`🧠 ${claudeResult.response}`, 'info');
+                            // Show brief confirmation in chat (but don't speak for normal commands)
+                            if (!claudeResult.speak) {
+                                addChatMessage(`✓ ${claudeResult.response}`, 'jarvis');
+                            }
                         }
                     }
                 }
+            } else {
+                // No Claude result - show user message anyway
+                addChatMessage(text, 'user');
             }
             
             // Fallback to regex if Claude didn't parse
