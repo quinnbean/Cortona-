@@ -2442,7 +2442,7 @@ DASHBOARD_PAGE = '''
         const deviceInfo = getDeviceInfo();
         
         // Use device type as stable ID (so Mac is always "macbook", Windows is always "windows_pc")
-        const deviceId = deviceInfo.name.toLowerCase().replace(/\s+/g, '_');
+        const deviceId = deviceInfo.name.toLowerCase().replace(/\\s+/g, '_');
         
         // Load ALL saved settings (including name, wakeWord, icon that may have been edited remotely)
         let savedPrefs = {};
@@ -2526,11 +2526,11 @@ DASHBOARD_PAGE = '''
             
             // Fix common speech recognition mishearings
             // "right" at the start of a command is often "write"
-            if (/^right\s/i.test(text)) {
-                text = text.replace(/^right\s/i, 'write ');
+            if (/^right\\s/i.test(text)) {
+                text = text.replace(/^right\\s/i, 'write ');
             }
             // Handle "cursor right" → "cursor write" 
-            text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
+            text = text.replace(/\\b(cursor|claude|chatgpt|terminal)\\s+right\\s/gi, '$1 write ');
             
             const lowerText = text.toLowerCase();
             const result = {
@@ -2610,12 +2610,12 @@ DASHBOARD_PAGE = '''
             
             // Check for action keywords
             const actionPatterns = {
-                'type': /^(type|write|enter|input|say)\s+(.+)/i,
-                'paste': /^paste\s+(.+)/i,
-                'search': /^(search|google|look up|search for)\s+(.+)/i,
-                'run': /^(run|execute|do)\s+(.+)/i,
-                'open_tab': /^open\s+(a\s+)?new\s+tab$/i,
-                'open_url': /^(open|go to|navigate to|launch)\s+(.+)/i,
+                'type': /^(type|write|enter|input|say)\\s+(.+)/i,
+                'paste': /^paste\\s+(.+)/i,
+                'search': /^(search|google|look up|search for)\\s+(.+)/i,
+                'run': /^(run|execute|do)\\s+(.+)/i,
+                'open_tab': /^open\\s+(a\\s+)?new\\s+tab$/i,
+                'open_url': /^(open|go to|navigate to|launch)\\s+(.+)/i,
             };
             
             // If we have a target app but no action keyword match, default to typing the rest
@@ -2850,11 +2850,11 @@ DASHBOARD_PAGE = '''
             
             // Patterns that indicate cross-device routing
             const sendPatterns = [
-                /^send\s+to\s+(.+?)\s+(?:type\s+|write\s+|say\s+)?(.+)$/i,
-                /^tell\s+(.+?)\s+to\s+(?:type\s+|write\s+)?(.+)$/i,
-                /^on\s+(.+?)\s+(?:type\s+|write\s+)(.+)$/i,
-                /^(.+?)\s+type\s+(.+)$/i,  // "Windows PC type hello"
-                /^(.+?)\s+write\s+(.+)$/i  // "MacBook write hello"
+                /^send\\s+to\\s+(.+?)\\s+(?:type\\s+|write\\s+|say\\s+)?(.+)$/i,
+                /^tell\\s+(.+?)\\s+to\\s+(?:type\\s+|write\\s+)?(.+)$/i,
+                /^on\\s+(.+?)\\s+(?:type\\s+|write\\s+)(.+)$/i,
+                /^(.+?)\\s+type\\s+(.+)$/i,  // "Windows PC type hello"
+                /^(.+?)\\s+write\\s+(.+)$/i  // "MacBook write hello"
             ];
             
             // Get all other devices
@@ -2897,7 +2897,7 @@ DASHBOARD_PAGE = '''
                 if (deviceName && lowerTranscript.startsWith(deviceName)) {
                     var afterName = transcript.substring(deviceName.length).trim();
                     // Must have "type" or "write" after the device name
-                    var typeMatch = afterName.match(/^(?:type|write)\s+(.+)$/i);
+                    var typeMatch = afterName.match(/^(?:type|write)\\s+(.+)$/i);
                     if (typeMatch) {
                         return {
                             device: device,
@@ -3464,12 +3464,12 @@ DASHBOARD_PAGE = '''
             
             // Basic pre-processing (Claude will do more sophisticated correction)
             // "right" is often misheard as "write"
-            if (/^right\s/i.test(text)) {
-                text = text.replace(/^right\s/i, 'write ');
-                console.log('Pre-corrected "right" to "write":', text);
+            if (/^right\\s/i.test(text)) {
+                text = text.replace(/^right\\s/i, 'write ');
+                console.log('Corrected "right" to "write":', text);
             }
             // "cursor right something" → "cursor write something"
-            text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
+            text = text.replace(/\\b(cursor|claude|chatgpt|terminal)\\s+right\\s/gi, '$1 write ');
             
             console.log('Voice:', text);
             
