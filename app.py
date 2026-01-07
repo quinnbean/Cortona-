@@ -2565,27 +2565,71 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Check if Claude is available (disabled for now - using regex)
+        // Check if Claude is available
         let claudeAvailable = false;
         
-        // Claude check - wrapped in try/catch to prevent blocking
+        // Check Claude status after page loads
         setTimeout(() => {
             fetch('/api/claude-status')
                 .then(r => r.json())
                 .then(data => {
                     claudeAvailable = data.available;
                     if (claudeAvailable) {
-                        console.log('🧠 Claude AI available');
+                        console.log('🧠 Claude AI ready');
+                        addActivity('🧠 AI mode enabled', 'success');
                     }
                 })
                 .catch(() => { claudeAvailable = false; });
-        }, 2000); // Delay check to not block page load
+        }, 1000);
         
-        function handleTranscript(text, skipRouting = false) {
-            // Use regex parsing (fast and reliable)
-            const parsed = parseCommand(text);
-            console.log('Voice input:', text);
-            console.log('Parsed:', parsed.targetApp?.name || 'local', '->', parsed.command);
+        async function parseWithClaude(text) {
+            try {
+                const response = await fetch('/api/parse-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                const data = await response.json();
+                if (data.error || data.fallback) return null;
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+        
+        async function handleTranscript(text, skipRouting = false) {
+            text = text.trim();
+            console.log('Voice:', text);
+            
+            let parsed = null;
+            
+            // Try Claude first for intelligent parsing
+            if (claudeAvailable && text.length > 2) {
+                const claudeResult = await parseWithClaude(text);
+                if (claudeResult && (claudeResult.targetApp || claudeResult.action)) {
+                    const appId = (claudeResult.targetApp || '').toLowerCase();
+                    const knownApp = knownApps[appId];
+                    
+                    parsed = {
+                        originalText: text,
+                        targetDevice: null,
+                        targetApp: knownApp ? { id: appId, ...knownApp } : (appId ? { id: appId, name: claudeResult.targetApp, icon: '🤖' } : null),
+                        command: claudeResult.content || text,
+                        action: claudeResult.action || 'type'
+                    };
+                    
+                    console.log('🧠 Claude:', claudeResult.response || `${parsed.action} → ${appId || 'local'}`);
+                    if (claudeResult.response) {
+                        addActivity(`🧠 ${claudeResult.response}`, 'info');
+                    }
+                }
+            }
+            
+            // Fallback to regex if Claude didn't parse
+            if (!parsed) {
+                parsed = parseCommand(text);
+                console.log('Regex:', parsed.targetApp?.name || 'local', '→', parsed.command);
+            }
             
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
@@ -3447,29 +3491,39 @@ CLIENT_VERSION = "1.2.0"
 # CLAUDE AI COMMAND PARSING
 # ============================================================================
 
-COMMAND_PARSE_PROMPT = """You are a voice command parser for a voice-controlled computer system. 
-Parse the user's spoken command and return a JSON object with these fields:
+COMMAND_PARSE_PROMPT = """You are Jarvis, a voice command parser for a computer control system.
 
-- "targetApp": The app to control (cursor, claude, chatgpt, terminal, browser, notes, slack, discord, vscode, or null if none specified)
-- "action": The action to perform (type, paste, search, run, open, or null)
-- "content": The actual text/content to type or execute (extract just the content, not the command words)
-- "response": A brief, friendly response to speak back to the user (1 sentence max)
-- "confidence": How confident you are this is correct (high, medium, low)
+Parse voice commands and return JSON:
+{
+  "targetApp": "cursor" | "claude" | "chatgpt" | "terminal" | "browser" | "notes" | "slack" | "discord" | null,
+  "action": "type" | "open" | "search" | "run" | null,
+  "content": "the text to type or action to take",
+  "response": "Brief friendly confirmation (5 words max)"
+}
 
-Available apps: cursor (code editor), claude, chatgpt, copilot, gemini, terminal, browser, notes, slack, discord
+APPS:
+- cursor/curser = Code editor (Cursor IDE)
+- claude/cloud = Claude AI chat
+- chatgpt/GPT = ChatGPT
+- terminal/command = Terminal/shell
+- browser/chrome/safari = Web browser
 
-Examples:
-- "cursor write hello world" → {"targetApp": "cursor", "action": "type", "content": "hello world", "response": "Typing in Cursor", "confidence": "high"}
-- "search for Python tutorials" → {"targetApp": "browser", "action": "search", "content": "Python tutorials", "response": "Searching for Python tutorials", "confidence": "high"}
-- "open terminal" → {"targetApp": "terminal", "action": "open", "content": null, "response": "Opening Terminal", "confidence": "high"}
-- "type hello" → {"targetApp": null, "action": "type", "content": "hello", "response": "Typing hello", "confidence": "high"}
-- "ask Claude how to make a sandwich" → {"targetApp": "claude", "action": "type", "content": "how to make a sandwich", "response": "Asking Claude", "confidence": "high"}
+COMMON MISHEARINGS (fix these):
+- "right" → "write"
+- "curser" → "cursor"  
+- "type" alone → action is type, content is what follows
+- "cloud" → "claude"
 
-Handle common speech recognition errors:
-- "right" often means "write"
-- "cursor" might be heard as "curser" or "cursor"
+EXAMPLES:
+"cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","response":"Typing in Cursor"}
+"cursor right hello world" → {"targetApp":"cursor","action":"type","content":"hello world","response":"Typing in Cursor"}
+"open terminal" → {"targetApp":"terminal","action":"open","content":null,"response":"Opening Terminal"}
+"search how to code" → {"targetApp":"browser","action":"search","content":"how to code","response":"Searching"}
+"type this is a test" → {"targetApp":null,"action":"type","content":"this is a test","response":"Typing"}
+"ask claude about python" → {"targetApp":"claude","action":"type","content":"about python","response":"Asking Claude"}
+"tell chatgpt to explain react" → {"targetApp":"chatgpt","action":"type","content":"explain react","response":"Asking ChatGPT"}
 
-Return ONLY the JSON object, no other text."""
+Return ONLY valid JSON, nothing else."""
 
 @app.route('/api/parse-command', methods=['POST'])
 @login_required
