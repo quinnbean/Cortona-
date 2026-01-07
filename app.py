@@ -1845,6 +1845,18 @@ DASHBOARD_PAGE = '''
                     </div>
                 </div>
                 
+                <!-- Test Connection Button -->
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button onclick="testDesktopConnection()" 
+                            style="flex: 1; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
+                        🔌 Test Desktop Connection
+                    </button>
+                    <button onclick="testTypeToCursor()" 
+                            style="flex: 1; padding: 12px; background: var(--accent); border: none; border-radius: 10px; color: var(--bg-primary); cursor: pointer; font-size: 14px; font-weight: 600;">
+                        ⌨️ Test Type to Cursor
+                    </button>
+                </div>
+                
                 <!-- Last Command -->
                 <div id="last-command-box" style="margin-top: 20px; padding: 16px; background: var(--bg-primary); border-radius: 12px; display: none;">
                     <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Last Routed Command</div>
@@ -2172,6 +2184,53 @@ DASHBOARD_PAGE = '''
             
             showLastCommand(targetDevice.icon || '💻', `→ ${targetDevice.name}`, command);
             addActivity(`📤 Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
+        }
+        
+        // Test desktop client connection
+        function testDesktopConnection() {
+            console.log('Testing desktop connection...');
+            console.log('All devices:', devices);
+            
+            const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
+            
+            if (desktopClient) {
+                addActivity(`✅ Desktop client found: ${desktopClient.name} (${desktopClient.id})`, 'success');
+                console.log('Desktop client:', desktopClient);
+                
+                // Send a test ping
+                socket.emit('route_command', {
+                    fromDeviceId: deviceId,
+                    toDeviceId: desktopClient.id,
+                    command: '--- TEST CONNECTION FROM VOICE HUB ---',
+                    action: 'type',
+                    timestamp: new Date().toISOString()
+                });
+                addActivity(`📤 Sent test ping to ${desktopClient.name}`, 'info');
+            } else {
+                addActivity('❌ No desktop client found! Check if terminal is running.', 'warning');
+                console.log('No desktop client. Device types:', Object.values(devices).map(d => ({name: d.name, type: d.type})));
+            }
+        }
+        
+        // Test typing to Cursor app
+        function testTypeToCursor() {
+            console.log('Testing type to Cursor...');
+            
+            const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
+            
+            if (desktopClient) {
+                socket.emit('route_command', {
+                    fromDeviceId: deviceId,
+                    toDeviceId: desktopClient.id,
+                    command: 'Hello from Voice Hub! This is a test.',
+                    action: 'type',
+                    targetApp: 'cursor',
+                    timestamp: new Date().toISOString()
+                });
+                addActivity('📤 Sent test text to Cursor', 'success');
+            } else {
+                addActivity('❌ No desktop client! Run the client in terminal first.', 'warning');
+            }
         }
         
         // Handle an incoming routed command
