@@ -35,7 +35,11 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist"
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Cortona needs microphone access for voice commands and dictation.",
+        "NSSpeechRecognitionUsageDescription": "Cortona uses speech recognition to understand your voice commands."
+      }
     },
     "dmg": {
       "title": "Cortona",
