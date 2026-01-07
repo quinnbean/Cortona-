@@ -797,6 +797,35 @@ def run_command(command, app=None):
     time.sleep(0.1)
     press_enter()
 
+def open_url_native(url):
+    """Open a URL using the system's native method - more reliable than webbrowser module"""
+    try:
+        if PLATFORM == 'Darwin':
+            # macOS - use 'open' command
+            subprocess.run(['open', url], check=True)
+            print(f"✅ Opened URL (macOS): {url}")
+        elif PLATFORM == 'Windows':
+            # Windows - use os.startfile or start command
+            # os.startfile is most reliable on Windows
+            os.startfile(url)
+            print(f"✅ Opened URL (Windows): {url}")
+        else:
+            # Linux - use xdg-open
+            subprocess.run(['xdg-open', url], check=True)
+            print(f"✅ Opened URL (Linux): {url}")
+        return True
+    except Exception as e:
+        print(f"⚠️ Native open failed: {e}, trying webbrowser...")
+        # Fallback to webbrowser module
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            print(f"✅ Opened URL (webbrowser fallback): {url}")
+            return True
+        except Exception as e2:
+            print(f"❌ Could not open URL: {e2}")
+            return False
+
 # ============================================================================
 # SOCKET.IO CLIENT
 # ============================================================================
@@ -912,9 +941,8 @@ class VoiceHubClient:
             print(f"Opened {target_app or command}")
         elif action == 'open_tab':
             # Open a new browser tab
-            import webbrowser
             if command:
-                webbrowser.open_new_tab(command)
+                open_url_native(command)
                 print(f"Opened new tab: {command}")
             else:
                 # Just open a new tab in default browser
@@ -924,21 +952,19 @@ class VoiceHubClient:
                 print("Opened new tab")
         elif action == 'open_url':
             # Open a specific URL
-            import webbrowser
             url = command if command else 'https://google.com'
             # Add https if missing
             if not url.startswith('http'):
                 url = 'https://' + url
-            webbrowser.open_new_tab(url)
+            open_url_native(url)
             print(f"Opened URL: {url}")
         elif action == 'run':
             run_command(command, target_app or 'terminal')
             print("Command executed")
         elif action == 'search':
             # Search in browser
-            import webbrowser
             search_url = f"https://www.google.com/search?q={command.replace(' ', '+')}"
-            webbrowser.open_new_tab(search_url)
+            open_url_native(search_url)
             print(f"Searching: {command}")
         else:
             # Default: just type
@@ -4657,7 +4683,7 @@ def install_page():
     return render_template_string(INSTALL_PAGE, server=server_url)
 
 # Desktop client version - increment this when you update the client
-CLIENT_VERSION = "1.3.0"
+CLIENT_VERSION = "1.4.0"
 
 # ============================================================================
 # CLAUDE AI COMMAND PARSING
