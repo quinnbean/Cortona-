@@ -2756,10 +2756,17 @@ DASHBOARD_PAGE = '''
         // ============================================================
         
         function updateUI() {
+            // Get elements with null safety
             const micButton = document.getElementById('mic-button');
             const voiceStatus = document.getElementById('voice-status');
             const voiceHint = document.getElementById('voice-hint');
             const wakeWordSpan = document.getElementById('current-wake-word');
+            
+            // Guard: don't proceed if critical elements missing
+            if (!micButton || !voiceStatus || !voiceHint) {
+                console.warn('updateUI: Required elements not found');
+                return;
+            }
             
             if (isListening) {
                 micButton.classList.add('listening');
@@ -2784,7 +2791,9 @@ DASHBOARD_PAGE = '''
                 }
             }
             
-            wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
+            if (wakeWordSpan) {
+                wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
+            }
             
             // Update settings header to show which device is being edited
             const editingLabel = document.getElementById('editing-device-name');
@@ -2792,17 +2801,24 @@ DASHBOARD_PAGE = '''
                 editingLabel.textContent = currentDevice?.name || 'This Device';
             }
             
-            // Update settings inputs
-            document.getElementById('device-name-input').value = currentDevice?.name || '';
-            document.getElementById('wake-word-input').value = currentDevice?.wakeWord || '';
-            document.getElementById('language-select').value = currentDevice?.language || 'en-US';
-            document.getElementById('sensitivity-slider').value = sensitivity;
-            document.getElementById('sensitivity-label').textContent = sensitivityLabels[sensitivity];
-            document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+            // Update settings inputs (with null safety)
+            const nameInput = document.getElementById('device-name-input');
+            const wakeWordInput = document.getElementById('wake-word-input');
+            const langSelect = document.getElementById('language-select');
+            const sensitivitySlider = document.getElementById('sensitivity-slider');
+            const sensitivityLabel = document.getElementById('sensitivity-label');
+            const alwaysListenToggle = document.getElementById('toggle-always-listen');
+            const badgeAlways = document.getElementById('badge-always');
+            const badgeContinuous = document.getElementById('badge-continuous');
             
-            // Update mode badges
-            document.getElementById('badge-always').style.display = alwaysListen ? 'inline-block' : 'none';
-            document.getElementById('badge-continuous').style.display = continuousMode ? 'inline-block' : 'none';
+            if (nameInput) nameInput.value = currentDevice?.name || '';
+            if (wakeWordInput) wakeWordInput.value = currentDevice?.wakeWord || '';
+            if (langSelect) langSelect.value = currentDevice?.language || 'en-US';
+            if (sensitivitySlider) sensitivitySlider.value = sensitivity;
+            if (sensitivityLabel) sensitivityLabel.textContent = sensitivityLabels[sensitivity];
+            if (alwaysListenToggle) alwaysListenToggle.classList.toggle('active', alwaysListen);
+            if (badgeAlways) badgeAlways.style.display = alwaysListen ? 'inline-block' : 'none';
+            if (badgeContinuous) badgeContinuous.style.display = continuousMode ? 'inline-block' : 'none';
         }
         
         function renderDeviceList() {
