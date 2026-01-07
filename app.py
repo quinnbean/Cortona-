@@ -2111,6 +2111,10 @@ DASHBOARD_PAGE = '''
                         new RegExp(`^tell\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
                         // "use cursor to write something"  
                         new RegExp(`^use\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
+                        // "ask cursor something"
+                        new RegExp(`^ask\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "ask cursor to do something"
+                        new RegExp(`^ask\\s+${escapeRegex(keyword)}\\s+to\\s+(.+)`, 'i'),
                     ];
                     
                     for (const pattern of patterns) {
