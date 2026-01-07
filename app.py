@@ -768,20 +768,27 @@ def focus_app(app_name):
 
 def type_text(text):
     """Type text using the keyboard"""
+    print(f"[DEBUG] type_text called with: '{text[:50]}...'")
     try:
         # Use clipboard + paste for reliability
+        print("[DEBUG] Copying to clipboard...")
         pyperclip.copy(text)
+        print("[DEBUG] Clipboard set, waiting...")
         time.sleep(0.1)
         
         if PLATFORM == 'Darwin':
+            print("[DEBUG] Pressing Cmd+V...")
             pyautogui.hotkey('command', 'v')
         else:
+            print("[DEBUG] Pressing Ctrl+V...")
             pyautogui.hotkey('ctrl', 'v')
             
         print(f"✅ Typed: {text[:50]}...")
         return True
     except Exception as e:
+        import traceback
         print(f"⚠️ Could not type: {e}")
+        print(f"[DEBUG] Full error: {traceback.format_exc()}")
         return False
 
 def press_enter():
@@ -930,11 +937,14 @@ class VoiceHubClient:
             time.sleep(0.5)
         
         # Execute the action
+        print(f"[DEBUG] Executing action: '{action}'")
         if action == 'type' or action == 'paste':
             type_text(command)
             print("Typed text")
         elif action == 'type_and_send':
-            type_text(command)
+            print("[DEBUG] type_and_send branch matched!")
+            result = type_text(command)
+            print(f"[DEBUG] type_text returned: {result}")
             time.sleep(0.2)
             press_enter()
             print("Typed and sent!")

@@ -181,9 +181,15 @@ class CortonaClient:
         def connect_error(data):
             print(f"⚠️ Connection error: {data}")
         
-        @self.sio.on('execute_command')
+        @self.sio.on('command_received')
         def on_command(data):
             print(f"\n📥 Received command: {data}")
+            self._execute_command(data)
+        
+        # Also listen for the old event name for compatibility
+        @self.sio.on('execute_command')
+        def on_command_legacy(data):
+            print(f"\n📥 Received command (legacy): {data}")
             self._execute_command(data)
     
     def _execute_command(self, data):
