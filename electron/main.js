@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, Notification, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, Notification, ipcMain, shell, session, systemPreferences } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
@@ -344,6 +344,26 @@ function setupIPC() {
   ipcMain.on('minimize-to-tray', () => {
     mainWindow?.hide();
   });
+
+  // Check microphone permission status
+  ipcMain.handle('get-mic-status', async () => {
+    if (process.platform === 'darwin') {
+      return systemPreferences.getMediaAccessStatus('microphone');
+    }
+    return 'granted';
+  });
+
+  // Request microphone permission
+  ipcMain.handle('request-mic-permission', async () => {
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('microphone');
+      if (status === 'not-determined') {
+        return await systemPreferences.askForMediaAccess('microphone');
+      }
+      return status === 'granted';
+    }
+    return true;
+  });
 }
 
 // ============================================================================
@@ -365,8 +385,33 @@ if (!gotTheLock) {
   });
 }
 
+// Request microphone permission on macOS
+async function requestMicrophonePermission() {
+  if (process.platform === 'darwin') {
+    const status = systemPreferences.getMediaAccessStatus('microphone');
+    console.log('[MIC] Current microphone permission status:', status);
+    
+    if (status === 'not-determined') {
+      console.log('[MIC] Requesting microphone access...');
+      const granted = await systemPreferences.askForMediaAccess('microphone');
+      console.log('[MIC] Microphone access granted:', granted);
+      return granted;
+    } else if (status === 'denied') {
+      console.log('[MIC] Microphone access denied. User needs to enable in System Preferences.');
+      showNotification('Microphone Access Required', 'Please enable microphone access in System Preferences > Security & Privacy > Privacy > Microphone');
+      return false;
+    }
+    return status === 'granted';
+  }
+  return true; // Non-macOS, assume granted
+}
+
 // App ready
 app.whenReady().then(async () => {
+  // Request microphone permission FIRST on macOS
+  const micGranted = await requestMicrophonePermission();
+  console.log('[MIC] Microphone permission result:', micGranted);
+
   // Set up permission handler for microphone access
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     const allowedPermissions = ['media', 'microphone', 'audio', 'audioCapture'];

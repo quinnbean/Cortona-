@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSetting: (key, value) => ipcRenderer.send('set-setting', { key, value }),
   
+  // Microphone permissions (macOS)
+  getMicStatus: () => ipcRenderer.invoke('get-mic-status'),
+  requestMicPermission: () => ipcRenderer.invoke('request-mic-permission'),
+  
   // Window control
   hideWindow: () => ipcRenderer.send('hide-window'),
   minimizeToTray: () => ipcRenderer.send('minimize-to-tray'),

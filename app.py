@@ -2370,6 +2370,31 @@ DASHBOARD_PAGE = '''
         
         // Check and track microphone permission status
         async function checkMicPermission() {
+            // If running in Electron, use native macOS permission check
+            if (window.electronAPI?.isElectron) {
+                try {
+                    const status = await window.electronAPI.getMicStatus();
+                    console.log('[MIC] Electron mic status:', status);
+                    
+                    if (status === 'not-determined') {
+                        // Request permission
+                        const granted = await window.electronAPI.requestMicPermission();
+                        micPermission = granted ? 'granted' : 'denied';
+                        console.log('[MIC] Permission request result:', granted);
+                    } else if (status === 'denied') {
+                        micPermission = 'denied';
+                        addActivity('❌ Microphone blocked. Open System Preferences > Security & Privacy > Privacy > Microphone and enable Cortona.', 'warning');
+                    } else {
+                        micPermission = status;
+                    }
+                    updateMicPermissionUI();
+                    return;
+                } catch (e) {
+                    console.log('[MIC] Electron permission check failed:', e);
+                }
+            }
+            
+            // Browser-based permission check
             try {
                 const result = await navigator.permissions.query({ name: 'microphone' });
                 micPermission = result.state;
@@ -3066,71 +3091,37 @@ DASHBOARD_PAGE = '''
             recognition.interimResults = true;
             recognition.lang = currentDevice?.language || 'en-US';
             
-            // Debounce restart to prevent rapid on/off flickering
-            let restartTimeout = null;
-            let restartAttempts = 0;
-            const MAX_RESTART_ATTEMPTS = 3;
-            let lastRestartTime = 0;
-            
+            // Simple restart - Chrome fires onend frequently, just restart silently
             recognition.onend = () => {
-                // Check if we should auto-restart (keep listening in always-listen or continuous mode)
-                const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
+                console.log('[MIC] onend - alwaysListen:', alwaysListen, 'continuousMode:', continuousMode);
                 
-                // Always set isListening to false when recognition ends
+                const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
                 isListening = false;
                 
                 if (shouldRestart) {
-                    isRestarting = true; // Mark as restarting - don't update UI
+                    // Keep isRestarting true to prevent UI flicker
+                    isRestarting = true;
                     
-                    // Clear any pending restart
-                    if (restartTimeout) {
-                        clearTimeout(restartTimeout);
-                    }
-                    
-                    // Prevent restart spam - ensure at least 800ms between restarts
-                    const now = Date.now();
-                    const timeSinceLastRestart = now - lastRestartTime;
-                    const delay = Math.max(800, 800 - timeSinceLastRestart);
-                    
-                    // Restart after delay to prevent flickering
-                    restartTimeout = setTimeout(() => {
-                        // Only restart if still in always-listen or continuous mode
+                    // Immediate restart with minimal delay
+                    setTimeout(() => {
                         if ((alwaysListen || continuousMode) && !isListening) {
-                            // Check restart attempts to prevent infinite loop
-                            if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-                                console.log('Too many restart attempts, taking longer pause...');
-                                restartAttempts = 0;
-                                isRestarting = false;
-                                // Wait longer before trying again
-                                setTimeout(() => {
-                                    if ((alwaysListen || continuousMode) && !isListening) {
-                                        lastRestartTime = Date.now();
-                                        try { recognition.start(); } catch (e) {}
-                                    }
-                                }, 3000); // Increased from 2000 to 3000
-                                return;
-                            }
-                            
-                            restartAttempts++;
-                            lastRestartTime = Date.now();
                             try {
                                 recognition.start();
-                                // Reset attempts on successful start (will be confirmed in onstart)
+                                console.log('[MIC] Restarted successfully');
                             } catch (e) {
-                                console.log('Restart failed, reinitializing...', e.message);
-                                isRestarting = false;
-                                // Reinitialize and try again
-                                initSpeechRecognition();
-                                setTimeout(() => {
-                                    if (alwaysListen || continuousMode) {
-                                        try { recognition.start(); } catch (e2) {}
-                                    }
-                                }, 1000); // Increased from 500 to 1000
+                                console.log('[MIC] Restart error:', e.message);
+                                // If it fails, try reinitializing
+                                if (e.name === 'InvalidStateError') {
+                                    initSpeechRecognition();
+                                    setTimeout(() => {
+                                        if (alwaysListen || continuousMode) {
+                                            try { recognition.start(); } catch (e2) { console.log('[MIC] Re-init start failed:', e2.message); }
+                                        }
+                                    }, 200);
+                                }
                             }
-                        } else {
-                            isRestarting = false;
                         }
-                    }, delay);
+                    }, 100); // Very short delay - just enough to avoid race condition
                 } else {
                     isRestarting = false;
                     updateUI();
@@ -3138,11 +3129,12 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onstart = () => {
+                console.log('[MIC] onstart - mic is now listening');
                 isListening = true;
-                isRestarting = false; // Restart complete
-                restartAttempts = 0; // Reset on successful start
+                isRestarting = false;
+                hasInitialized = true;
                 updateUI();
-                if (!alwaysListen) {
+                if (!alwaysListen && !hasInitialized) {
                     addActivity('Started listening', 'info');
                 }
                 socket.emit('device_status', { deviceId, status: 'listening' });
@@ -3330,25 +3322,40 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onerror = (event) => {
+                console.log('[MIC] onerror:', event.error);
+                
                 // Handle common non-fatal errors - these will trigger onend which handles restart
-                if (event.error === 'no-speech' || event.error === 'aborted') {
-                    // Don't set isListening = false here - let onend handle it
-                    // This prevents race conditions with the restart logic
-                    console.log('Recognition ended:', event.error);
+                if (event.error === 'no-speech') {
+                    // Normal - just means no one spoke during the timeout
+                    console.log('[MIC] No speech detected, will restart via onend');
                     return;
                 }
                 
-                // Log actual errors
-                console.warn('Speech recognition error:', event.error);
+                if (event.error === 'aborted') {
+                    // Normal - recognition was stopped
+                    console.log('[MIC] Recognition aborted');
+                    return;
+                }
+                
+                // Log actual errors with more detail
+                console.error('[MIC] Speech recognition error:', event.error, event);
                 
                 if (event.error === 'not-allowed') {
-                    addActivity('Microphone access denied. Please allow microphone access.', 'warning');
+                    addActivity('❌ Microphone access denied. Click mic button to grant permission.', 'warning');
                     alwaysListen = false;
+                    isRestarting = false;
                     document.getElementById('toggle-always-listen').classList.remove('active');
+                    updateUI();
                 } else if (event.error === 'audio-capture') {
-                    addActivity('No microphone detected. Check your audio settings.', 'warning');
+                    addActivity('❌ No microphone detected. Check System Preferences > Security > Microphone.', 'warning');
+                    isRestarting = false;
+                    updateUI();
                 } else if (event.error === 'network') {
-                    addActivity('Network error. Check your internet connection.', 'warning');
+                    addActivity('⚠️ Network error. Speech recognition requires internet.', 'warning');
+                } else if (event.error === 'service-not-allowed') {
+                    addActivity('❌ Speech service blocked. Try: System Preferences > Security > Privacy > Microphone', 'warning');
+                    isRestarting = false;
+                    updateUI();
                 } else {
                     addActivity(`Speech error: ${event.error}`, 'warning');
                 }
