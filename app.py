@@ -2119,9 +2119,10 @@ DASHBOARD_PAGE = '''
                         // "paste in cursor something"
                         new RegExp(`^paste\\s+(in|into|to)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "write in cursor something" or "type into cursor something"
-                        new RegExp(`^(write|type|put|enter)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // Note: "right" is a common mishearing of "write"
+                        new RegExp(`^(write|right|type|put|enter|say)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "write cursor something" (without preposition)
-                        new RegExp(`^(write|type|put|enter)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        new RegExp(`^(write|right|type|put|enter|say)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "tell cursor to write something"
                         new RegExp(`^tell\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
                         // "use cursor to write something"  
@@ -2148,7 +2149,7 @@ DASHBOARD_PAGE = '''
             
             // Check for action keywords
             const actionPatterns = {
-                'type': /^(type|write|enter|input)\s+(.+)/i,
+                'type': /^(type|write|right|enter|input|say)\s+(.+)/i,
                 'paste': /^paste\s+(.+)/i,
                 'search': /^(search|google|look up)\s+(.+)/i,
                 'run': /^(run|execute|do)\s+(.+)/i,
