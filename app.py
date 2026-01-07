@@ -2294,16 +2294,19 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onend = () => {
-                isListening = false;
-                updateUI();
+                // Check if we should auto-restart before updating UI
+                const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
                 
-                // Restart if in always-listen or continuous mode
-                if ((alwaysListen || continuousMode) && currentDevice) {
+                if (shouldRestart) {
+                    // Keep showing "Ready" state, restart quickly
                     setTimeout(() => {
                         if (alwaysListen || continuousMode) {
                             startListening();
                         }
-                    }, 300);
+                    }, 100);
+                } else {
+                    isListening = false;
+                    updateUI();
                 }
             };
             
@@ -2333,8 +2336,8 @@ DASHBOARD_PAGE = '''
                             transcriptEl.textContent = '🎯 Wake word detected...';
                             transcriptEl.classList.add('active');
                         } else {
-                            // Don't update transcript, just show waiting message
-                            transcriptEl.textContent = `👂 Listening for "${wakeWord}"...`;
+                            // Don't update transcript, show subtle ready message
+                            transcriptEl.textContent = `Ready for "${wakeWord}"`;
                             transcriptEl.classList.remove('active');
                         }
                     }
@@ -2368,8 +2371,8 @@ DASHBOARD_PAGE = '''
                         } else {
                             // Just activated, waiting for command
                             isActiveDictation = true;
-                            document.getElementById('voice-status').textContent = '🎯 Activated! Speak now...';
-                            transcriptEl.textContent = '🎤 Listening for your command...';
+                            document.getElementById('voice-status').textContent = 'Activated';
+                            transcriptEl.textContent = 'Speak now...';
                             transcriptEl.classList.add('active');
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
@@ -2380,9 +2383,9 @@ DASHBOARD_PAGE = '''
                         // Reset transcript display after typing
                         if (alwaysListen && !continuousMode) {
                             setTimeout(() => {
-                                transcriptEl.textContent = `👂 Listening for "${wakeWord}"...`;
+                                transcriptEl.textContent = `Ready for "${wakeWord}"`;
                                 transcriptEl.classList.remove('active');
-                            }, 2000);
+                            }, 1500);
                         }
                     }
                     // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
@@ -2440,12 +2443,36 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // If targeting an app, show which app and prepare the command
-            if (parsed.targetApp) {
+            // If targeting an app (cursor, vscode, etc), route to a desktop client
+            if (!skipRouting && parsed.targetApp) {
                 const appInfo = parsed.targetApp;
-                showLastCommand(appInfo.icon, `→ ${appInfo.name}`, parsed.command);
-                addActivity(`🎯 Target: ${appInfo.name} - "${parsed.command.substring(0, 40)}..."`, 'success');
-                text = parsed.command; // Use just the command part
+                
+                // Find a desktop client to route to
+                const desktopClient = Object.values(devices).find(d => 
+                    d.type === 'desktop_client' && d.id !== deviceId
+                );
+                
+                if (desktopClient) {
+                    // Route to desktop client with app target info
+                    socket.emit('route_command', {
+                        fromDeviceId: deviceId,
+                        toDeviceId: desktopClient.id,
+                        command: parsed.command,
+                        action: parsed.action || 'type',
+                        targetApp: appInfo.id,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    showLastCommand(appInfo.icon, `→ ${appInfo.name} on ${desktopClient.name}`, parsed.command);
+                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                    document.getElementById('transcript').textContent = `📤 → ${appInfo.name}: "${parsed.command}"`;
+                    return;
+                } else {
+                    // No desktop client found, show warning
+                    addActivity(`⚠️ No desktop client connected to control ${appInfo.name}`, 'warning');
+                }
+                
+                text = parsed.command;
             }
             
             // Apply formatting
@@ -2622,8 +2649,8 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
-                    micButton.innerHTML = '👂';
-                    voiceStatus.textContent = 'Listening for wake word...';
+                    micButton.innerHTML = '🎙️';
+                    voiceStatus.textContent = 'Ready';
                     voiceHint.innerHTML = `Say <strong>"${currentDevice?.wakeWord || 'hey computer'}"</strong> to activate`;
                 } else {
                     micButton.innerHTML = '🔴';
@@ -2634,8 +2661,8 @@ DASHBOARD_PAGE = '''
                 micButton.classList.remove('listening');
                 micButton.innerHTML = '🎤';
                 if (alwaysListen) {
-                    voiceStatus.textContent = 'Starting...';
-                    voiceHint.innerHTML = 'Microphone initializing...';
+                    voiceStatus.textContent = 'Ready';
+                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
                 } else {
                     voiceStatus.textContent = 'Click to Start';
                     voiceHint.innerHTML = `Or enable "Always Listen" for hands-free activation`;
@@ -3336,8 +3363,13 @@ def on_device_status(data):
 def on_device_update(data):
     device_id = data.get('deviceId')
     settings = data.get('settings', {})
-    if device_id and device_id in devices:
-        devices[device_id].update(settings)
+    if device_id:
+        if device_id in devices:
+            devices[device_id].update(settings)
+        else:
+            # Add new device (like desktop clients)
+            devices[device_id] = settings
+            print(f"📱 New device registered: {settings.get('name', device_id)}")
     socketio.emit('devices_update', {'devices': devices}, room='dashboard')
 
 @socketio.on('device_add')
@@ -3365,14 +3397,18 @@ def on_route_command(data):
     to_device_id = data.get('toDeviceId')
     command = data.get('command')
     action = data.get('action', 'type')
+    target_app = data.get('targetApp')
     
     print(f"📤 Routing command from {from_device_id} to {to_device_id}: {command[:50]}...")
+    if target_app:
+        print(f"   Target app: {target_app}")
     
     # Send the command to the target device
     socketio.emit('command_received', {
         'fromDeviceId': from_device_id,
         'command': command,
         'action': action,
+        'targetApp': target_app,
         'timestamp': data.get('timestamp')
     }, room=to_device_id)
     
