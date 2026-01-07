@@ -17,6 +17,21 @@ from flask_socketio import SocketIO, emit, join_room
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Claude AI for intelligent command parsing
+try:
+    import anthropic
+    CLAUDE_AVAILABLE = bool(os.environ.get('ANTHROPIC_API_KEY'))
+    if CLAUDE_AVAILABLE:
+        claude_client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+        print("🧠 Claude AI enabled for intelligent command parsing")
+    else:
+        claude_client = None
+        print("⚠️ ANTHROPIC_API_KEY not set - using regex parsing")
+except ImportError:
+    CLAUDE_AVAILABLE = False
+    claude_client = None
+    print("⚠️ anthropic package not installed - using regex parsing")
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -2535,18 +2550,82 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        function handleTranscript(text, skipRouting = false) {
+        // Check if Claude is available
+        let claudeAvailable = false;
+        fetch('/api/claude-status')
+            .then(r => r.json())
+            .then(data => {
+                claudeAvailable = data.available;
+                if (claudeAvailable) {
+                    console.log('🧠 Claude AI enabled for command parsing');
+                    addActivity('🧠 Claude AI enabled', 'success');
+                }
+            })
+            .catch(() => { claudeAvailable = false; });
+        
+        async function parseWithClaude(text) {
+            try {
+                const response = await fetch('/api/parse-command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                const data = await response.json();
+                
+                if (data.fallback || data.error) {
+                    console.log('Claude fallback, using regex');
+                    return null;
+                }
+                
+                console.log('🧠 Claude parsed:', data);
+                return data;
+            } catch (e) {
+                console.log('Claude error:', e);
+                return null;
+            }
+        }
+        
+        async function handleTranscript(text, skipRouting = false) {
             // DEBUG: Show what we're processing
             console.log('=== VOICE INPUT ===');
             console.log('Raw text:', text);
             
-            // Parse the command to check for device/app targeting
-            const parsed = parseCommand(text);
-            console.log('Parsed:', {
-                targetApp: parsed.targetApp?.name || 'NONE',
-                targetDevice: parsed.targetDevice?.name || 'NONE', 
-                command: parsed.command
-            });
+            // Try Claude first if available
+            let parsed = null;
+            let claudeResponse = null;
+            
+            if (claudeAvailable && !skipRouting) {
+                const claudeResult = await parseWithClaude(text);
+                if (claudeResult && claudeResult.targetApp) {
+                    // Convert Claude result to our format
+                    const appId = claudeResult.targetApp.toLowerCase();
+                    const knownApp = knownApps[appId];
+                    parsed = {
+                        originalText: text,
+                        targetDevice: null,
+                        targetApp: knownApp ? { id: appId, ...knownApp } : { id: appId, name: claudeResult.targetApp, icon: '🤖' },
+                        command: claudeResult.content || text,
+                        action: claudeResult.action || 'type'
+                    };
+                    claudeResponse = claudeResult.response;
+                    console.log('🧠 Using Claude parse:', parsed);
+                    
+                    // Show Claude's response
+                    if (claudeResponse) {
+                        addActivity(`🧠 ${claudeResponse}`, 'info');
+                    }
+                }
+            }
+            
+            // Fallback to regex parsing
+            if (!parsed) {
+                parsed = parseCommand(text);
+                console.log('📝 Using regex parse:', {
+                    targetApp: parsed.targetApp?.name || 'NONE',
+                    targetDevice: parsed.targetDevice?.name || 'NONE', 
+                    command: parsed.command
+                });
+            }
             
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
@@ -3402,7 +3481,86 @@ def install_page():
     return render_template_string(INSTALL_PAGE, server=server_url)
 
 # Desktop client version - increment this when you update the client
-CLIENT_VERSION = "1.1.0"
+CLIENT_VERSION = "1.2.0"
+
+# ============================================================================
+# CLAUDE AI COMMAND PARSING
+# ============================================================================
+
+COMMAND_PARSE_PROMPT = """You are a voice command parser for a voice-controlled computer system. 
+Parse the user's spoken command and return a JSON object with these fields:
+
+- "targetApp": The app to control (cursor, claude, chatgpt, terminal, browser, notes, slack, discord, vscode, or null if none specified)
+- "action": The action to perform (type, paste, search, run, open, or null)
+- "content": The actual text/content to type or execute (extract just the content, not the command words)
+- "response": A brief, friendly response to speak back to the user (1 sentence max)
+- "confidence": How confident you are this is correct (high, medium, low)
+
+Available apps: cursor (code editor), claude, chatgpt, copilot, gemini, terminal, browser, notes, slack, discord
+
+Examples:
+- "cursor write hello world" → {"targetApp": "cursor", "action": "type", "content": "hello world", "response": "Typing in Cursor", "confidence": "high"}
+- "search for Python tutorials" → {"targetApp": "browser", "action": "search", "content": "Python tutorials", "response": "Searching for Python tutorials", "confidence": "high"}
+- "open terminal" → {"targetApp": "terminal", "action": "open", "content": null, "response": "Opening Terminal", "confidence": "high"}
+- "type hello" → {"targetApp": null, "action": "type", "content": "hello", "response": "Typing hello", "confidence": "high"}
+- "ask Claude how to make a sandwich" → {"targetApp": "claude", "action": "type", "content": "how to make a sandwich", "response": "Asking Claude", "confidence": "high"}
+
+Handle common speech recognition errors:
+- "right" often means "write"
+- "cursor" might be heard as "curser" or "cursor"
+
+Return ONLY the JSON object, no other text."""
+
+@app.route('/api/parse-command', methods=['POST'])
+@login_required
+def parse_command_with_claude():
+    """Use Claude to intelligently parse a voice command"""
+    if not CLAUDE_AVAILABLE or not claude_client:
+        return jsonify({'error': 'Claude not available', 'fallback': True}), 200
+    
+    data = request.get_json()
+    text = data.get('text', '')
+    
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+    
+    try:
+        message = claude_client.messages.create(
+            model="claude-3-haiku-20240307",  # Fast and cheap
+            max_tokens=200,
+            messages=[
+                {"role": "user", "content": f"Parse this voice command: \"{text}\""}
+            ],
+            system=COMMAND_PARSE_PROMPT
+        )
+        
+        # Parse the response
+        response_text = message.content[0].text.strip()
+        
+        # Try to parse as JSON
+        try:
+            parsed = json.loads(response_text)
+            parsed['claude'] = True
+            return jsonify(parsed)
+        except json.JSONDecodeError:
+            # If Claude didn't return valid JSON, return the raw response
+            return jsonify({
+                'error': 'Invalid JSON from Claude',
+                'raw': response_text,
+                'fallback': True
+            })
+            
+    except Exception as e:
+        print(f"Claude API error: {e}")
+        return jsonify({'error': str(e), 'fallback': True}), 200
+
+@app.route('/api/claude-status')
+def claude_status():
+    """Check if Claude is available"""
+    return jsonify({
+        'available': CLAUDE_AVAILABLE,
+        'model': 'claude-3-haiku-20240307' if CLAUDE_AVAILABLE else None
+    })
 
 @app.route('/api/version')
 def get_version():
