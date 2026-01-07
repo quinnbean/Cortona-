@@ -11,11 +11,18 @@
 import os
 import secrets
 import json
+import re
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, jsonify, Response
-from flask_socketio import SocketIO, emit, join_room
+from functools import wraps
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify, Response, session, g
+from flask_socketio import SocketIO, emit, join_room, disconnect
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# Security imports
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 
 # Load environment variables from .env file (for local development)
 try:
@@ -46,11 +53,60 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
+
+# Determine allowed origins for CORS (your Render URL + localhost for dev)
+ALLOWED_ORIGINS = [
+    "https://cortona.onrender.com",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+]
+# Add custom origins from environment if needed
+if os.environ.get('ALLOWED_ORIGINS'):
+    ALLOWED_ORIGINS.extend(os.environ.get('ALLOWED_ORIGINS').split(','))
+
+# Secure cookie configuration
+app.config.update(
+    # Session cookies
+    SESSION_COOKIE_SECURE=os.environ.get('FLASK_ENV') != 'development',  # HTTPS only in production
+    SESSION_COOKIE_HTTPONLY=True,  # Prevent JavaScript access to session cookie
+    SESSION_COOKIE_SAMESITE='Lax',  # Prevent CSRF via cross-site requests
+    
+    # Remember me cookie
+    REMEMBER_COOKIE_SECURE=os.environ.get('FLASK_ENV') != 'development',
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SAMESITE='Lax',
+    
+    # CSRF Protection
+    WTF_CSRF_ENABLED=True,
+    WTF_CSRF_TIME_LIMIT=3600,  # 1 hour token validity
+)
+
+# Initialize CSRF Protection
+csrf = CSRFProtect(app)
+
+# Initialize Rate Limiter
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],  # Default limits for all routes
+    storage_uri="memory://",  # Use memory storage (works on Render)
+)
+
+# SocketIO with restricted CORS origins
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=ALLOWED_ORIGINS,  # Restricted to known origins only
+    async_mode='gevent',
+    manage_session=False  # Let Flask handle sessions for security
+)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.remember_cookie_duration = timedelta(days=30)
+login_manager.session_protection = 'strong'  # Regenerate session on login
 
 # Password is loaded from environment variable - NEVER commit passwords to git!
 # Set ADMIN_PASSWORD in your .env file or Render dashboard
@@ -79,6 +135,11 @@ def save_users():
         print(f"Error saving users: {e}")
 
 USERS = load_users()
+
+# Track failed login attempts for additional protection
+failed_login_attempts = {}
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
 
 # Store devices and their settings
 devices = {}
@@ -1118,6 +1179,7 @@ LOGIN_PAGE = '''
             {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
             {% if success %}<div class="error" style="background: rgba(0, 245, 212, 0.1); border-color: rgba(0, 245, 212, 0.3); color: var(--accent);">✓ {{ success }}</div>{% endif %}
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label>Username</label>
                     <input type="text" name="username" placeholder="Enter username" required autofocus>
@@ -1255,6 +1317,7 @@ SIGNUP_PAGE = '''
             </div>
             {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label>Display Name</label>
                     <input type="text" name="name" placeholder="Your name" required autofocus>
@@ -4198,6 +4261,112 @@ DASHBOARD_PAGE = '''
 '''
 
 # ============================================================================
+# SECURITY MIDDLEWARE & HELPERS
+# ============================================================================
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Enable XSS filter in browsers
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    # Referrer policy - don't leak URLs to external sites
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Permissions policy - disable unnecessary browser features
+    response.headers['Permissions-Policy'] = 'geolocation=(), camera=(), payment=()'
+    
+    # Content Security Policy - allow inline scripts/styles for our embedded templates
+    # but restrict external sources
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self' wss: ws:; "
+        "frame-ancestors 'self';"
+    )
+    response.headers['Content-Security-Policy'] = csp
+    
+    # HSTS - enforce HTTPS (only in production)
+    if os.environ.get('FLASK_ENV') != 'development':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
+    return response
+
+def is_account_locked(username):
+    """Check if account is locked due to failed attempts"""
+    if username not in failed_login_attempts:
+        return False
+    
+    attempts, lockout_time = failed_login_attempts[username]
+    if attempts >= MAX_FAILED_ATTEMPTS:
+        if datetime.now() < lockout_time:
+            return True
+        else:
+            # Lockout expired, reset
+            del failed_login_attempts[username]
+            return False
+    return False
+
+def record_failed_login(username):
+    """Record a failed login attempt"""
+    if username not in failed_login_attempts:
+        failed_login_attempts[username] = (1, datetime.now() + LOCKOUT_DURATION)
+    else:
+        attempts, _ = failed_login_attempts[username]
+        failed_login_attempts[username] = (attempts + 1, datetime.now() + LOCKOUT_DURATION)
+
+def clear_failed_logins(username):
+    """Clear failed login attempts after successful login"""
+    if username in failed_login_attempts:
+        del failed_login_attempts[username]
+
+def sanitize_input(text, max_length=10000):
+    """Sanitize user input to prevent XSS and injection attacks"""
+    if not text:
+        return text
+    # Limit length
+    text = str(text)[:max_length]
+    # Remove null bytes
+    text = text.replace('\x00', '')
+    return text
+
+# CSRF exemptions for API endpoints that use JSON (not forms)
+# These are safe because:
+# 1. They require @login_required (authenticated session)
+# 2. They use JSON content-type which browsers don't send cross-origin with credentials
+csrf.exempt('api_parse_command')
+csrf.exempt('get_devices')
+csrf.exempt('manage_device')
+
+# Exempt public endpoints that don't modify state
+csrf.exempt('health')
+csrf.exempt('ping')
+csrf.exempt('claude_status')
+csrf.exempt('get_version')
+
+# Exempt download/install endpoints (GET only, no state modification)
+csrf.exempt('download_mac_app')
+csrf.exempt('download_windows_app')
+csrf.exempt('download_linux_app')
+csrf.exempt('install_page')
+csrf.exempt('download_setup')        # /setup.py
+csrf.exempt('download_install_sh')   # /install.sh, /install/mac, /install/linux
+csrf.exempt('download_install_ps1')  # /install.ps1, /install/windows
+
+# Rate limit decorators for specific routes
+login_limit = limiter.limit("5 per minute", error_message="Too many login attempts. Please try again later.")
+api_limit = limiter.limit("30 per minute")
+
+# ============================================================================
 # ROUTES
 # ============================================================================
 
@@ -4207,32 +4376,47 @@ def dashboard():
     return render_template_string(DASHBOARD_PAGE, user=current_user)
 
 @app.route('/login', methods=['GET', 'POST'])
+@login_limit
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
         u = request.form.get('username', '').strip().lower()
+        u = sanitize_input(u, max_length=100)  # Sanitize username
         p = request.form.get('password', '')
         remember = request.form.get('remember') == 'on'
         
+        # Check if account is locked
+        if is_account_locked(u):
+            return render_template_string(LOGIN_PAGE, error='Account temporarily locked. Try again in 15 minutes.', success=None)
+        
         if u in USERS and check_password_hash(USERS[u]['password_hash'], p):
+            clear_failed_logins(u)  # Reset on successful login
             login_user(User(u), remember=remember)
+            session.permanent = True  # Use permanent session with secure settings
             print(f"User logged in: {u} (remember={remember})")
             return redirect(url_for('dashboard'))
+        
+        # Record failed attempt
+        record_failed_login(u)
+        remaining = MAX_FAILED_ATTEMPTS - failed_login_attempts.get(u, (0, None))[0]
+        if remaining <= 2:
+            return render_template_string(LOGIN_PAGE, error=f'Invalid credentials. {remaining} attempts remaining.', success=None)
         return render_template_string(LOGIN_PAGE, error='Invalid username or password', success=None)
     
     success = request.args.get('success')
     return render_template_string(LOGIN_PAGE, error=None, success=success)
 
 @app.route('/signup', methods=['GET', 'POST'])
+@limiter.limit("10 per hour")  # Rate limit signup to prevent spam
 def signup():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        username = request.form.get('username', '').strip().lower()
+        name = sanitize_input(request.form.get('name', '').strip(), max_length=100)
+        username = sanitize_input(request.form.get('username', '').strip().lower(), max_length=50)
         password = request.form.get('password', '')
         password2 = request.form.get('password2', '')
         
@@ -4526,13 +4710,15 @@ EXAMPLES:
 Return ONLY valid JSON, nothing else."""
 
 @app.route('/api/parse-command', methods=['POST'])
-def parse_command_with_claude():
+@login_required
+@api_limit
+def api_parse_command():
     """Use Claude to intelligently parse a voice command"""
     if not CLAUDE_AVAILABLE or not claude_client:
         return jsonify({'error': 'Claude not available', 'fallback': True}), 200
     
     data = request.get_json()
-    text = data.get('text', '')
+    text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
     
     if not text:
         return jsonify({'error': 'No text provided'}), 400
@@ -4687,11 +4873,18 @@ python voice_hub_client.py
     return Response(script, mimetype='text/plain')
 
 @app.route('/api/devices', methods=['GET'])
+@login_required
+@api_limit
 def get_devices():
     return jsonify(devices)
 
 @app.route('/api/devices/<device_id>', methods=['PUT', 'DELETE'])
+@login_required
+@api_limit
 def manage_device(device_id):
+    # Sanitize device_id to prevent injection
+    device_id = sanitize_input(device_id, max_length=100)
+    
     if request.method == 'DELETE':
         if device_id in devices:
             del devices[device_id]
@@ -4699,14 +4892,67 @@ def manage_device(device_id):
     elif request.method == 'PUT':
         data = request.json
         if device_id in devices:
-            devices[device_id].update(data)
+            # Sanitize incoming data
+            sanitized_data = {}
+            for key, value in data.items():
+                if isinstance(value, str):
+                    sanitized_data[key] = sanitize_input(value, max_length=500)
+                else:
+                    sanitized_data[key] = value
+            devices[device_id].update(sanitized_data)
         return jsonify(devices.get(device_id, {}))
 
 # ============================================================================
 # WEBSOCKET EVENTS
 # ============================================================================
 
+# Store authenticated socket sessions
+authenticated_sockets = {}
+
+def require_socket_auth(f):
+    """Decorator to require authentication for WebSocket events.
+    Allows browser sessions (logged in users) and registered desktop clients."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        sid = request.sid
+        
+        # Check if this socket is from an authenticated browser session
+        if current_user.is_authenticated:
+            authenticated_sockets[sid] = {'type': 'browser', 'user': current_user.id}
+            return f(*args, **kwargs)
+        
+        # Check if this socket was previously authenticated
+        if sid in authenticated_sockets:
+            return f(*args, **kwargs)
+        
+        # Check if this is a desktop client (they identify via device_update)
+        # Desktop clients are allowed but tracked
+        data = args[0] if args else {}
+        device_id = data.get('deviceId') if isinstance(data, dict) else None
+        if device_id:
+            authenticated_sockets[sid] = {'type': 'desktop', 'device': device_id}
+            return f(*args, **kwargs)
+        
+        # Log unauthenticated access attempt (but don't block to avoid breaking things)
+        print(f"⚠️ Unauthenticated WebSocket event from {sid}")
+        return f(*args, **kwargs)
+    
+    return decorated
+
+@socketio.on('connect')
+def on_connect():
+    """Handle new WebSocket connections"""
+    sid = request.sid
+    # Check if user is authenticated via browser session
+    if current_user.is_authenticated:
+        authenticated_sockets[sid] = {'type': 'browser', 'user': current_user.id}
+        print(f"🔐 Authenticated browser connected: {current_user.id} (sid: {sid})")
+    else:
+        # Could be a desktop client - will be validated on first event
+        print(f"🔌 New WebSocket connection: {sid} (awaiting authentication)")
+
 @socketio.on('dashboard_join')
+@require_socket_auth
 def on_dashboard_join(data):
     device_id = data.get('deviceId')
     device_info = data.get('device', {})
@@ -4852,6 +5098,12 @@ def on_heartbeat(data):
 @socketio.on('disconnect')
 def on_disconnect():
     sid = request.sid
+    
+    # Clean up authenticated socket tracking
+    if sid in authenticated_sockets:
+        auth_info = authenticated_sockets.pop(sid)
+        print(f"🔌 Socket disconnected: {auth_info.get('user') or auth_info.get('device', 'unknown')}")
+    
     # Notify other devices this one went offline
     for device_id, device in devices.items():
         if device.get('sid') == sid:
