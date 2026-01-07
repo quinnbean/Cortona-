@@ -1236,11 +1236,28 @@ DASHBOARD_PAGE = '''
         }
         .device-item.active {
             border-color: var(--accent);
-            background: rgba(0, 245, 212, 0.05);
+            border-width: 2px;
+            background: rgba(0, 245, 212, 0.1);
+            box-shadow: 0 0 20px rgba(0, 245, 212, 0.15);
+        }
+        .device-item.active::before {
+            content: '✓ EDITING';
+            position: absolute;
+            top: -10px;
+            right: 12px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .device-item {
+            position: relative;
         }
         .device-item.listening {
             border-color: var(--success);
-            animation: listening-pulse 2s infinite;
+            background: rgba(16, 185, 129, 0.08);
         }
         @keyframes listening-pulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
@@ -1274,9 +1291,9 @@ DASHBOARD_PAGE = '''
             color: var(--text-muted);
         }
         .device-status.listening {
-            background: rgba(16, 185, 129, 0.2);
+            background: rgba(16, 185, 129, 0.3);
             color: var(--success);
-            animation: blink 1s infinite;
+            font-weight: 600;
         }
         @keyframes blink {
             0%, 100% { opacity: 1; }
@@ -1339,8 +1356,8 @@ DASHBOARD_PAGE = '''
             box-shadow: 0 15px 50px rgba(0, 245, 212, 0.4);
         }
         .mic-button.listening {
-            animation: mic-pulse 1.5s infinite;
             background: linear-gradient(135deg, var(--success), var(--accent));
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
         }
         .mic-button.disabled {
             opacity: 0.5;
@@ -1692,7 +1709,7 @@ DASHBOARD_PAGE = '''
             
             <!-- Device Settings -->
             <div class="settings-section" id="device-settings">
-                <h3>⚙️ Device Settings</h3>
+                <h3>⚙️ Settings for: <span id="editing-device-name" style="color: var(--accent);">This Device</span></h3>
                 <div class="setting-row">
                     <div class="setting-label">
                         <h4>Device Name</h4>
@@ -2074,14 +2091,30 @@ DASHBOARD_PAGE = '''
                 if (result.targetDevice) break;
             }
             
-            // Check for app targeting (e.g., "Cursor, write a function")
+            // Check for app targeting (e.g., "Cursor, write a function" or "write in cursor hello")
             for (const [appId, app] of Object.entries(knownApps)) {
                 for (const keyword of app.keywords) {
                     const patterns = [
+                        // "cursor, write something" or "cursor write something"
                         new RegExp(`^${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "in cursor write something"
                         new RegExp(`^(in|to|for|into)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "send to cursor something"
                         new RegExp(`^send\\s+(to\\s+)?${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "paste in cursor something"
                         new RegExp(`^paste\\s+(in|into|to)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "write in cursor something" or "type into cursor something"
+                        new RegExp(`^(write|type|put|enter)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "write cursor something" (without preposition)
+                        new RegExp(`^(write|type|put|enter)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "tell cursor to write something"
+                        new RegExp(`^tell\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
+                        // "use cursor to write something"  
+                        new RegExp(`^use\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
+                        // "ask cursor something"
+                        new RegExp(`^ask\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "ask cursor to do something"
+                        new RegExp(`^ask\\s+${escapeRegex(keyword)}\\s+to\\s+(.+)`, 'i'),
                     ];
                     
                     for (const pattern of patterns) {
@@ -2651,27 +2684,33 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
-                    micButton.innerHTML = '🎙️';
-                    voiceStatus.textContent = 'Ready';
-                    voiceHint.innerHTML = `Say <strong>"${currentDevice?.wakeWord || 'hey computer'}"</strong> to activate`;
+                    micButton.innerHTML = 'ON';
+                    voiceStatus.textContent = 'Standby';
+                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
                 } else {
-                    micButton.innerHTML = '🔴';
-                    voiceStatus.textContent = 'Listening...';
-                    voiceHint.innerHTML = 'Speak now! Click to stop.';
+                    micButton.innerHTML = 'REC';
+                    voiceStatus.textContent = 'Recording';
+                    voiceHint.innerHTML = 'Speak now. Click to stop.';
                 }
             } else {
                 micButton.classList.remove('listening');
-                micButton.innerHTML = '🎤';
+                micButton.innerHTML = 'MIC';
                 if (alwaysListen) {
-                    voiceStatus.textContent = 'Ready';
-                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
+                    voiceStatus.textContent = 'Starting';
+                    voiceHint.innerHTML = 'Initializing microphone...';
                 } else {
-                    voiceStatus.textContent = 'Click to Start';
-                    voiceHint.innerHTML = `Or enable "Always Listen" for hands-free activation`;
+                    voiceStatus.textContent = 'Off';
+                    voiceHint.innerHTML = 'Click to start listening';
                 }
             }
             
             wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
+            
+            // Update settings header to show which device is being edited
+            const editingLabel = document.getElementById('editing-device-name');
+            if (editingLabel) {
+                editingLabel.textContent = currentDevice?.name || 'This Device';
+            }
             
             // Update settings inputs
             document.getElementById('device-name-input').value = currentDevice?.name || '';
@@ -2757,11 +2796,29 @@ DASHBOARD_PAGE = '''
         function selectDevice(id) {
             if (devices[id]) {
                 currentDevice = devices[id];
+                
+                // Load this device's settings into the UI
+                alwaysListen = currentDevice.alwaysListen || false;
+                continuousMode = currentDevice.continuous || false;
+                autoType = currentDevice.autoType ?? true;
+                spellCheckEnabled = currentDevice.spellCheck ?? true;
+                sensitivity = currentDevice.sensitivity || 3;
+                
                 if (recognition) {
                     recognition.lang = currentDevice.language || 'en-US';
                 }
+                
+                // Update all toggle states
+                document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+                document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
+                document.getElementById('toggle-autotype').classList.toggle('active', autoType);
+                document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
+                
                 updateUI();
                 renderDeviceList();
+                
+                // Show which device is selected
+                addActivity(`Selected device: ${currentDevice.name || 'Unnamed'}`, 'info');
             }
         }
         
@@ -2915,16 +2972,26 @@ DASHBOARD_PAGE = '''
         });
         
         socket.on('devices_update', (data) => {
-            // Merge server devices with local
+            // Merge server devices with local - UPDATE existing devices too
             if (data.devices) {
                 for (const [id, device] of Object.entries(data.devices)) {
                     if (!devices[id]) {
+                        // New device from server
                         devices[id] = device;
+                    } else {
+                        // Update existing device with server data (type, online status, etc.)
+                        devices[id] = { ...devices[id], ...device };
                     }
                 }
                 saveDevices();
                 renderDeviceList();
                 renderAvailableDevices();
+                
+                // Debug: log connected desktop clients
+                const desktopClients = Object.values(devices).filter(d => d.type === 'desktop_client');
+                if (desktopClients.length > 0) {
+                    console.log('Desktop clients available:', desktopClients.map(d => d.name));
+                }
             }
         });
         
