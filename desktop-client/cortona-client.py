@@ -175,8 +175,8 @@ class CortonaClient:
         @self.sio.event
         def connect():
             print(f"✅ Connected to {SERVER_URL}")
-            # Use dashboard_join to match server handler
-            self.sio.emit('dashboard_join', {
+            # Use desktop_register - dedicated handler for desktop clients
+            self.sio.emit('desktop_register', {
                 'deviceId': self.device_id,
                 'device': {
                     'id': self.device_id,
@@ -187,7 +187,11 @@ class CortonaClient:
                     'platform': PLATFORM
                 }
             })
-            print(f"📡 Registered as: {self.device_name} ({self.device_id})")
+            print(f"📡 Registering as: {self.device_name} ({self.device_id})...")
+        
+        @self.sio.on('registration_confirmed')
+        def on_registered(data):
+            print(f"✅ Registration confirmed! Ready to receive commands.")
         
         @self.sio.event
         def disconnect():

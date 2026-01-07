@@ -5740,6 +5740,49 @@ def on_connect():
         # Could be a desktop client - will be validated on first event
         print(f"🔌 New WebSocket connection: {sid} (awaiting authentication)")
 
+@socketio.on('desktop_register')
+def on_desktop_register(data):
+    """Handle desktop client registration - no auth required"""
+    device_id = data.get('deviceId')
+    device_info = data.get('device', {})
+    
+    print(f"\n🖥️ [DESKTOP CLIENT REGISTER]")
+    print(f"   Name: {device_info.get('name', device_id)}")
+    print(f"   ID: {device_id}")
+    print(f"   Platform: {device_info.get('platform', 'unknown')}")
+    
+    # Join rooms
+    join_room('dashboard')
+    join_room(device_id)  # Join own room to receive routed commands
+    
+    # Store device info
+    if device_id:
+        if device_id not in devices:
+            devices[device_id] = {'id': device_id}
+        
+        devices[device_id].update({
+            'id': device_id,
+            'name': device_info.get('name', 'Desktop Client'),
+            'wakeWord': device_info.get('wakeWord', 'computer'),
+            'icon': device_info.get('icon', 'desktop'),
+            'type': 'desktop_client',
+            'platform': device_info.get('platform', 'unknown'),
+            'sid': request.sid,
+            'online': True,
+            'lastSeen': datetime.now().isoformat()
+        })
+        
+        # Mark as authenticated
+        authenticated_sockets[request.sid] = {'type': 'desktop_client', 'device_id': device_id}
+        
+        # Notify others
+        socketio.emit('device_online', {'deviceId': device_id, 'device': devices[device_id]}, room='dashboard')
+        print(f"   ✅ Desktop client registered and joined room: {device_id}")
+    
+    # Send confirmation
+    emit('registration_confirmed', {'deviceId': device_id, 'status': 'ok'})
+    emit('devices_update', {'devices': devices})
+
 @socketio.on('dashboard_join')
 @require_socket_auth
 def on_dashboard_join(data):
