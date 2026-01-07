@@ -3936,6 +3936,9 @@ DASHBOARD_PAGE = '''
         // UI UPDATES
         // ============================================================
         
+        // Track if we've initialized to avoid "Starting" flicker
+        let hasInitialized = false;
+        
         function updateUI() {
             // Get elements with null safety
             const micButton = document.getElementById('mic-button');
@@ -3950,6 +3953,7 @@ DASHBOARD_PAGE = '''
             }
             
             if (isListening) {
+                hasInitialized = true; // Mark as initialized once we're listening
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
                     // In always-listen mode, waiting for wake word
@@ -3968,14 +3972,27 @@ DASHBOARD_PAGE = '''
                     voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
                 }
             } else {
-                micButton.classList.remove('listening');
-                micButton.innerHTML = 'MIC';
-                if (alwaysListen) {
+                // When not listening...
+                if (alwaysListen && hasInitialized) {
+                    // In always-listen mode after initialization - keep showing Standby (mic is just restarting)
+                    // Don't change the UI - it will update when recognition restarts
+                    micButton.classList.add('listening');
+                    micButton.innerHTML = 'ON';
+                    voiceStatus.textContent = 'Standby';
+                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
+                } else if (alwaysListen && !hasInitialized) {
+                    // First time starting always-listen mode
+                    micButton.classList.remove('listening');
+                    micButton.innerHTML = 'MIC';
                     voiceStatus.textContent = 'Starting';
                     voiceHint.innerHTML = 'Initializing microphone...';
                 } else {
+                    // Not in always-listen mode
+                    micButton.classList.remove('listening');
+                    micButton.innerHTML = 'MIC';
                     voiceStatus.textContent = 'Off';
                     voiceHint.innerHTML = 'Click to start listening';
+                    hasInitialized = false; // Reset when fully stopped
                 }
             }
             
