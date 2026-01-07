@@ -4449,28 +4449,8 @@ def sanitize_input(text, max_length=10000):
     text = text.replace('\x00', '')
     return text
 
-# CSRF exemptions for API endpoints that use JSON (not forms)
-# These are safe because:
-# 1. They require @login_required (authenticated session)
-# 2. They use JSON content-type which browsers don't send cross-origin with credentials
-csrf.exempt('api_parse_command')
-csrf.exempt('get_devices')
-csrf.exempt('manage_device')
-
-# Exempt public endpoints that don't modify state
-csrf.exempt('health')
-csrf.exempt('ping')
-csrf.exempt('claude_status')
-csrf.exempt('get_version')
-
-# Exempt download/install endpoints (GET only, no state modification)
-csrf.exempt('download_mac_app')
-csrf.exempt('download_windows_app')
-csrf.exempt('download_linux_app')
-csrf.exempt('install_page')
-csrf.exempt('download_setup')        # /setup.py
-csrf.exempt('download_install_sh')   # /install.sh, /install/mac, /install/linux
-csrf.exempt('download_install_ps1')  # /install.ps1, /install/windows
+# CSRF exemptions are now applied as decorators directly on the routes
+# This ensures they work correctly (the old approach called csrf.exempt before routes were defined)
 
 # Rate limit decorators for specific routes
 login_limit = limiter.limit("5 per minute", error_message="Too many login attempts. Please try again later.")
@@ -4881,6 +4861,7 @@ Stop commands:
 Return ONLY valid JSON, nothing else."""
 
 @app.route('/api/parse-command', methods=['POST'])
+@csrf.exempt
 @login_required
 @api_limit
 def api_parse_command():
@@ -5050,12 +5031,14 @@ python voice_hub_client.py
     return Response(script, mimetype='text/plain')
 
 @app.route('/api/devices', methods=['GET'])
+@csrf.exempt
 @login_required
 @api_limit
 def get_devices():
     return jsonify(devices)
 
 @app.route('/api/devices/<device_id>', methods=['PUT', 'DELETE'])
+@csrf.exempt
 @login_required
 @api_limit
 def manage_device(device_id):
