@@ -147,10 +147,17 @@ def search_google(query):
 
 class CortonaClient:
     def __init__(self):
-        self.sio = socketio.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=5)
+        self.sio = socketio.Client(
+            reconnection=True, 
+            reconnection_attempts=0, 
+            reconnection_delay=5,
+            logger=False,
+            engineio_logger=False
+        )
         self.device_id = self._get_device_id()
         self.device_name = platform.node() or 'Desktop Client'
         self._setup_handlers()
+        self._start_heartbeat()
         
     def _get_device_id(self):
         """Get or create a persistent device ID (matches embedded client)"""
@@ -211,6 +218,25 @@ class CortonaClient:
         def on_command_legacy(data):
             print(f"\n📥 Received command (legacy): {data}")
             self._execute_command(data)
+    
+    def _start_heartbeat(self):
+        """Send periodic heartbeats to keep connection alive on Render"""
+        import threading
+        
+        def heartbeat_loop():
+            while True:
+                time.sleep(25)  # Send every 25 seconds (Render timeout is ~30s)
+                try:
+                    if self.sio.connected:
+                        self.sio.emit('heartbeat', {
+                            'deviceId': self.device_id,
+                            'timestamp': time.time()
+                        })
+                except Exception as e:
+                    print(f"Heartbeat error: {e}")
+        
+        thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        thread.start()
     
     def _execute_command(self, data):
         """Execute a received command"""
