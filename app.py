@@ -5052,20 +5052,53 @@ def add_to_history(session_id, role, content):
         conversation_history[session_id] = history[-MAX_HISTORY_LENGTH:]
 
 def format_history_for_claude(session_id, limit=10):
-    """Format recent history for Claude context"""
+    """Format recent history as message objects for Claude API.
+    
+    Returns a list of message dicts with proper alternating user/assistant roles.
+    Ensures no two consecutive messages have the same role.
+    """
     history = get_session_history(session_id)[-limit:]
     if not history:
-        return ""
+        return []
     
-    formatted = []
+    messages = []
+    last_role = None
+    
     for msg in history:
-        role_label = "User" if msg['role'] == 'user' else "Jarvis"
-        formatted.append(f"{role_label}: {msg['content']}")
+        # Map 'jarvis' to 'assistant' for Claude API
+        role = 'assistant' if msg['role'] == 'jarvis' else msg['role']
+        content = msg.get('content', '').strip()
+        
+        if not content:
+            continue
+            
+        # Handle consecutive same-role messages by merging
+        if role == last_role and messages:
+            # Merge with previous message
+            messages[-1]['content'] += f"\n{content}"
+        else:
+            messages.append({
+                'role': role,
+                'content': content
+            })
+            last_role = role
     
-    return "\n".join(formatted)
+    # Claude API requires messages to start with 'user' role
+    # If first message is 'assistant', prepend a context message
+    if messages and messages[0]['role'] == 'assistant':
+        messages.insert(0, {
+            'role': 'user',
+            'content': '(continuing conversation)'
+        })
+    
+    return messages
 
-def build_adaptive_prompt(context=None, history_text=None):
-    """Build a dynamic, context-aware system prompt"""
+def build_adaptive_prompt(context=None):
+    """Build a dynamic, context-aware system prompt.
+    
+    Note: Conversation history is now passed as proper message turns in the API call,
+    not embedded in the system prompt. This gives Claude better context understanding.
+    """
     
     base_prompt = """You are Jarvis, an intelligent, ADAPTIVE voice assistant. You understand context, remember recent conversation, and can infer what the user means even from incomplete commands.
 
@@ -5171,23 +5204,16 @@ Return ONLY valid JSON."""
     if context:
         context_section = f"""
 
-CURRENT CONTEXT:
+CURRENT SESSION CONTEXT:
 - Current app in focus: {context.get('currentApp', 'unknown')}
 - Last action: {context.get('lastAction', 'none')}
 - User activity: {context.get('activity', 'general')}
 """
 
-    # Add conversation history if provided
-    history_section = ""
-    if history_text:
-        history_section = f"""
+    # Note: Conversation history is now passed as proper message turns in the API call,
+    # not embedded in the system prompt. This gives Claude better context understanding.
 
-RECENT CONVERSATION:
-{history_text}
----
-"""
-
-    return base_prompt + context_section + history_section
+    return base_prompt + context_section
 
 @app.route('/api/parse-command', methods=['POST'])
 @csrf.exempt
@@ -5231,21 +5257,32 @@ def api_parse_command():
         }), 200
     
     try:
-        # Get conversation history for context
-        history_text = format_history_for_claude(session_id)
+        # Get conversation history as proper message objects (not embedded in system prompt)
+        history_messages = format_history_for_claude(session_id, limit=10)
         
-        # Build adaptive prompt with context
-        system_prompt = build_adaptive_prompt(context, history_text)
+        # Build system prompt with context (no history - that's in messages now)
+        system_prompt = build_adaptive_prompt(context)
         
-        # Add user's message to history
+        # Add user's message to history BEFORE the API call
         add_to_history(session_id, 'user', text)
+        
+        # Build the full messages array: history + current command
+        # This gives Claude proper conversation context through message turns
+        all_messages = history_messages + [
+            {"role": "user", "content": f"Parse this voice command: \"{text}\""}
+        ]
+        
+        # Ensure we don't have consecutive same-role messages (API requirement)
+        # This can happen if the last history message was 'user' and we're adding another 'user'
+        if len(all_messages) >= 2:
+            if all_messages[-2]['role'] == 'user':
+                # Merge with previous user message or insert assistant acknowledgment
+                all_messages.insert(-1, {"role": "assistant", "content": '{"response": "Listening..."}'})
         
         message = claude_client.messages.create(
             model="claude-opus-4-5-20251101",  # Opus 4.5 - most intelligent model
-            max_tokens=500,
-            messages=[
-                {"role": "user", "content": f"Parse this voice command: \"{text}\""}
-            ],
+            max_tokens=2048,  # Increased for quality responses
+            messages=all_messages,
             system=system_prompt
         )
         
