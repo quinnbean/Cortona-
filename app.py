@@ -2220,6 +2220,26 @@ DASHBOARD_PAGE = '''
                     </button>
                 </div>
                 
+                <!-- Manual Command Input -->
+                <div style="margin-top: 15px; padding: 16px; background: var(--bg-primary); border-radius: 12px; border: 1px solid var(--border);">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 13px;">
+                        ⌨️ Type a Command (or paste to test execution)
+                    </label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="manual-command-input" 
+                               placeholder="e.g. 'Cursor, write a hello world function'" 
+                               style="flex: 1; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
+                               onkeypress="if(event.key==='Enter') executeManualCommand()">
+                        <button onclick="executeManualCommand()" 
+                                style="padding: 12px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
+                            🚀 Execute
+                        </button>
+                    </div>
+                    <p style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
+                        Try: "Cursor, explain this code" or "open google.com" or "search for weather"
+                    </p>
+                </div>
+                
                 <!-- Last Command -->
                 <div id="last-command-box" style="margin-top: 20px; padding: 16px; background: var(--bg-primary); border-radius: 12px; display: none;">
                     <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Last Routed Command</div>
@@ -2808,6 +2828,35 @@ DASHBOARD_PAGE = '''
             } else {
                 addActivity('ℹ️ Use the Electron app for app control (no separate client needed)', 'info');
                 console.log('No desktop client. Device types:', Object.values(devices).map(d => ({name: d.name, type: d.type})));
+            }
+        }
+        
+        // Execute a manually typed command
+        async function executeManualCommand() {
+            const input = document.getElementById('manual-command-input');
+            const command = input.value.trim();
+            
+            if (!command) {
+                addActivity('⚠️ Please enter a command first', 'warning');
+                return;
+            }
+            
+            addActivity(`⌨️ Executing: "${command}"`, 'info');
+            console.log('[MANUAL] Executing command:', command);
+            
+            // Process it just like a voice command
+            try {
+                const result = await handleTranscript(command);
+                
+                if (result && result.success !== false) {
+                    addActivity('✅ Command executed!', 'success');
+                    input.value = ''; // Clear input on success
+                } else if (result && result.error) {
+                    addActivity('❌ ' + result.error, 'warning');
+                }
+            } catch (e) {
+                console.error('[MANUAL] Error:', e);
+                addActivity('❌ Error: ' + e.message, 'warning');
             }
         }
         
