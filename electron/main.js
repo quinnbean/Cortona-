@@ -72,6 +72,11 @@ function createWindow() {
     if (!store.get('startMinimized')) {
       mainWindow.show();
     }
+    
+    // Open DevTools in development mode
+    if (IS_DEV) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   });
 
   // Handle close - minimize to tray instead
@@ -247,6 +252,13 @@ function registerGlobalShortcuts() {
       mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send('start-recording');
+    }
+  });
+
+  // Toggle DevTools shortcut (for debugging)
+  globalShortcut.register('CommandOrControl+Shift+D', () => {
+    if (mainWindow) {
+      mainWindow.webContents.toggleDevTools();
     }
   });
 }
