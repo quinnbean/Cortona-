@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, Notification, ipcMain, shell, session, systemPreferences } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, Notification, ipcMain, shell, session, systemPreferences, clipboard } = require('electron');
 const path = require('path');
+const { exec, execSync } = require('child_process');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
 
@@ -324,6 +325,138 @@ function showNotification(title, body) {
 }
 
 // ============================================================================
+// APP CONTROL (Focus apps, type text, etc.)
+// ============================================================================
+
+const APP_NAMES = {
+  'cursor': 'Cursor',
+  'vscode': 'Visual Studio Code',
+  'chrome': 'Google Chrome',
+  'safari': 'Safari',
+  'terminal': 'Terminal',
+  'iterm': 'iTerm',
+  'slack': 'Slack',
+  'discord': 'Discord',
+  'notes': 'Notes',
+  'finder': 'Finder',
+  'messages': 'Messages',
+  'mail': 'Mail'
+};
+
+function focusApp(appName) {
+  return new Promise((resolve, reject) => {
+    const macAppName = APP_NAMES[appName.toLowerCase()] || appName;
+    const script = `tell application "${macAppName}" to activate`;
+    
+    exec(`osascript -e '${script}'`, (error) => {
+      if (error) {
+        console.log(`[APP] Failed to focus ${macAppName}:`, error.message);
+        reject(error);
+      } else {
+        console.log(`[APP] ✅ Focused: ${macAppName}`);
+        resolve(true);
+      }
+    });
+  });
+}
+
+function typeText(text) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Use clipboard + paste for reliability
+      clipboard.writeText(text);
+      
+      // Use AppleScript to paste
+      const script = `
+        tell application "System Events"
+          keystroke "v" using command down
+        end tell
+      `;
+      
+      exec(`osascript -e '${script}'`, (error) => {
+        if (error) {
+          console.log('[APP] Failed to paste:', error.message);
+          reject(error);
+        } else {
+          console.log(`[APP] ✅ Typed: ${text.substring(0, 50)}...`);
+          resolve(true);
+        }
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function pressKey(key) {
+  return new Promise((resolve, reject) => {
+    const keyMap = {
+      'enter': 'return',
+      'return': 'return',
+      'tab': 'tab',
+      'escape': 'escape',
+      'space': 'space'
+    };
+    
+    const mappedKey = keyMap[key.toLowerCase()] || key;
+    const script = `
+      tell application "System Events"
+        key code ${mappedKey === 'return' ? 36 : mappedKey === 'tab' ? 48 : mappedKey === 'escape' ? 53 : 49}
+      end tell
+    `;
+    
+    exec(`osascript -e '${script}'`, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        console.log(`[APP] ✅ Pressed: ${key}`);
+        resolve(true);
+      }
+    });
+  });
+}
+
+async function executeCommand(action, command, targetApp) {
+  console.log(`[APP] Executing: ${action} | App: ${targetApp} | Command: ${command?.substring(0, 50)}...`);
+  
+  try {
+    // Focus the app if specified
+    if (targetApp) {
+      await focusApp(targetApp);
+      await new Promise(r => setTimeout(r, 300)); // Wait for app to focus
+    }
+    
+    // Execute based on action
+    switch (action) {
+      case 'type':
+        await typeText(command);
+        break;
+      case 'type_and_send':
+        await typeText(command);
+        await new Promise(r => setTimeout(r, 100));
+        await pressKey('enter');
+        break;
+      case 'open':
+        await focusApp(command);
+        break;
+      case 'open_url':
+        shell.openExternal(command);
+        break;
+      case 'search':
+        shell.openExternal(`https://www.google.com/search?q=${encodeURIComponent(command)}`);
+        break;
+      default:
+        await typeText(command);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.log('[APP] Error:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// ============================================================================
 // IPC HANDLERS (Communication with renderer)
 // ============================================================================
 
@@ -371,6 +504,48 @@ function setupIPC() {
       return status === 'granted';
     }
     return true;
+  });
+
+  // ========== APP CONTROL ==========
+  
+  // Focus an app
+  ipcMain.handle('focus-app', async (event, appName) => {
+    try {
+      await focusApp(appName);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Type text
+  ipcMain.handle('type-text', async (event, text) => {
+    try {
+      await typeText(text);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Press a key
+  ipcMain.handle('press-key', async (event, key) => {
+    try {
+      await pressKey(key);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Execute a full command (focus app + type + optional enter)
+  ipcMain.handle('execute-command', async (event, { action, command, targetApp }) => {
+    return await executeCommand(action, command, targetApp);
+  });
+
+  // Check if app control is available
+  ipcMain.handle('can-control-apps', () => {
+    return process.platform === 'darwin'; // For now, only macOS
   });
 }
 

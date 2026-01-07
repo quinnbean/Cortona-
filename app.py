@@ -3700,8 +3700,28 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // Handle browser actions (open_tab, open_url, search) - route to desktop client
+            // Handle browser actions (open_tab, open_url, search) - use Electron or route to desktop client
             if (!skipRouting && (parsed.action === 'open_tab' || parsed.action === 'open_url' || parsed.action === 'search')) {
+                var actionLabel = parsed.action === 'open_tab' ? 'Opening new tab' : 
+                                 parsed.action === 'open_url' ? 'Opening ' + parsed.command :
+                                 'Searching: ' + parsed.command;
+                
+                // ELECTRON: Use built-in browser control
+                if (isElectron && window.electronAPI?.executeCommand) {
+                    (async () => {
+                        try {
+                            await window.electronAPI.executeCommand(parsed.action, parsed.command, null);
+                            showLastCommand('🌐', actionLabel, parsed.command || 'new tab');
+                            addActivity('🌐 ' + actionLabel, 'success');
+                            document.getElementById('transcript').textContent = '🌐 ' + actionLabel;
+                        } catch (e) {
+                            console.error('Browser action error:', e);
+                        }
+                    })();
+                    return;
+                }
+                
+                // FALLBACK: Route to desktop client
                 const desktopClient = Object.values(devices).find(d => 
                     d.type === 'desktop_client' && d.id !== deviceId
                 );
@@ -3716,10 +3736,6 @@ DASHBOARD_PAGE = '''
                         timestamp: new Date().toISOString()
                     });
                     
-                    var actionLabel = parsed.action === 'open_tab' ? 'Opening new tab' : 
-                                     parsed.action === 'open_url' ? 'Opening ' + parsed.command :
-                                     'Searching: ' + parsed.command;
-                    
                     showLastCommand('🌐', actionLabel, parsed.command || 'new tab');
                     addActivity('🌐 ' + actionLabel, 'success');
                     document.getElementById('transcript').textContent = '🌐 ' + actionLabel;
@@ -3729,46 +3745,71 @@ DASHBOARD_PAGE = '''
                 }
             }
             
-            // If targeting an app (cursor, vscode, etc), route to a desktop client
+            // If targeting an app (cursor, vscode, etc), use Electron or route to desktop client
             if (!skipRouting && parsed.targetApp) {
                 const appInfo = parsed.targetApp;
                 
-                // Debug: Log all devices and their types
-                console.log('🖥️ DESKTOP CLIENTS:', Object.values(devices).filter(d => d.type === 'desktop_client'));
+                // ELECTRON: Use built-in app control if running in Electron
+                if (isElectron && window.electronAPI?.executeCommand) {
+                    console.log('🖥️ Using Electron to control:', appInfo.id);
+                    
+                    (async () => {
+                        try {
+                            const result = await window.electronAPI.executeCommand(
+                                parsed.action || 'type_and_send',
+                                parsed.command,
+                                appInfo.id
+                            );
+                            
+                            if (result.success) {
+                                showLastCommand(appInfo.icon, `→ ${appInfo.name}`, parsed.command);
+                                addActivity(`✅ Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                                document.getElementById('transcript').textContent = `✅ → ${appInfo.name}: "${parsed.command}"`;
+                            } else {
+                                addActivity(`⚠️ Failed to control ${appInfo.name}: ${result.error}`, 'warning');
+                                // Copy to clipboard as fallback
+                                copyToClipboard(parsed.command);
+                                addActivity('📋 Copied to clipboard instead', 'info');
+                            }
+                        } catch (e) {
+                            console.error('Electron command error:', e);
+                            addActivity(`⚠️ Error: ${e.message}`, 'warning');
+                            copyToClipboard(parsed.command);
+                        }
+                    })();
+                    
+                    return;
+                }
+                
+                // FALLBACK: Route to desktop client if not in Electron
                 console.log('Looking for desktop client. All devices:', Object.entries(devices).map(([id, d]) => ({id, type: d.type, name: d.name})));
                 
-                // Find a desktop client to route to
                 const desktopClient = Object.values(devices).find(d => 
                     d.type === 'desktop_client' && d.id !== deviceId
                 );
                 
-                console.log('Desktop client found:', desktopClient ? desktopClient.name : 'NONE');
-                
                 if (desktopClient) {
-                    console.log('Routing command to:', desktopClient.id, 'Command:', parsed.command.substring(0, 50));
-                    const routeData = {
+                    console.log('Routing command to:', desktopClient.id);
+                    socket.emit('route_command', {
                         fromDeviceId: deviceId,
                         toDeviceId: desktopClient.id,
                         command: parsed.command,
                         action: parsed.action || 'type',
                         targetApp: appInfo.id,
                         timestamp: new Date().toISOString()
-                    };
-                    console.log('📤 SENDING COMMAND:', routeData);
-                    // Route to desktop client with app target info
-                    socket.emit('route_command', routeData);
+                    });
                     
-                    // Always copy to clipboard
                     copyToClipboard(parsed.command);
-                    
                     showLastCommand(appInfo.icon, `→ ${appInfo.name} on ${desktopClient.name}`, parsed.command);
-                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..." (copied)`, 'success');
+                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
                     document.getElementById('transcript').textContent = `📤 → ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
-                    // No desktop client found, show warning with instructions
-                    addActivity(`⚠️ No desktop client connected to control ${appInfo.name}. Run the client on your Mac.`, 'warning');
-                    document.getElementById('transcript').textContent = `⚠️ Desktop client not connected`;
+                    // No desktop client and not in Electron - copy to clipboard
+                    addActivity(`⚠️ No way to control ${appInfo.name}. Use Electron app or run desktop client.`, 'warning');
+                    copyToClipboard(parsed.command);
+                    addActivity('📋 Copied to clipboard - paste manually', 'info');
+                    document.getElementById('transcript').textContent = `📋 Copied: "${parsed.command}"`;
                 }
                 
                 text = parsed.command;

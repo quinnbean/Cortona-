@@ -23,6 +23,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideWindow: () => ipcRenderer.send('hide-window'),
   minimizeToTray: () => ipcRenderer.send('minimize-to-tray'),
   
+  // ========== APP CONTROL ==========
+  // Focus an app by name
+  focusApp: (appName) => ipcRenderer.invoke('focus-app', appName),
+  
+  // Type text using clipboard + paste
+  typeText: (text) => ipcRenderer.invoke('type-text', text),
+  
+  // Press a key (enter, tab, escape, etc.)
+  pressKey: (key) => ipcRenderer.invoke('press-key', key),
+  
+  // Execute a full command (focus app + type + optional send)
+  executeCommand: (action, command, targetApp) => 
+    ipcRenderer.invoke('execute-command', { action, command, targetApp }),
+  
+  // Check if app control is available
+  canControlApps: () => ipcRenderer.invoke('can-control-apps'),
+  
   // Listen for events from main process
   onActivateVoice: (callback) => {
     ipcRenderer.on('activate-voice', callback);
