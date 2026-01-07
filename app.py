@@ -3457,9 +3457,9 @@ csrf.exempt('download_mac_app')
 csrf.exempt('download_windows_app')
 csrf.exempt('download_linux_app')
 csrf.exempt('install_page')
-csrf.exempt('serve_setup_script')
-csrf.exempt('install_script_mac')
-csrf.exempt('install_script_windows')
+csrf.exempt('download_setup')        # /setup.py
+csrf.exempt('download_install_sh')   # /install.sh, /install/mac, /install/linux
+csrf.exempt('download_install_ps1')  # /install.ps1, /install/windows
 
 # Rate limit decorators for specific routes
 login_limit = limiter.limit("5 per minute", error_message="Too many login attempts. Please try again later.")
