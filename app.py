@@ -40,7 +40,7 @@ try:
         print("🧠 Claude AI enabled for intelligent command parsing")
     else:
         claude_client = None
-        print("⚠️ ANTHROPIC_API_KEY not set - using regex parsing")
+        print("[WARNING] ANTHROPIC_API_KEY not set - using regex parsing")
 except ImportError:
     CLAUDE_AVAILABLE = False
     claude_client = None
