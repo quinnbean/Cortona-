@@ -2535,11 +2535,19 @@ DASHBOARD_PAGE = '''
         }
         
         function handleTranscript(text, skipRouting = false) {
+            // DEBUG: Log what we received
+            console.log('=== handleTranscript called ===');
+            console.log('Text:', text);
+            
             // Parse the command to check for device/app targeting
             const parsed = parseCommand(text);
+            console.log('Parsed result:', JSON.stringify(parsed, null, 2));
+            console.log('Target app:', parsed.targetApp ? parsed.targetApp.name : 'NONE');
+            console.log('Target device:', parsed.targetDevice ? parsed.targetDevice.name : 'NONE');
             
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
+                console.log('>>> ROUTING TO DEVICE:', parsed.targetDevice.name);
                 routeCommandToDevice(parsed.targetDevice, parsed.command, parsed.action);
                 copyToClipboard(parsed.command); // Always copy to clipboard
                 document.getElementById('transcript').textContent = `📤 Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
@@ -2549,6 +2557,7 @@ DASHBOARD_PAGE = '''
             // If targeting an app (cursor, vscode, etc), route to a desktop client
             if (!skipRouting && parsed.targetApp) {
                 const appInfo = parsed.targetApp;
+                console.log('>>> TARGETING APP:', appInfo.name);
                 
                 // Debug: Log all devices and their types
                 console.log('Looking for desktop client. All devices:', Object.entries(devices).map(([id, d]) => ({id, type: d.type, name: d.name})));
@@ -2561,7 +2570,12 @@ DASHBOARD_PAGE = '''
                 console.log('Desktop client found:', desktopClient ? desktopClient.name : 'NONE');
                 
                 if (desktopClient) {
-                    console.log('Routing command to:', desktopClient.id, 'Command:', parsed.command.substring(0, 50));
+                    console.log('=== EMITTING route_command ===');
+                    console.log('From:', deviceId);
+                    console.log('To:', desktopClient.id);
+                    console.log('Command:', parsed.command);
+                    console.log('Target App:', appInfo.id);
+                    
                     // Route to desktop client with app target info
                     socket.emit('route_command', {
                         fromDeviceId: deviceId,
@@ -2571,6 +2585,8 @@ DASHBOARD_PAGE = '''
                         targetApp: appInfo.id,
                         timestamp: new Date().toISOString()
                     });
+                    
+                    console.log('>>> route_command EMITTED!');
                     
                     // Always copy to clipboard
                     copyToClipboard(parsed.command);
