@@ -2972,16 +2972,26 @@ DASHBOARD_PAGE = '''
         });
         
         socket.on('devices_update', (data) => {
-            // Merge server devices with local
+            // Merge server devices with local - UPDATE existing devices too
             if (data.devices) {
                 for (const [id, device] of Object.entries(data.devices)) {
                     if (!devices[id]) {
+                        // New device from server
                         devices[id] = device;
+                    } else {
+                        // Update existing device with server data (type, online status, etc.)
+                        devices[id] = { ...devices[id], ...device };
                     }
                 }
                 saveDevices();
                 renderDeviceList();
                 renderAvailableDevices();
+                
+                // Debug: log connected desktop clients
+                const desktopClients = Object.values(devices).filter(d => d.type === 'desktop_client');
+                if (desktopClients.length > 0) {
+                    console.log('Desktop clients available:', desktopClients.map(d => d.name));
+                }
             }
         });
         
