@@ -2701,8 +2701,8 @@ DASHBOARD_PAGE = '''
                             <span>${d.icon || '💻'}</span>
                             ${d.name || 'Unnamed Device'}
                         </div>
-                        <span class="device-status ${d.id === deviceId ? (isListening ? 'listening' : 'online') : 'offline'}">
-                            ${d.id === deviceId ? (isListening ? '● Listening' : '● Online') : '○ Offline'}
+                        <span class="device-status ${d.id === deviceId ? (isListening ? 'listening' : 'online') : (d.online ? 'online' : 'offline')}">
+                            ${d.id === deviceId ? (isListening ? '● Listening' : '● Online') : (d.online ? '● Online' : '○ Offline')}
                         </span>
                     </div>
                     <div class="device-wake-word">"${d.wakeWord || 'hey computer'}"</div>
@@ -3370,6 +3370,14 @@ def on_device_update(data):
             # Add new device (like desktop clients)
             devices[device_id] = settings
             print(f"📱 New device registered: {settings.get('name', device_id)}")
+        
+        # Mark as online and track socket session
+        devices[device_id]['online'] = True
+        devices[device_id]['sid'] = request.sid
+        
+        # Notify all dashboards
+        socketio.emit('device_online', {'deviceId': device_id}, room='dashboard')
+    
     socketio.emit('devices_update', {'devices': devices}, room='dashboard')
 
 @socketio.on('device_add')
