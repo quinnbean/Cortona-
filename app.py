@@ -2119,7 +2119,8 @@ DASHBOARD_PAGE = '''
         }
         
         function escapeRegex(string) {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Escape special regex characters
+            return string.replace(/[.*+?^${}()|\\[\\]\\\\]/g, '\\\\$&');
         }
         
         // Route a command to a specific device
@@ -2518,7 +2519,7 @@ DASHBOARD_PAGE = '''
             let corrections = [];
             
             for (const [wrong, right] of Object.entries(spellCheckDict)) {
-                const regex = new RegExp('\\b' + wrong + '\\b', 'gi');
+                const regex = new RegExp('\\\\b' + wrong + '\\\\b', 'gi');
                 if (regex.test(corrected)) {
                     corrections.push({ from: wrong, to: right });
                     corrected = corrected.replace(regex, right);
