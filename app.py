@@ -2157,12 +2157,13 @@ DASHBOARD_PAGE = '''
         }
         
         // Route a command to a specific device
-        function routeCommandToDevice(targetDevice, command, action) {
+        function routeCommandToDevice(targetDevice, command, action, targetApp = null) {
             socket.emit('route_command', {
                 fromDeviceId: deviceId,
                 toDeviceId: targetDevice.id,
                 command: command,
-                action: action,
+                action: action || 'type',
+                targetApp: targetApp,
                 timestamp: new Date().toISOString()
             });
             
@@ -2433,8 +2434,12 @@ DASHBOARD_PAGE = '''
                     addActivity('Microphone access denied. Please allow microphone access.', 'warning');
                     alwaysListen = false;
                     document.getElementById('toggle-always-listen').classList.remove('active');
+                } else if (event.error === 'audio-capture') {
+                    addActivity('No microphone detected. Check your audio settings.', 'warning');
+                } else if (event.error === 'network') {
+                    addActivity('Network error. Check your internet connection.', 'warning');
                 } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-                    addActivity(`Error: ${event.error}`, 'warning');
+                    addActivity(`Speech error: ${event.error}`, 'warning');
                 }
                 isListening = false;
                 updateUI();
@@ -2503,8 +2508,9 @@ DASHBOARD_PAGE = '''
                     document.getElementById('transcript').textContent = `📤 → ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
-                    // No desktop client found, show warning
-                    addActivity(`⚠️ No desktop client connected to control ${appInfo.name}`, 'warning');
+                    // No desktop client found, show warning with instructions
+                    addActivity(`⚠️ No desktop client connected to control ${appInfo.name}. Run the client on your Mac.`, 'warning');
+                    document.getElementById('transcript').textContent = `⚠️ Desktop client not connected`;
                 }
                 
                 text = parsed.command;
@@ -2823,7 +2829,10 @@ DASHBOARD_PAGE = '''
         }
         
         function updateDeviceSetting(setting, value) {
-            if (!currentDevice) return;
+            if (!currentDevice) {
+                addActivity('No device selected', 'warning');
+                return;
+            }
             
             if (setting === 'wakeWord') {
                 value = value.toLowerCase().trim();
