@@ -2294,18 +2294,20 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onend = () => {
-                // Check if we should auto-restart before updating UI
+                // Always set isListening to false when recognition ends
+                isListening = false;
+                
+                // Check if we should auto-restart
                 const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
                 
                 if (shouldRestart) {
-                    // Keep showing "Ready" state, restart quickly
+                    // Restart quickly without changing UI
                     setTimeout(() => {
                         if (alwaysListen || continuousMode) {
                             startListening();
                         }
                     }, 100);
                 } else {
-                    isListening = false;
                     updateUI();
                 }
             };
