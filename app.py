@@ -3485,7 +3485,7 @@ def install_page():
     return render_template_string(INSTALL_PAGE, server=server_url)
 
 # Desktop client version - increment this when you update the client
-CLIENT_VERSION = "1.2.0"
+CLIENT_VERSION = "1.3.0"
 
 # ============================================================================
 # CLAUDE AI COMMAND PARSING
