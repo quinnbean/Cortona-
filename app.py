@@ -808,8 +808,18 @@ class VoiceHubClient:
         # Execute the action
         if action == 'type' or action == 'paste':
             type_text(command)
+            print("✅ Typed text")
+        elif action == 'type_and_send':
+            type_text(command)
+            time.sleep(0.2)
+            press_enter()
+            print("✅ Typed and sent!")
+        elif action == 'open':
+            focus_app(target_app or command)
+            print(f"✅ Opened {target_app or command}")
         elif action == 'run':
             run_command(command, target_app or 'terminal')
+            print("✅ Command executed")
         elif action == 'search':
             focus_app('chrome')
             time.sleep(0.5)
@@ -817,8 +827,11 @@ class VoiceHubClient:
             time.sleep(0.2)
             type_text(command)
             press_enter()
-        
-        print("Command executed!\n")
+            print("✅ Searching...")
+        else:
+            # Default: just type
+            type_text(command)
+            print("✅ Typed")
     
     def run(self):
         """Run the client"""
@@ -3483,10 +3496,17 @@ COMMAND_PARSE_PROMPT = """You are Jarvis, a voice command parser for a computer 
 Parse voice commands and return JSON:
 {
   "targetApp": "cursor" | "claude" | "chatgpt" | "terminal" | "browser" | "notes" | "slack" | "discord" | null,
-  "action": "type" | "open" | "search" | "run" | null,
+  "action": "type" | "type_and_send" | "open" | "search" | "run" | null,
   "content": "the text to type or action to take",
   "response": "Brief friendly confirmation (5 words max)"
 }
+
+ACTIONS:
+- "type" = just type the text
+- "type_and_send" = type the text AND press Enter to send it
+- "open" = open the app
+- "search" = search in browser
+- "run" = run a command
 
 APPS:
 - cursor/curser = Code editor (Cursor IDE)
@@ -3498,17 +3518,17 @@ APPS:
 COMMON MISHEARINGS (fix these):
 - "right" → "write"
 - "curser" → "cursor"  
-- "type" alone → action is type, content is what follows
 - "cloud" → "claude"
+- "and send" / "and enter" / "and submit" → use action "type_and_send"
 
 EXAMPLES:
 "cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","response":"Typing in Cursor"}
-"cursor right hello world" → {"targetApp":"cursor","action":"type","content":"hello world","response":"Typing in Cursor"}
+"ask claude about python and send" → {"targetApp":"claude","action":"type_and_send","content":"about python","response":"Sending to Claude"}
+"tell chatgpt explain react and enter" → {"targetApp":"chatgpt","action":"type_and_send","content":"explain react","response":"Sending to ChatGPT"}
+"claude what is python send it" → {"targetApp":"claude","action":"type_and_send","content":"what is python","response":"Sending to Claude"}
+"type hello and submit" → {"targetApp":null,"action":"type_and_send","content":"hello","response":"Typing and sending"}
 "open terminal" → {"targetApp":"terminal","action":"open","content":null,"response":"Opening Terminal"}
 "search how to code" → {"targetApp":"browser","action":"search","content":"how to code","response":"Searching"}
-"type this is a test" → {"targetApp":null,"action":"type","content":"this is a test","response":"Typing"}
-"ask claude about python" → {"targetApp":"claude","action":"type","content":"about python","response":"Asking Claude"}
-"tell chatgpt to explain react" → {"targetApp":"chatgpt","action":"type","content":"explain react","response":"Asking ChatGPT"}
 
 Return ONLY valid JSON, nothing else."""
 
