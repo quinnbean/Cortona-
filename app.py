@@ -2708,10 +2708,13 @@ DASHBOARD_PAGE = '''
         async function copyToClipboard(text) {
             try {
                 await navigator.clipboard.writeText(text);
-                // Try to simulate paste (note: this won't work in all contexts due to browser security)
-                // The user can manually paste with Ctrl+V / Cmd+V
+                return true;
             } catch (err) {
-                console.log('Clipboard write failed:', err);
+                // Clipboard fails when tab isn't focused - this is normal
+                if (err.name !== 'NotAllowedError') {
+                    console.log('Clipboard write failed:', err);
+                }
+                return false;
             }
         }
         
