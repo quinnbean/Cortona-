@@ -1686,18 +1686,7 @@ DASHBOARD_PAGE = '''
         </div>
     </header>
     
-    <div class="main-layout">
-        <!-- Sidebar: Device Manager -->
-        <aside class="sidebar">
-            <h2>📱 Your Devices</h2>
-            <button class="add-device-btn" onclick="openAddDeviceModal()">
-                <span>➕</span> Add Device
-            </button>
-            <div class="device-list" id="device-list">
-                <!-- Devices will be rendered here -->
-            </div>
-        </aside>
-        
+    <div class="main-layout" style="grid-template-columns: 1fr;">
         <!-- Main Content -->
         <main class="main-content">
             <div id="browser-warning" class="browser-warning" style="display: none;">
@@ -1736,7 +1725,7 @@ DASHBOARD_PAGE = '''
                         <p>A friendly name for this device</p>
                     </div>
                     <input type="text" class="setting-input" id="device-name-input" 
-                           placeholder="My Computer" onchange="updateDeviceSetting('name', this.value)">
+                           placeholder="Quinn's MacBook Pro" onblur="updateDeviceSetting('name', this.value)">
                 </div>
                 <div class="setting-row">
                     <div class="setting-label">
@@ -1744,7 +1733,7 @@ DASHBOARD_PAGE = '''
                         <p>Say this to activate voice recognition</p>
                     </div>
                     <input type="text" class="setting-input" id="wake-word-input" 
-                           placeholder="Hey Computer" onchange="updateDeviceSetting('wakeWord', this.value)">
+                           placeholder="jarvis" onblur="updateDeviceSetting('wakeWord', this.value)">
                 </div>
                 <div class="setting-row">
                     <div class="setting-label">
@@ -2035,38 +2024,35 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Generate device ID for this browser
-        let deviceId = localStorage.getItem('voicehub_device_id');
-        if (!deviceId) {
-            deviceId = 'device_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('voicehub_device_id', deviceId);
-        }
+        // Use a consistent device ID based on this browser
+        const deviceId = 'browser_' + (localStorage.getItem('voicehub_browser_id') || (() => {
+            const id = Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('voicehub_browser_id', id);
+            return id;
+        })());
         
-        // Load saved devices
-        const savedDevices = localStorage.getItem('voicehub_devices');
-        if (savedDevices) {
-            devices = JSON.parse(savedDevices);
-        }
-        
-        // Initialize current device
-        if (!devices[deviceId]) {
-            devices[deviceId] = {
-                id: deviceId,
-                name: 'This Device',
-                wakeWord: 'hey computer',
-                icon: '💻',
-                language: 'en-US',
-                wordsTyped: 0,
-                sessions: 0,
-                alwaysListen: false,
-                continuous: false,
-                autoType: true,
-                sensitivity: 3
-            };
-            saveDevices();
-        }
-        currentDevice = devices[deviceId];
+        // Load this device's settings (just this device, not a list)
+        const savedSettings = localStorage.getItem('voicehub_my_settings');
+        currentDevice = savedSettings ? JSON.parse(savedSettings) : {
+            id: deviceId,
+            name: navigator.platform.includes('Mac') ? "Quinn's MacBook Pro" : 'My Computer',
+            wakeWord: 'jarvis',
+            icon: '💻',
+            language: 'en-US',
+            wordsTyped: 0,
+            sessions: 0,
+            alwaysListen: false,
+            continuous: false,
+            autoType: true,
+            sensitivity: 3
+        };
+        currentDevice.id = deviceId; // Ensure ID is current
+        devices[deviceId] = currentDevice;
         alwaysListen = currentDevice.alwaysListen || false;
+        
+        function saveSettings() {
+            localStorage.setItem('voicehub_my_settings', JSON.stringify(currentDevice));
+        }
         sensitivity = currentDevice.sensitivity || 3;
         
         // ============================================================
@@ -3128,7 +3114,8 @@ DASHBOARD_PAGE = '''
         }
         
         function saveDevices() {
-            localStorage.setItem('voicehub_devices', JSON.stringify(devices));
+            // Save current device settings
+            saveSettings();
         }
         
         // ============================================================
