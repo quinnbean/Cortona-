@@ -888,7 +888,8 @@ class VoiceHubClient:
         @self.sio.on('command_received')
         def on_command_received(data):
             print(f"\\n{'='*50}")
-            print(f"COMMAND RECEIVED!")
+            print(f"📥 COMMAND RECEIVED!")
+            print(f"📥 DATA: {data}")
             print(f"{'='*50}")
             self._execute_command(data)
         
@@ -3118,6 +3119,8 @@ DASHBOARD_PAGE = '''
                 }
                 
                 if (finalTranscript) {
+                    console.log('🎤 HEARD:', finalTranscript);
+                    
                     // Quick check for obvious STOP commands (fast path, no API call needed)
                     const lowerTranscript = finalTranscript.toLowerCase().trim();
                     const isQuickStop = checkForStopCommand(lowerTranscript);
@@ -3444,6 +3447,7 @@ DASHBOARD_PAGE = '''
                     body: JSON.stringify(contextData)
                 });
                 const data = await response.json();
+                console.log('🧠 CLAUDE RESPONSE:', JSON.stringify(data, null, 2));
                 
                 // Claude ALWAYS returns a valid response now (no fallback)
                 // Log if Claude corrected the transcription
@@ -3630,6 +3634,7 @@ DASHBOARD_PAGE = '''
                 const appInfo = parsed.targetApp;
                 
                 // Debug: Log all devices and their types
+                console.log('🖥️ DESKTOP CLIENTS:', Object.values(devices).filter(d => d.type === 'desktop_client'));
                 console.log('Looking for desktop client. All devices:', Object.entries(devices).map(([id, d]) => ({id, type: d.type, name: d.name})));
                 
                 // Find a desktop client to route to
@@ -3641,15 +3646,17 @@ DASHBOARD_PAGE = '''
                 
                 if (desktopClient) {
                     console.log('Routing command to:', desktopClient.id, 'Command:', parsed.command.substring(0, 50));
-                    // Route to desktop client with app target info
-                    socket.emit('route_command', {
+                    const routeData = {
                         fromDeviceId: deviceId,
                         toDeviceId: desktopClient.id,
                         command: parsed.command,
                         action: parsed.action || 'type',
                         targetApp: appInfo.id,
                         timestamp: new Date().toISOString()
-                    });
+                    };
+                    console.log('📤 SENDING COMMAND:', routeData);
+                    // Route to desktop client with app target info
+                    socket.emit('route_command', routeData);
                     
                     // Always copy to clipboard
                     copyToClipboard(parsed.command);
@@ -5239,6 +5246,7 @@ def api_parse_command():
     
     text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
     session_id = data.get('sessionId', 'default')
+    print(f"📥 RECEIVED: {text}")
     
     # Get context about what user is doing
     context = {
