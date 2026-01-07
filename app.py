@@ -750,6 +750,9 @@ class VoiceHubClient:
         
         @self.sio.on('command_received')
         def on_command_received(data):
+            print(f"\\n{'='*50}")
+            print(f"COMMAND RECEIVED!")
+            print(f"{'='*50}")
             self._execute_command(data)
         
         @self.sio.on('update_available')
@@ -2487,12 +2490,18 @@ DASHBOARD_PAGE = '''
             if (!skipRouting && parsed.targetApp) {
                 const appInfo = parsed.targetApp;
                 
+                // Debug: Log all devices and their types
+                console.log('Looking for desktop client. All devices:', Object.entries(devices).map(([id, d]) => ({id, type: d.type, name: d.name})));
+                
                 // Find a desktop client to route to
                 const desktopClient = Object.values(devices).find(d => 
                     d.type === 'desktop_client' && d.id !== deviceId
                 );
                 
+                console.log('Desktop client found:', desktopClient ? desktopClient.name : 'NONE');
+                
                 if (desktopClient) {
+                    console.log('Routing command to:', desktopClient.id, 'Command:', parsed.command.substring(0, 50));
                     // Route to desktop client with app target info
                     socket.emit('route_command', {
                         fromDeviceId: deviceId,
@@ -3485,9 +3494,14 @@ def on_route_command(data):
     action = data.get('action', 'type')
     target_app = data.get('targetApp')
     
-    print(f"📤 Routing command from {from_device_id} to {to_device_id}: {command[:50]}...")
-    if target_app:
-        print(f"   Target app: {target_app}")
+    print(f"\n{'='*60}")
+    print(f"📤 ROUTE_COMMAND received!")
+    print(f"   From: {from_device_id}")
+    print(f"   To: {to_device_id}")
+    print(f"   Command: {command[:50] if command else 'NONE'}...")
+    print(f"   Target app: {target_app or 'None'}")
+    print(f"   Known devices: {list(devices.keys())}")
+    print(f"{'='*60}")
     
     # Send the command to the target device
     socketio.emit('command_received', {
