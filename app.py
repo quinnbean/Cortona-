@@ -11,11 +11,18 @@
 import os
 import secrets
 import json
+import re
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, jsonify, Response
-from flask_socketio import SocketIO, emit, join_room
+from functools import wraps
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify, Response, session, g
+from flask_socketio import SocketIO, emit, join_room, disconnect
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# Security imports
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 
 # Load environment variables from .env file (for local development)
 try:
@@ -46,11 +53,60 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
+
+# Determine allowed origins for CORS (your Render URL + localhost for dev)
+ALLOWED_ORIGINS = [
+    "https://cortona.onrender.com",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+]
+# Add custom origins from environment if needed
+if os.environ.get('ALLOWED_ORIGINS'):
+    ALLOWED_ORIGINS.extend(os.environ.get('ALLOWED_ORIGINS').split(','))
+
+# Secure cookie configuration
+app.config.update(
+    # Session cookies
+    SESSION_COOKIE_SECURE=os.environ.get('FLASK_ENV') != 'development',  # HTTPS only in production
+    SESSION_COOKIE_HTTPONLY=True,  # Prevent JavaScript access to session cookie
+    SESSION_COOKIE_SAMESITE='Lax',  # Prevent CSRF via cross-site requests
+    
+    # Remember me cookie
+    REMEMBER_COOKIE_SECURE=os.environ.get('FLASK_ENV') != 'development',
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SAMESITE='Lax',
+    
+    # CSRF Protection
+    WTF_CSRF_ENABLED=True,
+    WTF_CSRF_TIME_LIMIT=3600,  # 1 hour token validity
+)
+
+# Initialize CSRF Protection
+csrf = CSRFProtect(app)
+
+# Initialize Rate Limiter
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],  # Default limits for all routes
+    storage_uri="memory://",  # Use memory storage (works on Render)
+)
+
+# SocketIO with restricted CORS origins
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=ALLOWED_ORIGINS,  # Restricted to known origins only
+    async_mode='gevent',
+    manage_session=False  # Let Flask handle sessions for security
+)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.remember_cookie_duration = timedelta(days=30)
+login_manager.session_protection = 'strong'  # Regenerate session on login
 
 # Password is loaded from environment variable - NEVER commit passwords to git!
 # Set ADMIN_PASSWORD in your .env file or Render dashboard
@@ -79,6 +135,11 @@ def save_users():
         print(f"Error saving users: {e}")
 
 USERS = load_users()
+
+# Track failed login attempts for additional protection
+failed_login_attempts = {}
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
 
 # Store devices and their settings
 devices = {}
@@ -736,6 +797,35 @@ def run_command(command, app=None):
     time.sleep(0.1)
     press_enter()
 
+def open_url_native(url):
+    """Open a URL using the system's native method - more reliable than webbrowser module"""
+    try:
+        if PLATFORM == 'Darwin':
+            # macOS - use 'open' command
+            subprocess.run(['open', url], check=True)
+            print(f"✅ Opened URL (macOS): {url}")
+        elif PLATFORM == 'Windows':
+            # Windows - use os.startfile or start command
+            # os.startfile is most reliable on Windows
+            os.startfile(url)
+            print(f"✅ Opened URL (Windows): {url}")
+        else:
+            # Linux - use xdg-open
+            subprocess.run(['xdg-open', url], check=True)
+            print(f"✅ Opened URL (Linux): {url}")
+        return True
+    except Exception as e:
+        print(f"⚠️ Native open failed: {e}, trying webbrowser...")
+        # Fallback to webbrowser module
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            print(f"✅ Opened URL (webbrowser fallback): {url}")
+            return True
+        except Exception as e2:
+            print(f"❌ Could not open URL: {e2}")
+            return False
+
 # ============================================================================
 # SOCKET.IO CLIENT
 # ============================================================================
@@ -851,9 +941,8 @@ class VoiceHubClient:
             print(f"Opened {target_app or command}")
         elif action == 'open_tab':
             # Open a new browser tab
-            import webbrowser
             if command:
-                webbrowser.open_new_tab(command)
+                open_url_native(command)
                 print(f"Opened new tab: {command}")
             else:
                 # Just open a new tab in default browser
@@ -863,21 +952,19 @@ class VoiceHubClient:
                 print("Opened new tab")
         elif action == 'open_url':
             # Open a specific URL
-            import webbrowser
             url = command if command else 'https://google.com'
             # Add https if missing
             if not url.startswith('http'):
                 url = 'https://' + url
-            webbrowser.open_new_tab(url)
+            open_url_native(url)
             print(f"Opened URL: {url}")
         elif action == 'run':
             run_command(command, target_app or 'terminal')
             print("Command executed")
         elif action == 'search':
             # Search in browser
-            import webbrowser
             search_url = f"https://www.google.com/search?q={command.replace(' ', '+')}"
-            webbrowser.open_new_tab(search_url)
+            open_url_native(search_url)
             print(f"Searching: {command}")
         else:
             # Default: just type
@@ -1118,6 +1205,7 @@ LOGIN_PAGE = '''
             {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
             {% if success %}<div class="error" style="background: rgba(0, 245, 212, 0.1); border-color: rgba(0, 245, 212, 0.3); color: var(--accent);">✓ {{ success }}</div>{% endif %}
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label>Username</label>
                     <input type="text" name="username" placeholder="Enter username" required autofocus>
@@ -1255,6 +1343,7 @@ SIGNUP_PAGE = '''
             </div>
             {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label>Display Name</label>
                     <input type="text" name="name" placeholder="Your name" required autofocus>
@@ -2884,22 +2973,30 @@ DASHBOARD_PAGE = '''
                 // Check if we should auto-restart (keep listening in always-listen or continuous mode)
                 const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
                 
+                // Always set isListening to false when recognition ends
+                isListening = false;
+                
                 if (shouldRestart) {
-                    // DON'T set isListening to false - keep it true to prevent UI flicker
-                    // Just restart after a brief delay
+                    // Restart after a brief delay
                     setTimeout(() => {
+                        // Only restart if still in always-listen or continuous mode
                         if ((alwaysListen || continuousMode) && !isListening) {
                             try {
                                 recognition.start();
-                                isListening = true;
+                                // isListening will be set to true by onstart
                             } catch (e) {
-                                // Already started, ignore
+                                console.log('Restart failed, reinitializing...', e.message);
+                                // Reinitialize and try again
+                                initSpeechRecognition();
+                                setTimeout(() => {
+                                    if (alwaysListen || continuousMode) {
+                                        try { recognition.start(); } catch (e2) {}
+                                    }
+                                }, 100);
                             }
                         }
                     }, 300);
                 } else {
-                    // Only set false and update UI when NOT in always-listen mode
-                    isListening = false;
                     updateUI();
                 }
             };
@@ -2949,15 +3046,24 @@ DASHBOARD_PAGE = '''
                     const isStopCommand = checkForStopCommand(lowerTranscript);
                     
                     if (isStopCommand) {
-                        // Stop recording
-                        addActivity('🛑 Stop command detected', 'info');
+                        // Stop the current dictation session, but keep always-listen mode if enabled
+                        addActivity('🛑 Stop command - ending dictation', 'info');
                         addToTranscriptHistory(lowerTranscript, 'stop');
-                        stopListening();
-                        alwaysListen = false;
-                        document.getElementById('toggle-always-listen').classList.remove('active');
-                        currentDevice.alwaysListen = false;
-                        saveDevices();
-                        transcriptEl.textContent = 'Stopped.';
+                        
+                        // End active dictation
+                        isActiveDictation = false;
+                        
+                        if (alwaysListen) {
+                            // Stay in always-listen mode, just go back to waiting for wake word
+                            transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                            transcriptEl.classList.remove('active');
+                            document.getElementById('voice-status').textContent = 'Standby';
+                            // Recognition keeps running to listen for wake word
+                        } else {
+                            // Not in always-listen mode, fully stop
+                            stopListening();
+                            transcriptEl.textContent = 'Stopped.';
+                        }
                         updateUI();
                         return;
                     }
@@ -3004,25 +3110,50 @@ DASHBOARD_PAGE = '''
                         // If there's text after the wake word, type it
                         if (afterWakeWord) {
                             handleTranscript(afterWakeWord);
+                            // After processing command with wake word, go back to standby
+                            isActiveDictation = false;
+                            if (alwaysListen && !continuousMode) {
+                                setTimeout(() => {
+                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                    transcriptEl.classList.remove('active');
+                                    document.getElementById('voice-status').textContent = 'Standby';
+                                }, 1500);
+                            }
                         } else {
                             // Just activated, waiting for command
                             isActiveDictation = true;
-                            document.getElementById('voice-status').textContent = 'Activated';
-                            transcriptEl.textContent = 'Speak now...';
+                            document.getElementById('voice-status').textContent = 'Listening...';
+                            transcriptEl.textContent = 'Speak your command...';
                             transcriptEl.classList.add('active');
+                            document.getElementById('voice-hint').innerHTML = 'Say "stop" when done';
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
                         // In active dictation mode, type everything
                         addToTranscriptHistory(finalTranscript, 'command');
                         handleTranscript(finalTranscript);
+                        
+                        // End the active dictation session
                         isActiveDictation = false;
                         
-                        // Reset transcript display after typing
+                        // Reset to standby mode after processing command
                         if (alwaysListen && !continuousMode) {
+                            // Go back to waiting for wake word
                             setTimeout(() => {
                                 transcriptEl.textContent = `Ready for "${wakeWord}"`;
                                 transcriptEl.classList.remove('active');
+                                document.getElementById('voice-status').textContent = 'Standby';
+                                document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
                             }, 1500);
+                            addActivity('💬 Command processed - waiting for wake word', 'info');
+                        } else if (!alwaysListen && !continuousMode) {
+                            // Manual mode without continuous - stop after command
+                            setTimeout(() => {
+                                if (!isActiveDictation && !continuousMode) {
+                                    stopListening();
+                                    transcriptEl.textContent = 'Click mic to start again';
+                                    addActivity('🎤 Dictation ended', 'info');
+                                }
+                            }, 2000);
                         }
                     }
                     // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
@@ -3030,10 +3161,11 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onerror = (event) => {
-                // Ignore common non-errors
+                // Handle common non-fatal errors - these will trigger onend which handles restart
                 if (event.error === 'no-speech' || event.error === 'aborted') {
-                    isListening = false;
-                    updateUI();
+                    // Don't set isListening = false here - let onend handle it
+                    // This prevents race conditions with the restart logic
+                    console.log('Recognition ended:', event.error);
                     return;
                 }
                 
@@ -3056,9 +3188,32 @@ DASHBOARD_PAGE = '''
             };
         }
         
+        // Audio context - initialized on first user interaction
+        let audioCtx = null;
+        
+        function initAudioContext() {
+            if (!audioCtx) {
+                try {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.log('AudioContext not available');
+                }
+            }
+            // Resume if suspended (browsers suspend until user gesture)
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+        
+        // Initialize audio on first user click
+        document.addEventListener('click', () => initAudioContext(), { once: true });
+        
         function playSound(type) {
+            const ctx = initAudioContext();
+            if (!ctx) return;
+            
             try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = ctx.createOscillator();
                 const gainNode = ctx.createGain();
                 
@@ -3078,7 +3233,7 @@ DASHBOARD_PAGE = '''
                 oscillator.start(ctx.currentTime);
                 oscillator.stop(ctx.currentTime + 0.2);
             } catch (e) {
-                console.log('Sound playback not available');
+                // Silently fail - sounds are optional
             }
         }
         
@@ -3398,9 +3553,20 @@ DASHBOARD_PAGE = '''
                     recognition.start();
                     addActivity('🎤 Starting microphone...', 'info');
                 } catch (e) {
-                    // Handle "already started" error
+                    // Handle "already started" or stale recognition object
                     if (e.name === 'InvalidStateError') {
-                        console.log('Recognition already running');
+                        console.log('Recognition in invalid state, reinitializing...');
+                        // Reinitialize recognition object and try again
+                        initSpeechRecognition();
+                        setTimeout(() => {
+                            try {
+                                recognition.lang = currentDevice?.language || 'en-US';
+                                recognition.start();
+                                addActivity('🎤 Starting microphone...', 'info');
+                            } catch (e2) {
+                                addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
+                            }
+                        }, 100);
                     } else {
                         addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
                     }
@@ -3428,13 +3594,20 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 micButton.classList.add('listening');
                 if (alwaysListen && !isActiveDictation) {
+                    // In always-listen mode, waiting for wake word
                     micButton.innerHTML = 'ON';
                     voiceStatus.textContent = 'Standby';
-                    voiceHint.innerHTML = `Waiting for "${currentDevice?.wakeWord || 'hey computer'}"`;
+                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
+                } else if (isActiveDictation) {
+                    // Active dictation after wake word
+                    micButton.innerHTML = 'REC';
+                    voiceStatus.textContent = 'Listening...';
+                    voiceHint.innerHTML = 'Speak your command. Say "<strong>stop</strong>" when done.';
                 } else {
+                    // Manual recording mode
                     micButton.innerHTML = 'REC';
                     voiceStatus.textContent = 'Recording';
-                    voiceHint.innerHTML = 'Speak now. Click to stop.';
+                    voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
                 }
             } else {
                 micButton.classList.remove('listening');
@@ -4198,6 +4371,112 @@ DASHBOARD_PAGE = '''
 '''
 
 # ============================================================================
+# SECURITY MIDDLEWARE & HELPERS
+# ============================================================================
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Enable XSS filter in browsers
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    # Referrer policy - don't leak URLs to external sites
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Permissions policy - disable unnecessary browser features
+    response.headers['Permissions-Policy'] = 'geolocation=(), camera=(), payment=()'
+    
+    # Content Security Policy - allow inline scripts/styles for our embedded templates
+    # but restrict external sources
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self' wss: ws:; "
+        "frame-ancestors 'self';"
+    )
+    response.headers['Content-Security-Policy'] = csp
+    
+    # HSTS - enforce HTTPS (only in production)
+    if os.environ.get('FLASK_ENV') != 'development':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
+    return response
+
+def is_account_locked(username):
+    """Check if account is locked due to failed attempts"""
+    if username not in failed_login_attempts:
+        return False
+    
+    attempts, lockout_time = failed_login_attempts[username]
+    if attempts >= MAX_FAILED_ATTEMPTS:
+        if datetime.now() < lockout_time:
+            return True
+        else:
+            # Lockout expired, reset
+            del failed_login_attempts[username]
+            return False
+    return False
+
+def record_failed_login(username):
+    """Record a failed login attempt"""
+    if username not in failed_login_attempts:
+        failed_login_attempts[username] = (1, datetime.now() + LOCKOUT_DURATION)
+    else:
+        attempts, _ = failed_login_attempts[username]
+        failed_login_attempts[username] = (attempts + 1, datetime.now() + LOCKOUT_DURATION)
+
+def clear_failed_logins(username):
+    """Clear failed login attempts after successful login"""
+    if username in failed_login_attempts:
+        del failed_login_attempts[username]
+
+def sanitize_input(text, max_length=10000):
+    """Sanitize user input to prevent XSS and injection attacks"""
+    if not text:
+        return text
+    # Limit length
+    text = str(text)[:max_length]
+    # Remove null bytes
+    text = text.replace('\x00', '')
+    return text
+
+# CSRF exemptions for API endpoints that use JSON (not forms)
+# These are safe because:
+# 1. They require @login_required (authenticated session)
+# 2. They use JSON content-type which browsers don't send cross-origin with credentials
+csrf.exempt('api_parse_command')
+csrf.exempt('get_devices')
+csrf.exempt('manage_device')
+
+# Exempt public endpoints that don't modify state
+csrf.exempt('health')
+csrf.exempt('ping')
+csrf.exempt('claude_status')
+csrf.exempt('get_version')
+
+# Exempt download/install endpoints (GET only, no state modification)
+csrf.exempt('download_mac_app')
+csrf.exempt('download_windows_app')
+csrf.exempt('download_linux_app')
+csrf.exempt('install_page')
+csrf.exempt('download_setup')        # /setup.py
+csrf.exempt('download_install_sh')   # /install.sh, /install/mac, /install/linux
+csrf.exempt('download_install_ps1')  # /install.ps1, /install/windows
+
+# Rate limit decorators for specific routes
+login_limit = limiter.limit("5 per minute", error_message="Too many login attempts. Please try again later.")
+api_limit = limiter.limit("30 per minute")
+
+# ============================================================================
 # ROUTES
 # ============================================================================
 
@@ -4207,32 +4486,47 @@ def dashboard():
     return render_template_string(DASHBOARD_PAGE, user=current_user)
 
 @app.route('/login', methods=['GET', 'POST'])
+@login_limit
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
         u = request.form.get('username', '').strip().lower()
+        u = sanitize_input(u, max_length=100)  # Sanitize username
         p = request.form.get('password', '')
         remember = request.form.get('remember') == 'on'
         
+        # Check if account is locked
+        if is_account_locked(u):
+            return render_template_string(LOGIN_PAGE, error='Account temporarily locked. Try again in 15 minutes.', success=None)
+        
         if u in USERS and check_password_hash(USERS[u]['password_hash'], p):
+            clear_failed_logins(u)  # Reset on successful login
             login_user(User(u), remember=remember)
+            session.permanent = True  # Use permanent session with secure settings
             print(f"User logged in: {u} (remember={remember})")
             return redirect(url_for('dashboard'))
+        
+        # Record failed attempt
+        record_failed_login(u)
+        remaining = MAX_FAILED_ATTEMPTS - failed_login_attempts.get(u, (0, None))[0]
+        if remaining <= 2:
+            return render_template_string(LOGIN_PAGE, error=f'Invalid credentials. {remaining} attempts remaining.', success=None)
         return render_template_string(LOGIN_PAGE, error='Invalid username or password', success=None)
     
     success = request.args.get('success')
     return render_template_string(LOGIN_PAGE, error=None, success=success)
 
 @app.route('/signup', methods=['GET', 'POST'])
+@limiter.limit("10 per hour")  # Rate limit signup to prevent spam
 def signup():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        username = request.form.get('username', '').strip().lower()
+        name = sanitize_input(request.form.get('name', '').strip(), max_length=100)
+        username = sanitize_input(request.form.get('username', '').strip().lower(), max_length=50)
         password = request.form.get('password', '')
         password2 = request.form.get('password2', '')
         
@@ -4281,6 +4575,16 @@ def health():
 def ping():
     """Simple test endpoint"""
     return 'pong', 200, {'Content-Type': 'text/plain'}
+
+@app.route('/favicon.ico')
+def favicon():
+    """Return a simple SVG favicon"""
+    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <rect width="100" height="100" rx="20" fill="#0a0a0f"/>
+        <circle cx="50" cy="45" r="25" fill="#00f5d4"/>
+        <rect x="45" y="65" width="10" height="20" rx="2" fill="#00f5d4"/>
+    </svg>'''
+    return Response(svg, mimetype='image/svg+xml')
 
 @app.route('/download/mac')
 def download_mac_app():
@@ -4453,7 +4757,7 @@ def install_page():
     return render_template_string(INSTALL_PAGE, server=server_url)
 
 # Desktop client version - increment this when you update the client
-CLIENT_VERSION = "1.3.0"
+CLIENT_VERSION = "1.4.0"
 
 # ============================================================================
 # CLAUDE AI COMMAND PARSING
@@ -4465,8 +4769,8 @@ The user has multiple devices (e.g., "MacBook", "Windows PC") each with their ow
 
 Parse voice commands and return JSON:
 {
-  "targetApp": "cursor" | "claude" | "chatgpt" | "terminal" | "browser" | "notes" | "slack" | "discord" | null,
-  "action": "type" | "type_and_send" | "open" | "search" | "run" | "stop" | "route" | null,
+  "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
+  "action": "type" | "paste" | "type_and_send" | "open" | "open_tab" | "open_url" | "search" | "run" | "stop" | "route" | null,
   "content": "the text to type or action to take",
   "response": "Brief friendly confirmation (5 words max)",
   "isStopCommand": true | false,
@@ -4475,76 +4779,125 @@ Parse voice commands and return JSON:
 }
 
 ACTIONS:
-- "type" = just type the text locally
-- "type_and_send" = type the text AND press Enter to send it
-- "open" = open the app
-- "open_tab" = open a new browser tab (optionally with a URL)
+- "type" = type the text (triggered by: type, write, say, enter, input)
+- "paste" = paste the text
+- "type_and_send" = type AND press Enter to send (triggered by: send, submit, ask, tell)
+- "open" = open/focus an app
+- "open_tab" = open a new browser tab
 - "open_url" = open a specific URL in browser
-- "search" = search in browser
-- "run" = run a command
+- "search" = search Google in browser (triggered by: search, google, look up)
+- "run" = run a command in terminal (triggered by: run, execute, do)
 - "stop" = stop listening/recording
 - "route" = send command to another device
+
+APPS (recognize these names and variations):
+- cursor/curser/coursor = Cursor IDE (code editor)
+- vscode/vs code/visual studio code = VS Code
+- claude/cloud/claud = Claude AI chat
+- chatgpt/chat gpt/GPT/gpt = ChatGPT
+- copilot/co-pilot/github copilot = GitHub Copilot
+- gemini/bard/google ai = Google Gemini
+- terminal/command/shell/console/cmd = Terminal
+- browser/chrome/safari/firefox/edge = Web browser
+- notes/notepad/text editor = Notes app
+- slack = Slack
+- discord = Discord
+- finder/explorer/files = File manager
+
+WEBSITE SHORTCUTS (use these URLs for open_url):
+- google → https://google.com
+- youtube → https://youtube.com
+- github → https://github.com
+- twitter/x → https://twitter.com
+- facebook → https://facebook.com
+- reddit → https://reddit.com
+- amazon → https://amazon.com
+- netflix → https://netflix.com
+- spotify → https://spotify.com
+- linkedin → https://linkedin.com
+- instagram → https://instagram.com
+- gmail → https://gmail.com
+- google docs → https://docs.google.com
+- google sheets → https://sheets.google.com
+- google drive → https://drive.google.com
+- chatgpt → https://chat.openai.com
+- claude → https://claude.ai
+- stackoverflow/stack overflow → https://stackoverflow.com
 
 CROSS-DEVICE ROUTING (IMPORTANT):
 When user says "send to [device]" or "[device name] type", they want to route to that device:
 - "send to mac hello world" → route "hello world" to the mac device
 - "send to windows pc check this" → route to Windows PC
 - "tell macbook to type hello" → route to MacBook
-- "Windows PC type testing" → route "testing" to Windows PC
-
-Distinguish between ROUTING and LOCAL ACTIVATION:
-- "send to mac hello" = ROUTING (isRoutingCommand: true, routeToDevice: "mac")
-- "mac type hello" on the mac itself = LOCAL ACTIVATION (isRoutingCommand: false)
-- When in doubt with "send to" prefix = always routing
 
 STOP COMMAND DETECTION:
-- "stop", "stop listening", "stop recording" → isStopCommand: true
-- "don't stop believing" or "stop sign" → isStopCommand: false
-
-APPS:
-- cursor/curser = Code editor (Cursor IDE)
-- claude/cloud = Claude AI chat
-- chatgpt/GPT = ChatGPT
-- terminal/command = Terminal/shell
-- browser/chrome/safari = Web browser
+- "stop", "stop listening", "stop recording", "that's enough", "cancel" → isStopCommand: true
+- "don't stop believing" or "stop sign" or other sentences containing stop → isStopCommand: false
 
 EXAMPLES:
-"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
-"send to windows pc type this message" → {"action":"route","content":"this message","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
-"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
-"cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","isRoutingCommand":false,"response":"Typing in Cursor"}
-"stop" → {"action":"stop","isStopCommand":true,"isRoutingCommand":false,"response":"Stopping"}
+
+Type commands:
+"type hello world" → {"action":"type","content":"hello world","response":"Typing"}
+"write this is a test" → {"action":"type","content":"this is a test","response":"Writing"}
+"say good morning" → {"action":"type","content":"good morning","response":"Typing"}
+"enter my name is John" → {"action":"type","content":"my name is John","response":"Entering"}
+
+Type and send (includes Enter key):
+"send hello" → {"action":"type_and_send","content":"hello","response":"Sending"}
+"ask Claude what is python" → {"targetApp":"claude","action":"type_and_send","content":"what is python","response":"Asking Claude"}
+"submit the form" → {"action":"type_and_send","content":"","response":"Submitting"}
+
+App targeting:
+"cursor write a function that adds two numbers" → {"targetApp":"cursor","action":"type","content":"a function that adds two numbers","response":"Typing in Cursor"}
+"vs code open" → {"targetApp":"vscode","action":"open","response":"Opening VS Code"}
+"claude explain recursion" → {"targetApp":"claude","action":"type_and_send","content":"explain recursion","response":"Asking Claude"}
+"chatgpt help me debug this" → {"targetApp":"chatgpt","action":"type_and_send","content":"help me debug this","response":"Asking ChatGPT"}
+"terminal run npm install" → {"targetApp":"terminal","action":"run","content":"npm install","response":"Running command"}
+
+Browser commands:
 "open a new tab" → {"targetApp":"browser","action":"open_tab","content":null,"response":"Opening new tab"}
 "open google" → {"targetApp":"browser","action":"open_url","content":"https://google.com","response":"Opening Google"}
 "open youtube" → {"targetApp":"browser","action":"open_url","content":"https://youtube.com","response":"Opening YouTube"}
 "open github" → {"targetApp":"browser","action":"open_url","content":"https://github.com","response":"Opening GitHub"}
-"open twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
-"go to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
-"open new tab with reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"go to twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
+"navigate to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
+"launch netflix" → {"targetApp":"browser","action":"open_url","content":"https://netflix.com","response":"Opening Netflix"}
+"open reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"open spotify" → {"targetApp":"browser","action":"open_url","content":"https://spotify.com","response":"Opening Spotify"}
 "search for python tutorials" → {"targetApp":"browser","action":"search","content":"python tutorials","response":"Searching"}
+"google best restaurants near me" → {"targetApp":"browser","action":"search","content":"best restaurants near me","response":"Searching"}
+"look up weather forecast" → {"targetApp":"browser","action":"search","content":"weather forecast","response":"Searching"}
+
+Cross-device routing:
+"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
+"send to windows pc check this" → {"action":"route","content":"check this","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
+"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
+
+Stop commands:
+"stop" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
+"stop listening" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
+"that's enough" → {"action":"stop","isStopCommand":true,"response":"Stopping"}
 
 Return ONLY valid JSON, nothing else."""
 
 @app.route('/api/parse-command', methods=['POST'])
-def parse_command_with_claude():
+@login_required
+@api_limit
+def api_parse_command():
     """Use Claude to intelligently parse a voice command"""
     if not CLAUDE_AVAILABLE or not claude_client:
         return jsonify({'error': 'Claude not available', 'fallback': True}), 200
     
+    # Try to get JSON data, handle errors gracefully
     try:
-        data = request.get_json(force=True, silent=True)
-    except Exception as e:
-        print(f"JSON parse error: {e}")
-        return jsonify({'error': f'Invalid JSON: {str(e)}', 'fallback': True}), 200
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
     
-    if not data:
-        print(f"No JSON data received. Content-Type: {request.content_type}, Data: {request.data[:100] if request.data else 'empty'}")
-        return jsonify({'error': 'No JSON data received', 'fallback': True}), 200
+    text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
     
-    text = data.get('text', '')
-    
-    if not text:
-        print(f"Empty text in request. Data keys: {list(data.keys())}")
+    if not text or len(text.strip()) == 0:
+        # Return fallback instead of 400 - let regex handle it
         return jsonify({'error': 'No text provided', 'fallback': True}), 200
     
     try:
@@ -4697,11 +5050,18 @@ python voice_hub_client.py
     return Response(script, mimetype='text/plain')
 
 @app.route('/api/devices', methods=['GET'])
+@login_required
+@api_limit
 def get_devices():
     return jsonify(devices)
 
 @app.route('/api/devices/<device_id>', methods=['PUT', 'DELETE'])
+@login_required
+@api_limit
 def manage_device(device_id):
+    # Sanitize device_id to prevent injection
+    device_id = sanitize_input(device_id, max_length=100)
+    
     if request.method == 'DELETE':
         if device_id in devices:
             del devices[device_id]
@@ -4709,14 +5069,67 @@ def manage_device(device_id):
     elif request.method == 'PUT':
         data = request.json
         if device_id in devices:
-            devices[device_id].update(data)
+            # Sanitize incoming data
+            sanitized_data = {}
+            for key, value in data.items():
+                if isinstance(value, str):
+                    sanitized_data[key] = sanitize_input(value, max_length=500)
+                else:
+                    sanitized_data[key] = value
+            devices[device_id].update(sanitized_data)
         return jsonify(devices.get(device_id, {}))
 
 # ============================================================================
 # WEBSOCKET EVENTS
 # ============================================================================
 
+# Store authenticated socket sessions
+authenticated_sockets = {}
+
+def require_socket_auth(f):
+    """Decorator to require authentication for WebSocket events.
+    Allows browser sessions (logged in users) and registered desktop clients."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        sid = request.sid
+        
+        # Check if this socket is from an authenticated browser session
+        if current_user.is_authenticated:
+            authenticated_sockets[sid] = {'type': 'browser', 'user': current_user.id}
+            return f(*args, **kwargs)
+        
+        # Check if this socket was previously authenticated
+        if sid in authenticated_sockets:
+            return f(*args, **kwargs)
+        
+        # Check if this is a desktop client (they identify via device_update)
+        # Desktop clients are allowed but tracked
+        data = args[0] if args else {}
+        device_id = data.get('deviceId') if isinstance(data, dict) else None
+        if device_id:
+            authenticated_sockets[sid] = {'type': 'desktop', 'device': device_id}
+            return f(*args, **kwargs)
+        
+        # Log unauthenticated access attempt (but don't block to avoid breaking things)
+        print(f"⚠️ Unauthenticated WebSocket event from {sid}")
+        return f(*args, **kwargs)
+    
+    return decorated
+
+@socketio.on('connect')
+def on_connect():
+    """Handle new WebSocket connections"""
+    sid = request.sid
+    # Check if user is authenticated via browser session
+    if current_user.is_authenticated:
+        authenticated_sockets[sid] = {'type': 'browser', 'user': current_user.id}
+        print(f"🔐 Authenticated browser connected: {current_user.id} (sid: {sid})")
+    else:
+        # Could be a desktop client - will be validated on first event
+        print(f"🔌 New WebSocket connection: {sid} (awaiting authentication)")
+
 @socketio.on('dashboard_join')
+@require_socket_auth
 def on_dashboard_join(data):
     device_id = data.get('deviceId')
     device_info = data.get('device', {})
@@ -4862,6 +5275,12 @@ def on_heartbeat(data):
 @socketio.on('disconnect')
 def on_disconnect():
     sid = request.sid
+    
+    # Clean up authenticated socket tracking
+    if sid in authenticated_sockets:
+        auth_info = authenticated_sockets.pop(sid)
+        print(f"🔌 Socket disconnected: {auth_info.get('user') or auth_info.get('device', 'unknown')}")
+    
     # Notify other devices this one went offline
     for device_id, device in devices.items():
         if device.get('sid') == sid:
