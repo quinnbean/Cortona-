@@ -2091,14 +2091,26 @@ DASHBOARD_PAGE = '''
                 if (result.targetDevice) break;
             }
             
-            // Check for app targeting (e.g., "Cursor, write a function")
+            // Check for app targeting (e.g., "Cursor, write a function" or "write in cursor hello")
             for (const [appId, app] of Object.entries(knownApps)) {
                 for (const keyword of app.keywords) {
                     const patterns = [
+                        // "cursor, write something" or "cursor write something"
                         new RegExp(`^${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "in cursor write something"
                         new RegExp(`^(in|to|for|into)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "send to cursor something"
                         new RegExp(`^send\\s+(to\\s+)?${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "paste in cursor something"
                         new RegExp(`^paste\\s+(in|into|to)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "write in cursor something" or "type into cursor something"
+                        new RegExp(`^(write|type|put|enter)\\s+(in|into|to|for)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "write cursor something" (without preposition)
+                        new RegExp(`^(write|type|put|enter)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "tell cursor to write something"
+                        new RegExp(`^tell\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
+                        // "use cursor to write something"  
+                        new RegExp(`^use\\s+${escapeRegex(keyword)}\\s+(to\\s+)?(.+)`, 'i'),
                     ];
                     
                     for (const pattern of patterns) {
