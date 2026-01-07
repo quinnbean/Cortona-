@@ -2541,6 +2541,7 @@ DASHBOARD_PAGE = '''
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
                 routeCommandToDevice(parsed.targetDevice, parsed.command, parsed.action);
+                copyToClipboard(parsed.command); // Always copy to clipboard
                 document.getElementById('transcript').textContent = `📤 Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
                 return;
             }
@@ -2571,8 +2572,11 @@ DASHBOARD_PAGE = '''
                         timestamp: new Date().toISOString()
                     });
                     
+                    // Always copy to clipboard
+                    copyToClipboard(parsed.command);
+                    
                     showLastCommand(appInfo.icon, `→ ${appInfo.name} on ${desktopClient.name}`, parsed.command);
-                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..." (copied)`, 'success');
                     document.getElementById('transcript').textContent = `📤 → ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
@@ -2595,13 +2599,15 @@ DASHBOARD_PAGE = '''
             currentDevice.wordsTyped += wordCount;
             saveDevices();
             
-            // Auto-type if enabled
+            // Always copy to clipboard
+            copyToClipboard(text);
+            
+            // Log activity
             if (autoType) {
-                copyToClipboard(text);
                 const targetInfo = parsed.targetApp ? ` → ${parsed.targetApp.name}` : '';
-                addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'success', wordCount);
+                addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (copied)`, 'success', wordCount);
             } else {
-                addActivity(`Recognized: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
+                addActivity(`Copied: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
             }
             
             // Emit to server
