@@ -750,6 +750,9 @@ class VoiceHubClient:
         
         @self.sio.on('command_received')
         def on_command_received(data):
+            print(f"\\n{'='*50}")
+            print(f"COMMAND RECEIVED!")
+            print(f"{'='*50}")
             self._execute_command(data)
         
         @self.sio.on('update_available')
@@ -1842,6 +1845,18 @@ DASHBOARD_PAGE = '''
                     </div>
                 </div>
                 
+                <!-- Test Connection Button -->
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button onclick="testDesktopConnection()" 
+                            style="flex: 1; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
+                        🔌 Test Desktop Connection
+                    </button>
+                    <button onclick="testTypeToCursor()" 
+                            style="flex: 1; padding: 12px; background: var(--accent); border: none; border-radius: 10px; color: var(--bg-primary); cursor: pointer; font-size: 14px; font-weight: 600;">
+                        ⌨️ Test Type to Cursor
+                    </button>
+                </div>
+                
                 <!-- Last Command -->
                 <div id="last-command-box" style="margin-top: 20px; padding: 16px; background: var(--bg-primary); border-radius: 12px; display: none;">
                     <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Last Routed Command</div>
@@ -2157,17 +2172,65 @@ DASHBOARD_PAGE = '''
         }
         
         // Route a command to a specific device
-        function routeCommandToDevice(targetDevice, command, action) {
+        function routeCommandToDevice(targetDevice, command, action, targetApp = null) {
             socket.emit('route_command', {
                 fromDeviceId: deviceId,
                 toDeviceId: targetDevice.id,
                 command: command,
-                action: action,
+                action: action || 'type',
+                targetApp: targetApp,
                 timestamp: new Date().toISOString()
             });
             
             showLastCommand(targetDevice.icon || '💻', `→ ${targetDevice.name}`, command);
             addActivity(`📤 Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
+        }
+        
+        // Test desktop client connection
+        function testDesktopConnection() {
+            console.log('Testing desktop connection...');
+            console.log('All devices:', devices);
+            
+            const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
+            
+            if (desktopClient) {
+                addActivity(`✅ Desktop client found: ${desktopClient.name} (${desktopClient.id})`, 'success');
+                console.log('Desktop client:', desktopClient);
+                
+                // Send a test ping
+                socket.emit('route_command', {
+                    fromDeviceId: deviceId,
+                    toDeviceId: desktopClient.id,
+                    command: '--- TEST CONNECTION FROM VOICE HUB ---',
+                    action: 'type',
+                    timestamp: new Date().toISOString()
+                });
+                addActivity(`📤 Sent test ping to ${desktopClient.name}`, 'info');
+            } else {
+                addActivity('❌ No desktop client found! Check if terminal is running.', 'warning');
+                console.log('No desktop client. Device types:', Object.values(devices).map(d => ({name: d.name, type: d.type})));
+            }
+        }
+        
+        // Test typing to Cursor app
+        function testTypeToCursor() {
+            console.log('Testing type to Cursor...');
+            
+            const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
+            
+            if (desktopClient) {
+                socket.emit('route_command', {
+                    fromDeviceId: deviceId,
+                    toDeviceId: desktopClient.id,
+                    command: 'Hello from Voice Hub! This is a test.',
+                    action: 'type',
+                    targetApp: 'cursor',
+                    timestamp: new Date().toISOString()
+                });
+                addActivity('📤 Sent test text to Cursor', 'success');
+            } else {
+                addActivity('❌ No desktop client! Run the client in terminal first.', 'warning');
+            }
         }
         
         // Handle an incoming routed command
@@ -2433,8 +2496,12 @@ DASHBOARD_PAGE = '''
                     addActivity('Microphone access denied. Please allow microphone access.', 'warning');
                     alwaysListen = false;
                     document.getElementById('toggle-always-listen').classList.remove('active');
+                } else if (event.error === 'audio-capture') {
+                    addActivity('No microphone detected. Check your audio settings.', 'warning');
+                } else if (event.error === 'network') {
+                    addActivity('Network error. Check your internet connection.', 'warning');
                 } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-                    addActivity(`Error: ${event.error}`, 'warning');
+                    addActivity(`Speech error: ${event.error}`, 'warning');
                 }
                 isListening = false;
                 updateUI();
@@ -2474,6 +2541,7 @@ DASHBOARD_PAGE = '''
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
                 routeCommandToDevice(parsed.targetDevice, parsed.command, parsed.action);
+                copyToClipboard(parsed.command); // Always copy to clipboard
                 document.getElementById('transcript').textContent = `📤 Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
                 return;
             }
@@ -2482,12 +2550,18 @@ DASHBOARD_PAGE = '''
             if (!skipRouting && parsed.targetApp) {
                 const appInfo = parsed.targetApp;
                 
+                // Debug: Log all devices and their types
+                console.log('Looking for desktop client. All devices:', Object.entries(devices).map(([id, d]) => ({id, type: d.type, name: d.name})));
+                
                 // Find a desktop client to route to
                 const desktopClient = Object.values(devices).find(d => 
                     d.type === 'desktop_client' && d.id !== deviceId
                 );
                 
+                console.log('Desktop client found:', desktopClient ? desktopClient.name : 'NONE');
+                
                 if (desktopClient) {
+                    console.log('Routing command to:', desktopClient.id, 'Command:', parsed.command.substring(0, 50));
                     // Route to desktop client with app target info
                     socket.emit('route_command', {
                         fromDeviceId: deviceId,
@@ -2498,13 +2572,17 @@ DASHBOARD_PAGE = '''
                         timestamp: new Date().toISOString()
                     });
                     
+                    // Always copy to clipboard
+                    copyToClipboard(parsed.command);
+                    
                     showLastCommand(appInfo.icon, `→ ${appInfo.name} on ${desktopClient.name}`, parsed.command);
-                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..." (copied)`, 'success');
                     document.getElementById('transcript').textContent = `📤 → ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
-                    // No desktop client found, show warning
-                    addActivity(`⚠️ No desktop client connected to control ${appInfo.name}`, 'warning');
+                    // No desktop client found, show warning with instructions
+                    addActivity(`⚠️ No desktop client connected to control ${appInfo.name}. Run the client on your Mac.`, 'warning');
+                    document.getElementById('transcript').textContent = `⚠️ Desktop client not connected`;
                 }
                 
                 text = parsed.command;
@@ -2521,13 +2599,15 @@ DASHBOARD_PAGE = '''
             currentDevice.wordsTyped += wordCount;
             saveDevices();
             
-            // Auto-type if enabled
+            // Always copy to clipboard
+            copyToClipboard(text);
+            
+            // Log activity
             if (autoType) {
-                copyToClipboard(text);
                 const targetInfo = parsed.targetApp ? ` → ${parsed.targetApp.name}` : '';
-                addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'success', wordCount);
+                addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (copied)`, 'success', wordCount);
             } else {
-                addActivity(`Recognized: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
+                addActivity(`Copied: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
             }
             
             // Emit to server
@@ -2735,15 +2815,19 @@ DASHBOARD_PAGE = '''
             }
             
             listEl.innerHTML = deviceArray.map(d => `
-                <div class="device-item ${d.id === currentDevice?.id ? 'active' : ''} ${d.id === deviceId && isListening ? 'listening' : ''}"
-                     onclick="selectDevice('${d.id}')">
+                <div class="device-item ${d.id === currentDevice?.id ? 'active editing' : ''} ${d.id === deviceId && isListening ? 'listening' : ''}"
+                     onclick="selectDevice('${d.id}')"
+                     style="cursor: pointer; position: relative;">
+                    ${d.id === currentDevice?.id ? '<div style="position: absolute; top: 8px; right: 8px; background: var(--accent); color: var(--bg-primary); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">EDITING</div>' : ''}
+                    ${d.id !== deviceId ? `<button onclick="event.stopPropagation(); deleteDevice('${d.id}')" style="position: absolute; top: 8px; right: ${d.id === currentDevice?.id ? '70px' : '8px'}; background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; opacity: 0.5;" title="Delete device">✕</button>` : ''}
                     <div class="device-header">
                         <div class="device-name">
                             <span>${d.icon || '💻'}</span>
                             ${d.name || 'Unnamed Device'}
+                            ${d.type === 'desktop_client' ? '<span style="font-size: 10px; background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; margin-left: 6px;">DESKTOP</span>' : ''}
                         </div>
                         <span class="device-status ${d.id === deviceId ? (isListening ? 'listening' : 'online') : (d.online ? 'online' : 'offline')}">
-                            ${d.id === deviceId ? (isListening ? '● Listening' : '● Online') : (d.online ? '● Online' : '○ Offline')}
+                            ${d.id === deviceId ? (isListening ? '● Listening' : '● This Browser') : (d.online ? '● Online' : '○ Offline')}
                         </span>
                     </div>
                     <div class="device-wake-word">"${d.wakeWord || 'hey computer'}"</div>
@@ -2793,6 +2877,25 @@ DASHBOARD_PAGE = '''
         // DEVICE MANAGEMENT
         // ============================================================
         
+        function deleteDevice(id) {
+            if (id === deviceId) {
+                addActivity('Cannot delete this browser device', 'warning');
+                return;
+            }
+            
+            const device = devices[id];
+            const name = device?.name || 'Unknown';
+            
+            if (confirm(`Delete device "${name}"? This cannot be undone.`)) {
+                delete devices[id];
+                saveDevices();
+                socket.emit('device_delete', { deviceId: id });
+                renderDeviceList();
+                renderAvailableDevices();
+                addActivity(`Deleted device: ${name}`, 'info');
+            }
+        }
+        
         function selectDevice(id) {
             if (devices[id]) {
                 currentDevice = devices[id];
@@ -2823,7 +2926,10 @@ DASHBOARD_PAGE = '''
         }
         
         function updateDeviceSetting(setting, value) {
-            if (!currentDevice) return;
+            if (!currentDevice) {
+                addActivity('No device selected', 'warning');
+                return;
+            }
             
             if (setting === 'wakeWord') {
                 value = value.toLowerCase().trim();
@@ -3449,6 +3555,15 @@ def on_device_update(data):
     
     socketio.emit('devices_update', {'devices': devices}, room='dashboard')
 
+@socketio.on('device_delete')
+def on_device_delete(data):
+    device_id = data.get('deviceId')
+    if device_id and device_id in devices:
+        name = devices[device_id].get('name', device_id)
+        del devices[device_id]
+        print(f"🗑️ Device deleted: {name}")
+        socketio.emit('devices_update', {'devices': devices}, room='dashboard')
+
 @socketio.on('device_add')
 def on_device_add(data):
     device_id = data.get('id')
@@ -3476,9 +3591,14 @@ def on_route_command(data):
     action = data.get('action', 'type')
     target_app = data.get('targetApp')
     
-    print(f"📤 Routing command from {from_device_id} to {to_device_id}: {command[:50]}...")
-    if target_app:
-        print(f"   Target app: {target_app}")
+    print(f"\n{'='*60}")
+    print(f"📤 ROUTE_COMMAND received!")
+    print(f"   From: {from_device_id}")
+    print(f"   To: {to_device_id}")
+    print(f"   Command: {command[:50] if command else 'NONE'}...")
+    print(f"   Target app: {target_app or 'None'}")
+    print(f"   Known devices: {list(devices.keys())}")
+    print(f"{'='*60}")
     
     # Send the command to the target device
     socketio.emit('command_received', {
