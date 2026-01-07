@@ -17,6 +17,13 @@ from flask_socketio import SocketIO, emit, join_room
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Load environment variables from .env file (for local development)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, using system env vars only
+
 # Claude AI for intelligent command parsing
 try:
     import anthropic
@@ -45,8 +52,33 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.remember_cookie_duration = timedelta(days=30)
 
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '1281Cherry!')
-USERS = {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD), 'name': 'Admin'}}
+# Password is loaded from environment variable - NEVER commit passwords to git!
+# Set ADMIN_PASSWORD in your .env file or Render dashboard
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'changeme')
+
+# Users file for persistent storage
+USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'users.json')
+
+def load_users():
+    """Load users from JSON file"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    # Default admin user
+    return {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD), 'name': 'Admin'}}
+
+def save_users():
+    """Save users to JSON file"""
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(USERS, f, indent=2)
+    except Exception as e:
+        print(f"Error saving users: {e}")
+
+USERS = load_users()
 
 # Store devices and their settings
 devices = {}
@@ -808,30 +840,49 @@ class VoiceHubClient:
         # Execute the action
         if action == 'type' or action == 'paste':
             type_text(command)
-            print("✅ Typed text")
+            print("Typed text")
         elif action == 'type_and_send':
             type_text(command)
             time.sleep(0.2)
             press_enter()
-            print("✅ Typed and sent!")
+            print("Typed and sent!")
         elif action == 'open':
             focus_app(target_app or command)
-            print(f"✅ Opened {target_app or command}")
+            print(f"Opened {target_app or command}")
+        elif action == 'open_tab':
+            # Open a new browser tab
+            import webbrowser
+            if command:
+                webbrowser.open_new_tab(command)
+                print(f"Opened new tab: {command}")
+            else:
+                # Just open a new tab in default browser
+                focus_app('chrome')
+                time.sleep(0.3)
+                pyautogui.hotkey('command' if PLATFORM == 'Darwin' else 'ctrl', 't')
+                print("Opened new tab")
+        elif action == 'open_url':
+            # Open a specific URL
+            import webbrowser
+            url = command if command else 'https://google.com'
+            # Add https if missing
+            if not url.startswith('http'):
+                url = 'https://' + url
+            webbrowser.open_new_tab(url)
+            print(f"Opened URL: {url}")
         elif action == 'run':
             run_command(command, target_app or 'terminal')
-            print("✅ Command executed")
+            print("Command executed")
         elif action == 'search':
-            focus_app('chrome')
-            time.sleep(0.5)
-            pyautogui.hotkey('command' if PLATFORM == 'Darwin' else 'ctrl', 'l')
-            time.sleep(0.2)
-            type_text(command)
-            press_enter()
-            print("✅ Searching...")
+            # Search in browser
+            import webbrowser
+            search_url = f"https://www.google.com/search?q={command.replace(' ', '+')}"
+            webbrowser.open_new_tab(search_url)
+            print(f"Searching: {command}")
         else:
             # Default: just type
             type_text(command)
-            print("✅ Typed")
+            print("Typed")
     
     def run(self):
         """Run the client"""
@@ -1065,6 +1116,7 @@ LOGIN_PAGE = '''
                 <p class="subtitle">Browser-based voice-to-text</p>
             </div>
             {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
+            {% if success %}<div class="error" style="background: rgba(0, 245, 212, 0.1); border-color: rgba(0, 245, 212, 0.3); color: var(--accent);">✓ {{ success }}</div>{% endif %}
             <form method="POST">
                 <div class="form-group">
                     <label>Username</label>
@@ -1080,6 +1132,152 @@ LOGIN_PAGE = '''
                 </div>
                 <button type="submit" class="btn">Sign In →</button>
             </form>
+        </div>
+    </div>
+</body>
+</html>
+'''
+
+# ============================================================================
+# SIGNUP PAGE
+# ============================================================================
+
+SIGNUP_PAGE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Hub - Create Account</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --border: rgba(255,255,255,0.08);
+            --accent: #00f5d4;
+            --accent-2: #7b2cbf;
+            --accent-3: #f72585;
+            --text: #ffffff;
+            --text-muted: #6b7280;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text);
+            overflow: hidden;
+        }
+        .bg-effects { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+        .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; animation: float 20s ease-in-out infinite; }
+        .orb-1 { width: 400px; height: 400px; background: var(--accent-2); top: -100px; right: -100px; }
+        .orb-2 { width: 300px; height: 300px; background: var(--accent); bottom: -50px; left: -50px; animation-delay: -10s; }
+        @keyframes float { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(30px, -30px) scale(1.1); } }
+        .container { position: relative; z-index: 1; width: 100%; max-width: 420px; padding: 20px; }
+        .card {
+            background: rgba(26, 26, 36, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 48px 40px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+        }
+        .logo { text-align: center; margin-bottom: 32px; }
+        .logo-icon {
+            width: 70px; height: 70px;
+            background: linear-gradient(135deg, var(--accent-2), var(--accent));
+            border-radius: 18px;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 36px; margin-bottom: 16px;
+            box-shadow: 0 10px 40px rgba(123, 44, 191, 0.3);
+        }
+        h1 { font-size: 28px; font-weight: 700; }
+        h1 span { background: linear-gradient(135deg, var(--accent-2), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 8px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-size: 13px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        input[type="text"], input[type="password"], input[type="email"] {
+            width: 100%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 18px;
+            font-size: 15px;
+            font-family: inherit;
+            color: var(--text);
+            transition: all 0.3s ease;
+        }
+        input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 245, 212, 0.1); }
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--accent-2), var(--accent));
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(123, 44, 191, 0.3); }
+        .error {
+            background: rgba(247, 37, 133, 0.1);
+            border: 1px solid rgba(247, 37, 133, 0.3);
+            color: var(--accent-3);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .link-row { text-align: center; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border); }
+        .link-row a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="bg-effects">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+    </div>
+    <div class="container">
+        <div class="card">
+            <div class="logo">
+                <div class="logo-icon">✨</div>
+                <h1><span>Create Account</span></h1>
+                <p class="subtitle">Join Voice Hub today</p>
+            </div>
+            {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
+            <form method="POST">
+                <div class="form-group">
+                    <label>Display Name</label>
+                    <input type="text" name="name" placeholder="Your name" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" name="username" placeholder="Choose a username" required pattern="[a-zA-Z0-9_]+" title="Letters, numbers, and underscores only">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="password" placeholder="Choose a password" required minlength="4">
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input type="password" name="password2" placeholder="Confirm your password" required>
+                </div>
+                <button type="submit" class="btn">Create Account →</button>
+            </form>
+            <div class="link-row">
+                <p style="color: var(--text-muted); font-size: 14px;">
+                    Already have an account? <a href="/login">Sign in →</a>
+                </p>
+            </div>
         </div>
     </div>
 </body>
@@ -1728,14 +1926,18 @@ DASHBOARD_PAGE = '''
                 </div>
                 <div class="mode-badges" style="display: flex; gap: 10px; justify-content: center; margin-top: 16px;">
                     <span id="badge-always" class="mode-badge" style="display: none; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 500;">
-                        👂 Always Listening
+                        Ready for Wake Word
                     </span>
                     <span id="badge-continuous" class="mode-badge" style="display: none; background: rgba(123, 44, 191, 0.2); color: #a855f7; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 500;">
                         🔄 Continuous Mode
                     </span>
                 </div>
                 <div class="transcript-box">
-                    <h4>📝 Live Transcript</h4>
+                    <h4 id="transcript-header" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        📝 Live Transcript 
+                        <span id="transcript-count" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; display: none;">0</span>
+                        <span style="font-size: 10px; color: var(--text-muted); margin-left: auto;">Click for history</span>
+                    </h4>
                     <div class="transcript-text" id="transcript">Waiting for speech...</div>
                 </div>
             </div>
@@ -1950,6 +2152,25 @@ DASHBOARD_PAGE = '''
         </div>
     </div>
     
+    <!-- Transcript History Modal -->
+    <div id="transcript-history-modal" class="modal-overlay" onclick="if(event.target === this) closeTranscriptHistory()">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>📜 Session Transcripts</h2>
+                <button class="modal-close" onclick="closeTranscriptHistory()">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px; max-height: 60vh; overflow-y: auto;">
+                <div id="transcript-history-list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <p style="color: var(--text-muted); text-align: center; padding: 40px;">No transcripts yet. Start speaking to record your session.</p>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                <span id="transcript-session-info" style="font-size: 13px; color: var(--text-muted);">Session started just now</span>
+                <button class="btn btn-ghost" onclick="clearTranscriptHistory()" style="color: #ef4444;">🗑️ Clear Session</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         // ============================================================
         // INITIALIZATION
@@ -1967,6 +2188,10 @@ DASHBOARD_PAGE = '''
         let spellCheckEnabled = true;
         let sensitivity = 3; // 1-5, higher = more strict matching
         let isActiveDictation = false; // true when wake word triggered dictation
+        
+        // Transcript history
+        let transcriptHistory = [];
+        const sessionStartTime = new Date();
         
         // Sensitivity labels
         const sensitivityLabels = {
@@ -2048,50 +2273,107 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Use a consistent device ID for this browser
-        let deviceId = localStorage.getItem('voicehub_device_id');
-        if (!deviceId) {
-            deviceId = 'browser_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('voicehub_device_id', deviceId);
-        }
-        
-        // Load saved devices from localStorage
-        const savedDevices = localStorage.getItem('voicehub_devices');
-        if (savedDevices) {
-            try {
-                devices = JSON.parse(savedDevices);
-            } catch (e) {
-                devices = {};
+        // Auto-detect device info based on browser/OS - ALWAYS runs on every load
+        function getDeviceInfo() {
+            const ua = navigator.userAgent;
+            const platform = navigator.platform;
+            
+            let name, icon, wakeWord;
+            
+            if (platform.includes('Mac') || ua.includes('Macintosh')) {
+                name = 'MacBook';
+                icon = '💻';
+                wakeWord = 'mac';
+            } else if (platform.includes('Win') || ua.includes('Windows')) {
+                name = 'Windows PC';
+                icon = '🖥️';
+                wakeWord = 'windows';
+            } else if (ua.includes('iPhone')) {
+                name = 'iPhone';
+                icon = '📱';
+                wakeWord = 'phone';
+            } else if (ua.includes('iPad')) {
+                name = 'iPad';
+                icon = '📱';
+                wakeWord = 'ipad';
+            } else if (ua.includes('Android')) {
+                name = 'Android';
+                icon = '📱';
+                wakeWord = 'android';
+            } else if (platform.includes('Linux')) {
+                name = 'Linux PC';
+                icon = '🐧';
+                wakeWord = 'linux';
+            } else {
+                name = 'My Device';
+                icon = '💻';
+                wakeWord = 'computer';
             }
+            
+            return { name, icon, wakeWord };
         }
         
-        // Initialize this browser's device if it doesn't exist
-        if (!devices[deviceId]) {
-            devices[deviceId] = {
-                id: deviceId,
-                name: navigator.platform.includes('Mac') ? "Quinn's MacBook Pro" : 'My Computer',
-                wakeWord: 'jarvis',
-                icon: '💻',
-                language: 'en-US',
-                wordsTyped: 0,
-                sessions: 0,
-                alwaysListen: false,
-                continuous: false,
-                autoType: true,
-                sensitivity: 3
-            };
-        }
+        // Auto-detect device info on EVERY page load
+        const deviceInfo = getDeviceInfo();
         
-        currentDevice = devices[deviceId];
-        alwaysListen = currentDevice.alwaysListen || false;
+        // Use device type as stable ID (so Mac is always "macbook", Windows is always "windows_pc")
+        const deviceId = deviceInfo.name.toLowerCase().replace(/\s+/g, '_');
+        
+        // Load ALL saved settings (including name, wakeWord, icon that may have been edited remotely)
+        let savedPrefs = {};
+        try {
+            const saved = localStorage.getItem('voicehub_prefs');
+            if (saved) savedPrefs = JSON.parse(saved);
+        } catch (e) {}
+        
+        // Use saved name/wakeWord/icon if they exist, otherwise use auto-detected
+        // This allows remote edits to persist
+        currentDevice = {
+            id: deviceId,
+            name: savedPrefs.name || deviceInfo.name,
+            wakeWord: savedPrefs.wakeWord || deviceInfo.wakeWord,
+            icon: savedPrefs.icon || deviceInfo.icon,
+            language: savedPrefs.language || 'en-US',
+            wordsTyped: savedPrefs.wordsTyped || 0,
+            sessions: savedPrefs.sessions || 0,
+            alwaysListen: savedPrefs.alwaysListen || false,
+            continuous: savedPrefs.continuous || false,
+            autoType: savedPrefs.autoType !== false,
+            spellCheck: savedPrefs.spellCheck !== false,
+            sensitivity: savedPrefs.sensitivity || 3
+        };
+        
+        // Put in devices list
+        devices[deviceId] = currentDevice;
         
         function saveDevices() {
-            localStorage.setItem('voicehub_devices', JSON.stringify(devices));
+            // Save ALL device settings including name, wakeWord, icon
+            localStorage.setItem('voicehub_prefs', JSON.stringify({
+                name: currentDevice.name,
+                wakeWord: currentDevice.wakeWord,
+                icon: currentDevice.icon,
+                language: currentDevice.language,
+                wordsTyped: currentDevice.wordsTyped,
+                sessions: currentDevice.sessions,
+                alwaysListen: currentDevice.alwaysListen,
+                continuous: currentDevice.continuous,
+                autoType: currentDevice.autoType,
+                spellCheck: currentDevice.spellCheck,
+                sensitivity: currentDevice.sensitivity
+            }));
         }
         
-        function saveSettings() {
-            saveDevices();
-        }
+        console.log('=== DEVICE INIT ===');
+        console.log('Saved prefs from localStorage:', savedPrefs);
+        console.log('Auto-detected:', deviceInfo);
+        console.log('Final device:', currentDevice.name, '| Wake word:', currentDevice.wakeWord);
+        console.log('==================');
+        
+        // Save immediately to ensure prefs are persisted
+        // (This also writes back any existing prefs to ensure they're not lost)
+        saveDevices();
+        
+        alwaysListen = currentDevice.alwaysListen || false;
         sensitivity = currentDevice.sensitivity || 3;
         
         // ============================================================
@@ -2197,15 +2479,60 @@ DASHBOARD_PAGE = '''
             const actionPatterns = {
                 'type': /^(type|write|right|enter|input|say)\s+(.+)/i,
                 'paste': /^paste\s+(.+)/i,
-                'search': /^(search|google|look up)\s+(.+)/i,
+                'search': /^(search|google|look up|search for)\s+(.+)/i,
                 'run': /^(run|execute|do)\s+(.+)/i,
+                'open_tab': /^open\s+(a\s+)?new\s+tab$/i,
+                'open_url': /^(open|go to|navigate to|launch)\s+(.+)/i,
+            };
+            
+            // Common website shortcuts
+            const websiteShortcuts = {
+                'google': 'https://google.com',
+                'youtube': 'https://youtube.com',
+                'github': 'https://github.com',
+                'twitter': 'https://twitter.com',
+                'x': 'https://twitter.com',
+                'facebook': 'https://facebook.com',
+                'reddit': 'https://reddit.com',
+                'amazon': 'https://amazon.com',
+                'netflix': 'https://netflix.com',
+                'spotify': 'https://spotify.com',
+                'linkedin': 'https://linkedin.com',
+                'instagram': 'https://instagram.com',
+                'gmail': 'https://gmail.com',
+                'google docs': 'https://docs.google.com',
+                'google sheets': 'https://sheets.google.com',
+                'google drive': 'https://drive.google.com',
+                'chatgpt': 'https://chat.openai.com',
+                'claude': 'https://claude.ai',
+                'stackoverflow': 'https://stackoverflow.com',
+                'stack overflow': 'https://stackoverflow.com',
             };
             
             for (const [action, pattern] of Object.entries(actionPatterns)) {
                 const match = result.command.match(pattern);
                 if (match) {
                     result.action = action;
-                    result.command = match[match.length - 1].trim();
+                    
+                    // Handle URL opening specially
+                    if (action === 'open_url') {
+                        var site = match[2].trim().toLowerCase();
+                        // Check if it's a known shortcut
+                        if (websiteShortcuts[site]) {
+                            result.command = websiteShortcuts[site];
+                        } else if (site.includes('.')) {
+                            // Looks like a domain
+                            result.command = site.startsWith('http') ? site : 'https://' + site;
+                        } else {
+                            // Treat as a search
+                            result.action = 'search';
+                            result.command = site;
+                        }
+                    } else if (action === 'open_tab') {
+                        result.command = '';
+                    } else {
+                        result.command = match[match.length - 1].trim();
+                    }
                     break;
                 }
             }
@@ -2375,6 +2702,121 @@ DASHBOARD_PAGE = '''
             return 1 - (distance / maxLen);
         }
         
+        // Check if the transcript is a "send to [device]" command
+        // This handles both device NAME and wake word when prefixed with "send to"
+        function checkForCrossDeviceCommand(transcript) {
+            const lowerTranscript = transcript.toLowerCase().trim();
+            
+            // Patterns that indicate cross-device routing
+            const sendPatterns = [
+                /^send\s+to\s+(.+?)\s+(?:type\s+|write\s+|say\s+)?(.+)$/i,
+                /^tell\s+(.+?)\s+to\s+(?:type\s+|write\s+)?(.+)$/i,
+                /^on\s+(.+?)\s+(?:type\s+|write\s+)(.+)$/i,
+                /^(.+?)\s+type\s+(.+)$/i,  // "Windows PC type hello"
+                /^(.+?)\s+write\s+(.+)$/i  // "MacBook write hello"
+            ];
+            
+            // Get all other devices
+            var otherDevices = Object.values(devices).filter(function(d) {
+                return d.id !== deviceId && d.online !== false;
+            });
+            
+            // First check for explicit "send to" patterns (highest priority)
+            for (var p = 0; p < 3; p++) {
+                var match = lowerTranscript.match(sendPatterns[p]);
+                if (match) {
+                    var targetName = match[1].trim();
+                    var command = match[2].trim();
+                    
+                    // Find matching device by name OR wake word
+                    for (var i = 0; i < otherDevices.length; i++) {
+                        var device = otherDevices[i];
+                        var deviceName = (device.name || '').toLowerCase();
+                        var deviceWake = (device.wakeWord || '').toLowerCase();
+                        
+                        if (targetName === deviceName || targetName === deviceWake || 
+                            deviceName.includes(targetName) || targetName.includes(deviceName)) {
+                            return {
+                                device: device,
+                                command: command,
+                                explicit: true  // Explicit send command
+                            };
+                        }
+                    }
+                }
+            }
+            
+            // Then check for "[device name] type/write" patterns
+            for (var i = 0; i < otherDevices.length; i++) {
+                var device = otherDevices[i];
+                var deviceName = (device.name || '').toLowerCase();
+                
+                // Only match by device NAME (not wake word) for implicit routing
+                // This prevents accidentally triggering other devices
+                if (deviceName && lowerTranscript.startsWith(deviceName)) {
+                    var afterName = transcript.substring(deviceName.length).trim();
+                    // Must have "type" or "write" after the device name
+                    var typeMatch = afterName.match(/^(?:type|write)\s+(.+)$/i);
+                    if (typeMatch) {
+                        return {
+                            device: device,
+                            command: typeMatch[1],
+                            explicit: false
+                        };
+                    }
+                }
+            }
+            
+            return null;
+        }
+        
+        // Route a command to another device
+        function routeToOtherDevice(targetDevice, command) {
+            console.log('Routing to', targetDevice.name, ':', command);
+            
+            // Send command via socket to the target device
+            socket.emit('route_command', {
+                fromDeviceId: deviceId,
+                toDeviceId: targetDevice.id,
+                command: command,
+                action: 'type',
+                crossDevice: true,
+                timestamp: new Date().toISOString()
+            });
+            
+            showLastCommand(targetDevice.icon || '💻', '→ ' + targetDevice.name, command);
+            addActivity('📤 Sent to ' + targetDevice.name + ': "' + command.substring(0, 40) + '..."', 'success');
+            document.getElementById('transcript').textContent = '📡 → ' + targetDevice.name + ': "' + command + '"';
+        }
+        
+        // Check if the user said "stop" as a command (not as part of a sentence)
+        function checkForStopCommand(text) {
+            const lower = text.toLowerCase().trim();
+            
+            // Exact "stop" command
+            if (lower === 'stop' || lower === 'stop listening' || lower === 'stop recording') {
+                return true;
+            }
+            
+            // Ends with "stop" as a command (like "ok stop" or "please stop")
+            if (lower.endsWith(' stop') && lower.split(' ').length <= 3) {
+                return true;
+            }
+            
+            // Common stop phrases
+            const stopPhrases = ['stop now', 'thats enough', 'enough', 'end recording', 'stop dictation', 'cancel'];
+            if (stopPhrases.includes(lower)) {
+                return true;
+            }
+            
+            // If Claude is available, we'll use smarter detection online
+            // For now, simple check: if it's JUST "stop" or a short stop phrase, treat as command
+            // Longer sentences containing "stop" are probably not commands
+            // e.g., "don't stop believing" should NOT stop recording
+            
+            return false;
+        }
+        
         // Check if transcript contains wake word with fuzzy matching
         function detectWakeWord(transcript, wakeWord) {
             const lowerTranscript = transcript.toLowerCase();
@@ -2439,20 +2881,25 @@ DASHBOARD_PAGE = '''
             };
             
             recognition.onend = () => {
-                // Always set isListening to false when recognition ends
-                isListening = false;
-                
-                // Check if we should auto-restart
+                // Check if we should auto-restart (keep listening in always-listen or continuous mode)
                 const shouldRestart = (alwaysListen || continuousMode) && currentDevice;
                 
                 if (shouldRestart) {
-                    // Restart quickly without changing UI
+                    // DON'T set isListening to false - keep it true to prevent UI flicker
+                    // Just restart after a brief delay
                     setTimeout(() => {
-                        if (alwaysListen || continuousMode) {
-                            startListening();
+                        if ((alwaysListen || continuousMode) && !isListening) {
+                            try {
+                                recognition.start();
+                                isListening = true;
+                            } catch (e) {
+                                // Already started, ignore
+                            }
                         }
-                    }, 100);
+                    }, 300);
                 } else {
+                    // Only set false and update UI when NOT in always-listen mode
+                    isListening = false;
                     updateUI();
                 }
             };
@@ -2473,30 +2920,71 @@ DASHBOARD_PAGE = '''
                 const transcriptEl = document.getElementById('transcript');
                 const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
                 
-                // In always-listen mode, only show transcript when wake word detected or in active dictation
+                // PRIVACY: In always-listen mode, NEVER show what user is saying
+                // Only show the ready message or wake word detection
                 if (alwaysListen && !isActiveDictation && !continuousMode) {
-                    // Check interim transcript for wake word
                     if (interimTranscript) {
                         const interimDetection = detectWakeWord(interimTranscript, wakeWord);
                         if (interimDetection.detected) {
-                            // Show that we're detecting the wake word
+                            // Only show that wake word was detected, nothing else
                             transcriptEl.textContent = '🎯 Wake word detected...';
                             transcriptEl.classList.add('active');
-                        } else {
-                            // Don't update transcript, show subtle ready message
-                            transcriptEl.textContent = `Ready for "${wakeWord}"`;
-                            transcriptEl.classList.remove('active');
                         }
+                        // NEVER show what user said if wake word not detected - just keep showing ready message
                     }
-                } else if (interimTranscript) {
-                    // In active dictation or continuous mode, show live transcript with spell check preview
+                    // Don't show any transcript - keep the ready message
+                } else if (interimTranscript && (isActiveDictation || continuousMode || !alwaysListen)) {
+                    // Only show live transcript when:
+                    // 1. In active dictation (wake word was spoken)
+                    // 2. In continuous mode
+                    // 3. NOT in always-listen mode (manual mic click)
                     const previewText = spellCheck(interimTranscript);
                     transcriptEl.textContent = previewText;
                     transcriptEl.classList.add('active');
                 }
                 
                 if (finalTranscript) {
-                    // Check for wake word with fuzzy matching
+                    // Check for STOP command first
+                    const lowerTranscript = finalTranscript.toLowerCase().trim();
+                    const isStopCommand = checkForStopCommand(lowerTranscript);
+                    
+                    if (isStopCommand) {
+                        // Stop recording
+                        addActivity('🛑 Stop command detected', 'info');
+                        addToTranscriptHistory(lowerTranscript, 'stop');
+                        stopListening();
+                        alwaysListen = false;
+                        document.getElementById('toggle-always-listen').classList.remove('active');
+                        currentDevice.alwaysListen = false;
+                        saveDevices();
+                        transcriptEl.textContent = 'Stopped.';
+                        updateUI();
+                        return;
+                    }
+                    
+                    // First check if command is for ANOTHER device (cross-device routing)
+                    const otherDeviceMatch = checkForCrossDeviceCommand(finalTranscript);
+                    
+                    if (otherDeviceMatch) {
+                        // Command is for another device - route it there!
+                        playSound('activate');
+                        addActivity('📡 Routing to ' + otherDeviceMatch.device.name + '...', 'info');
+                        addToTranscriptHistory('→ ' + otherDeviceMatch.device.name + ': ' + otherDeviceMatch.command, 'routed');
+                        
+                        // Route the command to the other device
+                        routeToOtherDevice(otherDeviceMatch.device, otherDeviceMatch.command);
+                        
+                        // Reset transcript display
+                        if (alwaysListen) {
+                            setTimeout(function() {
+                                transcriptEl.textContent = 'Ready for "' + wakeWord + '"';
+                                transcriptEl.classList.remove('active');
+                            }, 2000);
+                        }
+                        return;
+                    }
+                    
+                    // Check for THIS device's wake word with fuzzy matching
                     const detection = detectWakeWord(finalTranscript, wakeWord);
                     
                     if (detection.detected) {
@@ -2506,8 +2994,9 @@ DASHBOARD_PAGE = '''
                         // Play activation sound
                         playSound('activate');
                         
-                        const matchInfo = detection.similarity ? ` (${Math.round(detection.similarity * 100)}% match)` : '';
-                        addActivity(`🎯 Wake word detected${matchInfo}!`, 'success');
+                        const matchInfo = detection.similarity ? ' (' + Math.round(detection.similarity * 100) + '% match)' : '';
+                        addActivity('🎯 Wake word detected' + matchInfo + '!', 'success');
+                        addToTranscriptHistory(wakeWord + (afterWakeWord ? ' ' + afterWakeWord : ''), 'wake');
                         currentDevice.sessions++;
                         saveDevices();
                         renderDeviceList();
@@ -2524,6 +3013,7 @@ DASHBOARD_PAGE = '''
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
                         // In active dictation mode, type everything
+                        addToTranscriptHistory(finalTranscript, 'command');
                         handleTranscript(finalTranscript);
                         isActiveDictation = false;
                         
@@ -2666,6 +3156,35 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
+            // Handle browser actions (open_tab, open_url, search) - route to desktop client
+            if (!skipRouting && (parsed.action === 'open_tab' || parsed.action === 'open_url' || parsed.action === 'search')) {
+                const desktopClient = Object.values(devices).find(d => 
+                    d.type === 'desktop_client' && d.id !== deviceId
+                );
+                
+                if (desktopClient) {
+                    socket.emit('route_command', {
+                        fromDeviceId: deviceId,
+                        toDeviceId: desktopClient.id,
+                        command: parsed.command,
+                        action: parsed.action,
+                        targetApp: 'browser',
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    var actionLabel = parsed.action === 'open_tab' ? 'Opening new tab' : 
+                                     parsed.action === 'open_url' ? 'Opening ' + parsed.command :
+                                     'Searching: ' + parsed.command;
+                    
+                    showLastCommand('🌐', actionLabel, parsed.command || 'new tab');
+                    addActivity('🌐 ' + actionLabel, 'success');
+                    document.getElementById('transcript').textContent = '🌐 ' + actionLabel;
+                    return;
+                } else {
+                    addActivity('⚠️ No desktop client connected for browser control', 'warning');
+                }
+            }
+            
             // If targeting an app (cursor, vscode, etc), route to a desktop client
             if (!skipRouting && parsed.targetApp) {
                 const appInfo = parsed.targetApp;
@@ -2762,14 +3281,14 @@ DASHBOARD_PAGE = '''
             'tommorow': 'tomorrow', 'tounge': 'tongue', 'truely': 'truly',
             'unforseen': 'unforeseen', 'unfortunatly': 'unfortunately', 'wich': 'which',
             'writting': 'writing', 'your welcome': "you're welcome", 'alot': 'a lot',
-            'shouldnt': "shouldn't", 'couldnt': "couldn't", 'wouldnt': "wouldn't",
-            'dont': "don't", 'wont': "won't", 'cant': "can't", 'didnt': "didn't",
-            'isnt': "isn't", 'wasnt': "wasn't", 'havent': "haven't", 'hasnt': "hasn't",
-            'im': "I'm", 'ive': "I've", 'youre': "you're", 'theyre': "they're",
-            'weve': "we've", 'its a': "it's a", 'lets': "let's",
+            'shouldnt': "shouldn\'t", 'couldnt': "couldn\'t", 'wouldnt': "wouldn\'t",
+            'dont': "don\'t", 'wont': "won\'t", 'cant': "can\'t", 'didnt': "didn\'t",
+            'isnt': "isn\'t", 'wasnt': "wasn\'t", 'havent': "haven\'t", 'hasnt': "hasn\'t",
+            'im': "I\'m", 'ive': "I\'ve", 'youre': "you\'re", 'theyre': "they\'re",
+            'weve': "we\'ve", 'its a': "it\'s a", 'lets': "let\'s",
             // Common speech recognition errors
             'gonna': 'going to', 'wanna': 'want to', 'gotta': 'got to',
-            'kinda': 'kind of', 'sorta': 'sort of', 'dunno': "don't know",
+            'kinda': 'kind of', 'sorta': 'sort of', 'dunno': "don\'t know",
             'lemme': 'let me', 'gimme': 'give me', 'coulda': 'could have',
             'shoulda': 'should have', 'woulda': 'would have', 'musta': 'must have',
         };
@@ -2836,12 +3355,23 @@ DASHBOARD_PAGE = '''
         }
         
         function startListening() {
-            if (!recognition || isListening) return;
+            if (!recognition) {
+                console.error('No recognition object');
+                return;
+            }
+            if (isListening) {
+                console.log('Already listening');
+                return;
+            }
             recognition.lang = currentDevice?.language || 'en-US';
             try {
                 recognition.start();
+                console.log('Recognition started');
             } catch (e) {
-                console.log('Recognition already started');
+                console.log('Recognition start error:', e.name, e.message);
+                if (e.name !== 'InvalidStateError') {
+                    addActivity('⚠️ ' + e.message, 'warning');
+                }
             }
         }
         
@@ -2862,12 +3392,19 @@ DASHBOARD_PAGE = '''
             if (isListening) {
                 stopListening();
             } else {
-                // Check/request permission before starting
-                if (micPermission !== 'granted') {
-                    const granted = await requestMicPermission();
-                    if (!granted) return;
+                // Just try to start - the recognition.onerror will handle permission issues
+                try {
+                    recognition.lang = currentDevice?.language || 'en-US';
+                    recognition.start();
+                    addActivity('🎤 Starting microphone...', 'info');
+                } catch (e) {
+                    // Handle "already started" error
+                    if (e.name === 'InvalidStateError') {
+                        console.log('Recognition already running');
+                    } else {
+                        addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
+                    }
                 }
-                startListening();
             }
         }
         
@@ -2941,33 +3478,250 @@ DASHBOARD_PAGE = '''
             if (badgeContinuous) badgeContinuous.style.display = continuousMode ? 'inline-block' : 'none';
         }
         
+        let editingDeviceId = null;
+        
+        // Format relative time (e.g., "just now", "2 min ago")
+        function formatLastSeen(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            const now = new Date();
+            const seconds = Math.floor((now - date) / 1000);
+            
+            if (seconds < 10) return 'just now';
+            if (seconds < 60) return seconds + 's ago';
+            
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return minutes + ' min ago';
+            
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return hours + 'h ago';
+            
+            const days = Math.floor(hours / 24);
+            return days + 'd ago';
+        }
+        
         function renderDeviceList() {
             const listEl = document.getElementById('device-list');
             if (!listEl) return;
             
-            // Only show browser devices (not desktop clients which are the same machine)
-            const browserDevices = Object.values(devices).filter(d => d.type !== 'desktop_client');
+            // Get all devices, prioritize current device first
+            const allDevices = Object.values(devices);
+            const thisDevice = allDevices.find(d => d.id === deviceId);
+            const otherDevices = allDevices.filter(d => d.id !== deviceId && d.type !== 'desktop_client');
             
-            if (browserDevices.length === 0) {
-                listEl.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">No devices yet</div>';
+            let html = '';
+            
+            // This device first (highlighted)
+            if (thisDevice) {
+                html += `
+                    <div class="device-item" onclick="openDeviceEditor('${thisDevice.id}')" style="cursor: pointer; padding: 12px; background: rgba(0,245,212,0.15); border-radius: 10px; border: 2px solid var(--accent); margin-bottom: 8px; transition: transform 0.1s;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 20px;">${thisDevice.icon || '💻'}</span>
+                                <strong>${thisDevice.name || 'This Device'}</strong>
+                            </div>
+                            <span style="font-size: 9px; background: var(--success); color: white; padding: 2px 8px; border-radius: 10px;">THIS DEVICE</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--accent); margin-top: 6px; font-family: monospace;">
+                            Wake: "${thisDevice.wakeWord || 'computer'}"
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Click to edit</div>
+                    </div>
+                `;
+            }
+            
+            // Other connected devices
+            otherDevices.forEach(d => {
+                const isOnline = d.online !== false;
+                const lastSeenText = d.lastSeen ? formatLastSeen(d.lastSeen) : '';
+                const statusText = isOnline ? (lastSeenText ? 'Active ' + lastSeenText : 'ONLINE') : 'OFFLINE';
+                
+                html += `
+                    <div class="device-item" onclick="openDeviceEditor('${d.id}')" style="cursor: pointer; padding: 10px; background: var(--bg-secondary); border-radius: 8px; margin-bottom: 6px; opacity: ${isOnline ? 1 : 0.5}; transition: transform 0.1s;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">${d.icon || '💻'}</span>
+                                <span>${d.name || 'Unknown'}</span>
+                            </div>
+                            <span style="font-size: 8px; background: ${isOnline ? 'var(--success)' : 'var(--text-muted)'}; color: white; padding: 2px 6px; border-radius: 8px;">
+                                ${statusText}
+                            </span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; font-family: monospace;">
+                            Wake: "${d.wakeWord || 'unknown'}"
+                        </div>
+                    </div>
+                `;
+            });
+            
+            // If no other devices
+            if (otherDevices.length === 0 && thisDevice) {
+                html += `<div style="color: var(--text-muted); font-size: 12px; padding: 8px; text-align: center;">No other devices connected</div>`;
+            }
+            
+            listEl.innerHTML = html;
+        }
+        
+        // Update lastSeen display every 30 seconds
+        setInterval(renderDeviceList, 30000);
+        
+        function openDeviceEditor(id) {
+            // Close any existing modal first
+            closeDeviceEditor();
+            
+            editingDeviceId = id;
+            const device = devices[id];
+            if (!device) return;
+            
+            const isThisDevice = id === deviceId;
+            
+            const modal = document.createElement('div');
+            modal.id = 'device-editor-modal';
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            
+            let modalHTML = '<div id="device-editor-content" style="background: var(--bg-secondary); border-radius: 16px; padding: 24px; width: 90%; max-width: 400px; border: 1px solid var(--border);">';
+            modalHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">';
+            modalHTML += '<h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">';
+            modalHTML += '<span id="editor-header-icon" style="font-size: 24px;">' + (device.icon || '💻') + '</span> Edit Device</h3>';
+            modalHTML += '<button id="close-editor-btn" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; padding: 4px 8px;">&times;</button></div>';
+            
+            // Clear status indicator
+            if (isThisDevice) {
+                modalHTML += '<div style="background: rgba(0,245,212,0.15); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; margin-bottom: 16px; font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 8px;">';
+                modalHTML += '<span style="font-size: 16px;">✓</span> <strong>This is YOUR current device</strong></div>';
+            } else {
+                modalHTML += '<div style="background: rgba(255,165,0,0.15); border: 1px solid orange; border-radius: 8px; padding: 10px; margin-bottom: 16px; font-size: 13px; color: orange; display: flex; align-items: center; gap: 8px;">';
+                modalHTML += '<span style="font-size: 16px;">📡</span> <strong>Editing REMOTE device:</strong> ' + (device.name || 'Unknown') + '</div>';
+            }
+            
+            modalHTML += '<div style="margin-bottom: 16px;">';
+            modalHTML += '<label style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Device Name <span style="color: var(--text-muted); font-size: 11px;">(used for cross-device commands)</span></label>';
+            modalHTML += '<input type="text" id="edit-device-name" value="' + (device.name || '').replace(/"/g, '&quot;') + '" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: 15px; box-sizing: border-box;" autocomplete="off" spellcheck="false">';
+            modalHTML += '</div>';
+            
+            modalHTML += '<div style="margin-bottom: 16px;">';
+            modalHTML += '<label style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Wake Word <span style="color: var(--text-muted); font-size: 11px;">(activates this device only)</span></label>';
+            modalHTML += '<input type="text" id="edit-device-wake" value="' + (device.wakeWord || '').replace(/"/g, '&quot;') + '" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: 15px; box-sizing: border-box;" autocomplete="off" spellcheck="false">';
+            modalHTML += '<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Say this word to activate listening on this device</div>';
+            modalHTML += '</div>';
+            
+            modalHTML += '<div style="margin-bottom: 20px;">';
+            modalHTML += '<label style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Icon</label>';
+            modalHTML += '<div style="display: flex; gap: 8px; flex-wrap: wrap;">';
+            var icons = ['💻', '🖥️', '📱', '⌨️', '🎧', '🎤', '🖱️', '📺'];
+            for (var i = 0; i < icons.length; i++) {
+                var icon = icons[i];
+                var isSelected = device.icon === icon;
+                var btnStyle = 'padding: 8px 12px; border-radius: 8px; border: 2px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)') + '; background: ' + (isSelected ? 'rgba(0,245,212,0.1)' : 'var(--bg-primary)') + '; cursor: pointer; font-size: 18px;';
+                modalHTML += '<button data-icon="' + icon + '" style="' + btnStyle + '">' + icon + '</button>';
+            }
+            modalHTML += '</div></div>';
+            
+            modalHTML += '<div style="display: flex; gap: 12px;">';
+            modalHTML += '<button onclick="saveDeviceEdit()" style="flex: 1; padding: 12px; border-radius: 8px; border: none; background: var(--accent); color: var(--bg-primary); font-weight: 600; cursor: pointer;">Save Changes</button>';
+            modalHTML += '<button onclick="closeDeviceEditor()" style="padding: 12px 20px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-primary); cursor: pointer;">Cancel</button>';
+            modalHTML += '</div></div>';
+            
+            modal.innerHTML = modalHTML;
+            document.body.appendChild(modal);
+            
+            // Set up event listeners after modal is in DOM
+            var closeBtn = document.getElementById('close-editor-btn');
+            if (closeBtn) {
+                closeBtn.onclick = function(e) {
+                    e.stopPropagation();
+                    closeDeviceEditor();
+                };
+            }
+            
+            // Prevent clicks inside the modal content from closing it
+            var content = document.getElementById('device-editor-content');
+            if (content) {
+                content.onclick = function(e) {
+                    e.stopPropagation();
+                    // Handle icon button clicks
+                    if (e.target.dataset && e.target.dataset.icon) {
+                        selectDeviceIcon(e.target.dataset.icon);
+                    }
+                };
+            }
+            
+            // Close only when clicking the backdrop
+            modal.onclick = function(e) {
+                if (e.target === modal) {
+                    closeDeviceEditor();
+                }
+            };
+            
+            // Focus the name input
+            setTimeout(function() {
+                var nameInput = document.getElementById('edit-device-name');
+                if (nameInput) nameInput.focus();
+            }, 100);
+        }
+        
+        function selectDeviceIcon(icon) {
+            if (editingDeviceId && devices[editingDeviceId]) {
+                // Update the icon in memory
+                devices[editingDeviceId].icon = icon;
+                
+                // Update just the icon buttons visually (no re-render)
+                var buttons = document.querySelectorAll('#device-editor-modal button[data-icon]');
+                buttons.forEach(function(btn) {
+                    var btnIcon = btn.dataset.icon;
+                    var isSelected = btnIcon === icon;
+                    btn.style.borderColor = isSelected ? 'var(--accent)' : 'var(--border)';
+                    btn.style.background = isSelected ? 'rgba(0,245,212,0.1)' : 'var(--bg-primary)';
+                });
+                
+                // Update the icon in the header
+                var headerIcon = document.getElementById('editor-header-icon');
+                if (headerIcon) headerIcon.textContent = icon;
+            }
+        }
+        
+        function saveDeviceEdit() {
+            if (!editingDeviceId) return;
+            
+            const name = document.getElementById('edit-device-name').value.trim();
+            const wakeWord = document.getElementById('edit-device-wake').value.trim().toLowerCase();
+            
+            if (!name || !wakeWord) {
+                alert('Please fill in all fields');
                 return;
             }
             
-            listEl.innerHTML = browserDevices.map(d => `
-                <div class="device-item ${d.id === currentDevice?.id ? 'active' : ''}"
-                     onclick="selectDevice('${d.id}')"
-                     style="cursor: pointer; padding: 12px; background: ${d.id === currentDevice?.id ? 'rgba(0,245,212,0.1)' : 'var(--bg-secondary)'}; border-radius: 10px; margin-bottom: 8px; border: 1px solid ${d.id === currentDevice?.id ? 'var(--accent)' : 'transparent'};">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span>${d.icon || '💻'}</span>
-                            <strong>${d.name || 'Unnamed'}</strong>
-                        </div>
-                        ${d.id === currentDevice?.id ? '<span style="font-size: 10px; background: var(--accent); color: var(--bg-primary); padding: 2px 8px; border-radius: 10px;">EDITING</span>' : ''}
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Wake: "${d.wakeWord || 'jarvis'}"</div>
-                </div>
-            `).join('');
-            `).join('');
+            const device = devices[editingDeviceId];
+            device.name = name;
+            device.wakeWord = wakeWord;
+            
+            // If editing current device, update currentDevice too
+            if (editingDeviceId === deviceId) {
+                currentDevice.name = name;
+                currentDevice.wakeWord = wakeWord;
+                currentDevice.icon = device.icon;
+                saveDevices(); // Save to localStorage
+            }
+            
+            // Sync to server so other devices see the change
+            socket.emit('device_update', {
+                deviceId: editingDeviceId,
+                settings: {
+                    name: device.name,
+                    wakeWord: device.wakeWord,
+                    icon: device.icon
+                }
+            });
+            
+            closeDeviceEditor();
+            renderDeviceList();
+            addActivity('Device updated: ' + name, 'success');
+        }
+        
+        function closeDeviceEditor() {
+            const modal = document.getElementById('device-editor-modal');
+            if (modal) modal.remove();
+            editingDeviceId = null;
         }
         
         function addActivity(message, type = 'info', words = 0) {
@@ -3003,6 +3757,108 @@ DASHBOARD_PAGE = '''
                 </div>
             `).join('');
         }
+        
+        // ============================================================
+        // TRANSCRIPT HISTORY
+        // ============================================================
+        
+        function addToTranscriptHistory(text, type = 'command') {
+            const entry = {
+                id: Date.now(),
+                text: text,
+                type: type, // 'command', 'wake', 'routed'
+                time: new Date(),
+                device: currentDevice?.name || 'Unknown'
+            };
+            transcriptHistory.push(entry);
+            updateTranscriptCount();
+        }
+        
+        function updateTranscriptCount() {
+            const countEl = document.getElementById('transcript-count');
+            if (transcriptHistory.length > 0) {
+                countEl.textContent = transcriptHistory.length;
+                countEl.style.display = 'inline';
+            } else {
+                countEl.style.display = 'none';
+            }
+        }
+        
+        function openTranscriptHistory() {
+            renderTranscriptHistory();
+            document.getElementById('transcript-history-modal').classList.add('active');
+        }
+        
+        function closeTranscriptHistory() {
+            document.getElementById('transcript-history-modal').classList.remove('active');
+        }
+        
+        function renderTranscriptHistory() {
+            const listEl = document.getElementById('transcript-history-list');
+            const infoEl = document.getElementById('transcript-session-info');
+            
+            // Update session info
+            const elapsed = Math.floor((new Date() - sessionStartTime) / 1000 / 60);
+            if (elapsed < 1) {
+                infoEl.textContent = 'Session started just now';
+            } else if (elapsed < 60) {
+                infoEl.textContent = 'Session: ' + elapsed + ' min • ' + transcriptHistory.length + ' transcripts';
+            } else {
+                const hours = Math.floor(elapsed / 60);
+                const mins = elapsed % 60;
+                infoEl.textContent = 'Session: ' + hours + 'h ' + mins + 'm • ' + transcriptHistory.length + ' transcripts';
+            }
+            
+            if (transcriptHistory.length === 0) {
+                listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 40px;">No transcripts yet. Start speaking to record your session.</p>';
+                return;
+            }
+            
+            // Render in reverse chronological order (newest first)
+            const typeIcons = {
+                command: '💬',
+                wake: '🎯',
+                routed: '📤',
+                stop: '🛑'
+            };
+            
+            const typeLabels = {
+                command: 'Command',
+                wake: 'Wake Word',
+                routed: 'Routed',
+                stop: 'Stopped'
+            };
+            
+            listEl.innerHTML = transcriptHistory.slice().reverse().map(function(entry) {
+                const timeStr = entry.time.toLocaleTimeString();
+                var icon = typeIcons[entry.type] || '💬';
+                var label = typeLabels[entry.type] || 'Transcript';
+                
+                return '<div style="background: var(--bg-secondary); border-radius: 12px; padding: 14px 16px; border-left: 3px solid ' + (entry.type === 'wake' ? 'var(--accent)' : entry.type === 'routed' ? '#a855f7' : 'var(--border)') + ';">' +
+                    '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">' +
+                        '<span style="font-size: 12px; color: var(--text-muted);">' + icon + ' ' + label + '</span>' +
+                        '<span style="font-size: 11px; color: var(--text-muted);">' + timeStr + '</span>' +
+                    '</div>' +
+                    '<p style="font-size: 15px; line-height: 1.5; margin: 0; word-break: break-word;">' + escapeHtml(entry.text) + '</p>' +
+                '</div>';
+            }).join('');
+        }
+        
+        function clearTranscriptHistory() {
+            transcriptHistory = [];
+            updateTranscriptCount();
+            renderTranscriptHistory();
+            addActivity('Session transcripts cleared', 'info');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Add click listener for transcript header
+        document.getElementById('transcript-header').addEventListener('click', openTranscriptHistory);
         
         // ============================================================
         // DEVICE MANAGEMENT
@@ -3095,10 +3951,10 @@ DASHBOARD_PAGE = '''
             saveDevices();
             
             if (alwaysListen) {
-                addActivity('🎧 Always Listen enabled - say your wake word anytime!', 'success');
+                addActivity('Wake word listening enabled', 'success');
                 startListening();
             } else {
-                addActivity('Always Listen disabled', 'info');
+                addActivity('Wake word listening disabled', 'info');
                 if (isListening && !continuousMode) {
                     stopListening();
                 }
@@ -3201,22 +4057,52 @@ DASHBOARD_PAGE = '''
         
         socket.on('connect', () => {
             console.log('Connected to server');
-            socket.emit('dashboard_join', { deviceId });
+            // Send full device info when joining
+            socket.emit('dashboard_join', { 
+                deviceId: deviceId,
+                device: {
+                    id: deviceId,
+                    name: currentDevice.name,
+                    wakeWord: currentDevice.wakeWord,
+                    icon: currentDevice.icon,
+                    type: 'browser'
+                }
+            });
+            
+            // Send heartbeat every 30 seconds to keep lastSeen updated
+            setInterval(function() {
+                socket.emit('heartbeat', { deviceId: deviceId });
+            }, 30000);
         });
         
         socket.on('devices_update', (data) => {
-            // Merge server devices with local - UPDATE existing devices too
             if (data.devices) {
                 for (const [id, device] of Object.entries(data.devices)) {
-                    if (!devices[id]) {
-                        // New device from server
-                        devices[id] = device;
-                    } else {
-                        // Update existing device with server data (type, online status, etc.)
-                        devices[id] = { ...devices[id], ...device };
+                    // Update or add the device
+                    devices[id] = { ...devices[id], ...device };
+                    
+                    // If this is OUR device and settings were changed remotely, update currentDevice and save
+                    if (id === deviceId) {
+                        var wasChanged = false;
+                        if (device.name && device.name !== currentDevice.name) {
+                            currentDevice.name = device.name;
+                            wasChanged = true;
+                        }
+                        if (device.wakeWord && device.wakeWord !== currentDevice.wakeWord) {
+                            currentDevice.wakeWord = device.wakeWord;
+                            wasChanged = true;
+                        }
+                        if (device.icon && device.icon !== currentDevice.icon) {
+                            currentDevice.icon = device.icon;
+                            wasChanged = true;
+                        }
+                        if (wasChanged) {
+                            console.log('Device settings updated remotely:', currentDevice.name, currentDevice.wakeWord);
+                            saveDevices();
+                            updateUI();
+                        }
                     }
                 }
-                saveDevices();
                 renderDeviceList();
                 renderAvailableDevices();
                 
@@ -3236,18 +4122,32 @@ DASHBOARD_PAGE = '''
         
         // Handle device online/offline updates
         socket.on('device_online', (data) => {
-            if (devices[data.deviceId]) {
-                devices[data.deviceId].online = true;
-                renderDeviceList();
-                renderAvailableDevices();
+            const id = data.deviceId;
+            if (data.device) {
+                // New or updated device info
+                devices[id] = { ...devices[id], ...data.device, online: true };
+            } else if (devices[id]) {
+                devices[id].online = true;
             }
+            renderDeviceList();
+            renderAvailableDevices();
+            console.log('Device online:', data.device?.name || id);
         });
         
         socket.on('device_offline', (data) => {
             if (devices[data.deviceId]) {
                 devices[data.deviceId].online = false;
+                devices[data.deviceId].lastSeen = new Date().toISOString();
                 renderDeviceList();
                 renderAvailableDevices();
+            }
+        });
+        
+        socket.on('device_heartbeat', (data) => {
+            if (devices[data.deviceId]) {
+                devices[data.deviceId].lastSeen = data.lastSeen;
+                devices[data.deviceId].online = true;
+                renderDeviceList();
             }
         });
         
@@ -3308,14 +4208,64 @@ def dashboard():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
     if request.method == 'POST':
-        u, p = request.form.get('username', '').strip(), request.form.get('password', '')
+        u = request.form.get('username', '').strip().lower()
+        p = request.form.get('password', '')
         remember = request.form.get('remember') == 'on'
+        
         if u in USERS and check_password_hash(USERS[u]['password_hash'], p):
             login_user(User(u), remember=remember)
+            print(f"User logged in: {u} (remember={remember})")
             return redirect(url_for('dashboard'))
-        return render_template_string(LOGIN_PAGE, error='Invalid credentials')
-    return render_template_string(LOGIN_PAGE, error=None)
+        return render_template_string(LOGIN_PAGE, error='Invalid username or password', success=None)
+    
+    success = request.args.get('success')
+    return render_template_string(LOGIN_PAGE, error=None, success=success)
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        username = request.form.get('username', '').strip().lower()
+        password = request.form.get('password', '')
+        password2 = request.form.get('password2', '')
+        
+        # Validation
+        if not name or not username or not password:
+            return render_template_string(SIGNUP_PAGE, error='All fields are required')
+        
+        if len(username) < 3:
+            return render_template_string(SIGNUP_PAGE, error='Username must be at least 3 characters')
+        
+        if not username.replace('_', '').isalnum():
+            return render_template_string(SIGNUP_PAGE, error='Username can only contain letters, numbers, and underscores')
+        
+        if len(password) < 4:
+            return render_template_string(SIGNUP_PAGE, error='Password must be at least 4 characters')
+        
+        if password != password2:
+            return render_template_string(SIGNUP_PAGE, error='Passwords do not match')
+        
+        if username in USERS:
+            return render_template_string(SIGNUP_PAGE, error='Username already taken')
+        
+        # Create the user
+        USERS[username] = {
+            'password_hash': generate_password_hash(password),
+            'name': name
+        }
+        save_users()
+        print(f"New user created: {username} ({name})")
+        
+        return redirect(url_for('login', success='Account created! Please sign in.'))
+    
+    return render_template_string(SIGNUP_PAGE, error=None)
 
 @app.route('/logout')
 @login_required
@@ -3509,22 +4459,47 @@ CLIENT_VERSION = "1.3.0"
 # CLAUDE AI COMMAND PARSING
 # ============================================================================
 
-COMMAND_PARSE_PROMPT = """You are Jarvis, a voice command parser for a computer control system.
+COMMAND_PARSE_PROMPT = """You are Jarvis, a voice command parser for a multi-device computer control system.
+
+The user has multiple devices (e.g., "MacBook", "Windows PC") each with their own wake words (e.g., "mac", "windows").
 
 Parse voice commands and return JSON:
 {
   "targetApp": "cursor" | "claude" | "chatgpt" | "terminal" | "browser" | "notes" | "slack" | "discord" | null,
-  "action": "type" | "type_and_send" | "open" | "search" | "run" | null,
+  "action": "type" | "type_and_send" | "open" | "search" | "run" | "stop" | "route" | null,
   "content": "the text to type or action to take",
-  "response": "Brief friendly confirmation (5 words max)"
+  "response": "Brief friendly confirmation (5 words max)",
+  "isStopCommand": true | false,
+  "routeToDevice": "device name or wake word if routing to another device" | null,
+  "isRoutingCommand": true | false
 }
 
 ACTIONS:
-- "type" = just type the text
+- "type" = just type the text locally
 - "type_and_send" = type the text AND press Enter to send it
 - "open" = open the app
+- "open_tab" = open a new browser tab (optionally with a URL)
+- "open_url" = open a specific URL in browser
 - "search" = search in browser
 - "run" = run a command
+- "stop" = stop listening/recording
+- "route" = send command to another device
+
+CROSS-DEVICE ROUTING (IMPORTANT):
+When user says "send to [device]" or "[device name] type", they want to route to that device:
+- "send to mac hello world" → route "hello world" to the mac device
+- "send to windows pc check this" → route to Windows PC
+- "tell macbook to type hello" → route to MacBook
+- "Windows PC type testing" → route "testing" to Windows PC
+
+Distinguish between ROUTING and LOCAL ACTIVATION:
+- "send to mac hello" = ROUTING (isRoutingCommand: true, routeToDevice: "mac")
+- "mac type hello" on the mac itself = LOCAL ACTIVATION (isRoutingCommand: false)
+- When in doubt with "send to" prefix = always routing
+
+STOP COMMAND DETECTION:
+- "stop", "stop listening", "stop recording" → isStopCommand: true
+- "don't stop believing" or "stop sign" → isStopCommand: false
 
 APPS:
 - cursor/curser = Code editor (Cursor IDE)
@@ -3533,25 +4508,24 @@ APPS:
 - terminal/command = Terminal/shell
 - browser/chrome/safari = Web browser
 
-COMMON MISHEARINGS (fix these):
-- "right" → "write"
-- "curser" → "cursor"  
-- "cloud" → "claude"
-- "and send" / "and enter" / "and submit" → use action "type_and_send"
-
 EXAMPLES:
-"cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","response":"Typing in Cursor"}
-"ask claude about python and send" → {"targetApp":"claude","action":"type_and_send","content":"about python","response":"Sending to Claude"}
-"tell chatgpt explain react and enter" → {"targetApp":"chatgpt","action":"type_and_send","content":"explain react","response":"Sending to ChatGPT"}
-"claude what is python send it" → {"targetApp":"claude","action":"type_and_send","content":"what is python","response":"Sending to Claude"}
-"type hello and submit" → {"targetApp":null,"action":"type_and_send","content":"hello","response":"Typing and sending"}
-"open terminal" → {"targetApp":"terminal","action":"open","content":null,"response":"Opening Terminal"}
-"search how to code" → {"targetApp":"browser","action":"search","content":"how to code","response":"Searching"}
+"send to mac hello world" → {"action":"route","content":"hello world","routeToDevice":"mac","isRoutingCommand":true,"response":"Sending to Mac"}
+"send to windows pc type this message" → {"action":"route","content":"this message","routeToDevice":"windows pc","isRoutingCommand":true,"response":"Routing to Windows"}
+"tell macbook to write testing" → {"action":"route","content":"testing","routeToDevice":"macbook","isRoutingCommand":true,"response":"Sending to MacBook"}
+"cursor write hello" → {"targetApp":"cursor","action":"type","content":"hello","isRoutingCommand":false,"response":"Typing in Cursor"}
+"stop" → {"action":"stop","isStopCommand":true,"isRoutingCommand":false,"response":"Stopping"}
+"open a new tab" → {"targetApp":"browser","action":"open_tab","content":null,"response":"Opening new tab"}
+"open google" → {"targetApp":"browser","action":"open_url","content":"https://google.com","response":"Opening Google"}
+"open youtube" → {"targetApp":"browser","action":"open_url","content":"https://youtube.com","response":"Opening YouTube"}
+"open github" → {"targetApp":"browser","action":"open_url","content":"https://github.com","response":"Opening GitHub"}
+"open twitter" → {"targetApp":"browser","action":"open_url","content":"https://twitter.com","response":"Opening Twitter"}
+"go to amazon" → {"targetApp":"browser","action":"open_url","content":"https://amazon.com","response":"Opening Amazon"}
+"open new tab with reddit" → {"targetApp":"browser","action":"open_url","content":"https://reddit.com","response":"Opening Reddit"}
+"search for python tutorials" → {"targetApp":"browser","action":"search","content":"python tutorials","response":"Searching"}
 
 Return ONLY valid JSON, nothing else."""
 
 @app.route('/api/parse-command', methods=['POST'])
-@login_required
 def parse_command_with_claude():
     """Use Claude to intelligently parse a voice command"""
     if not CLAUDE_AVAILABLE or not claude_client:
@@ -3713,12 +4687,10 @@ python voice_hub_client.py
     return Response(script, mimetype='text/plain')
 
 @app.route('/api/devices', methods=['GET'])
-@login_required
 def get_devices():
     return jsonify(devices)
 
 @app.route('/api/devices/<device_id>', methods=['PUT', 'DELETE'])
-@login_required
 def manage_device(device_id):
     if request.method == 'DELETE':
         if device_id in devices:
@@ -3737,23 +4709,36 @@ def manage_device(device_id):
 @socketio.on('dashboard_join')
 def on_dashboard_join(data):
     device_id = data.get('deviceId')
-    print(f"\n🔌 dashboard_join from: {device_id}")
-    print(f"   Socket ID: {request.sid}")
+    device_info = data.get('device', {})
+    print(f"\n[DEVICE JOIN] {device_info.get('name', device_id)}")
+    print(f"   ID: {device_id}")
+    print(f"   Wake Word: {device_info.get('wakeWord', 'unknown')}")
+    print(f"   Type: {device_info.get('type', 'browser')}")
     
     join_room('dashboard')
     join_room(device_id)  # Join own room to receive routed commands
-    print(f"   Joined rooms: 'dashboard' and '{device_id}'")
     
-    # Track this device's socket session (even if not in devices dict yet)
+    # Store full device info
     if device_id:
         if device_id not in devices:
             devices[device_id] = {'id': device_id}
-            print(f"   Created placeholder device entry")
-        devices[device_id]['sid'] = request.sid
-        devices[device_id]['online'] = True
+        
+        # Update with provided info
+        devices[device_id].update({
+            'id': device_id,
+            'name': device_info.get('name', 'Unknown Device'),
+            'wakeWord': device_info.get('wakeWord', 'computer'),
+            'icon': device_info.get('icon', '💻'),
+            'type': device_info.get('type', 'browser'),
+            'sid': request.sid,
+            'online': True,
+            'lastSeen': datetime.now().isoformat()
+        })
+        
         # Notify others this device is online
-        socketio.emit('device_online', {'deviceId': device_id}, room='dashboard')
+        socketio.emit('device_online', {'deviceId': device_id, 'device': devices[device_id]}, room='dashboard')
     
+    # Send full device list to the joining client
     emit('devices_update', {'devices': devices})
 
 @socketio.on('device_status')
@@ -3779,6 +4764,7 @@ def on_device_update(data):
         # Mark as online and track socket session
         devices[device_id]['online'] = True
         devices[device_id]['sid'] = request.sid
+        devices[device_id]['lastSeen'] = datetime.now().isoformat()
         
         # Notify all dashboards
         socketio.emit('device_online', {'deviceId': device_id}, room='dashboard')
@@ -3849,6 +4835,19 @@ def on_route_command(data):
     
     # Also notify the dashboard
     socketio.emit('command_routed', data, room='dashboard')
+
+@socketio.on('heartbeat')
+def on_heartbeat(data):
+    """Update lastSeen timestamp for a device"""
+    device_id = data.get('deviceId')
+    if device_id and device_id in devices:
+        devices[device_id]['lastSeen'] = datetime.now().isoformat()
+        devices[device_id]['online'] = True
+        # Broadcast updated lastSeen to all dashboards
+        socketio.emit('device_heartbeat', {
+            'deviceId': device_id,
+            'lastSeen': devices[device_id]['lastSeen']
+        }, room='dashboard')
 
 @socketio.on('disconnect')
 def on_disconnect():
