@@ -2312,6 +2312,12 @@ DASHBOARD_PAGE = '''
         let transcriptHistory = [];
         const sessionStartTime = new Date();
         
+        // Session & context tracking for adaptive AI
+        const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        let lastAction = null;  // Track last action for "do that again" / "repeat"
+        let lastTargetApp = null;  // Track last app for context
+        let conversationContext = [];  // Local conversation history for display
+        
         // Sensitivity labels
         const sensitivityLabels = {
             1: 'Very Low',
@@ -2939,17 +2945,42 @@ DASHBOARD_PAGE = '''
             }
             
             // Common stop phrases
-            const stopPhrases = ['stop now', 'thats enough', 'enough', 'end recording', 'stop dictation', 'cancel'];
+            const stopPhrases = ['stop now', 'thats enough', 'enough', 'end recording', 'stop dictation', 'cancel', "that's enough", "i'm done", "end dictation", "that's all"];
             if (stopPhrases.includes(lower)) {
                 return true;
             }
             
-            // If Claude is available, we'll use smarter detection online
-            // For now, simple check: if it's JUST "stop" or a short stop phrase, treat as command
-            // Longer sentences containing "stop" are probably not commands
-            // e.g., "don't stop believing" should NOT stop recording
+            // Note: Claude will also intelligently detect stop commands for edge cases
+            // This is just the fast path for obvious stops
             
             return false;
+        }
+        
+        // Handle stop command - shared logic for both quick stop and Claude-detected stop
+        function handleStopCommand() {
+            const transcriptEl = document.getElementById('transcript');
+            const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
+            
+            addActivity('🛑 Stop command - ending dictation', 'info');
+            
+            // End active dictation
+            isActiveDictation = false;
+            
+            if (alwaysListen) {
+                // Stay in always-listen mode, just go back to waiting for wake word
+                transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                transcriptEl.classList.remove('active');
+                document.getElementById('voice-status').textContent = 'Standby';
+                document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
+                addChatMessage('Okay, standing by. Say your wake word when you need me.', 'jarvis');
+                // Recognition keeps running to listen for wake word
+            } else {
+                // Not in always-listen mode, fully stop
+                stopListening();
+                transcriptEl.textContent = 'Stopped.';
+                addChatMessage('Stopped listening. Click the mic when you need me.', 'jarvis');
+            }
+            updateUI();
         }
         
         // Check if transcript contains wake word with fuzzy matching
@@ -3087,11 +3118,11 @@ DASHBOARD_PAGE = '''
                 }
                 
                 if (finalTranscript) {
-                    // Check for STOP command first
+                    // Quick check for obvious STOP commands (fast path, no API call needed)
                     const lowerTranscript = finalTranscript.toLowerCase().trim();
-                    const isStopCommand = checkForStopCommand(lowerTranscript);
+                    const isQuickStop = checkForStopCommand(lowerTranscript);
                     
-                    if (isStopCommand) {
+                    if (isQuickStop) {
                         // Stop the current dictation session, but keep always-listen mode if enabled
                         addActivity('🛑 Stop command - ending dictation', 'info');
                         addToTranscriptHistory(lowerTranscript, 'stop');
@@ -3153,18 +3184,28 @@ DASHBOARD_PAGE = '''
                         saveDevices();
                         renderDeviceList();
                         
-                        // If there's text after the wake word, type it
+                        // If there's text after the wake word, process it
                         if (afterWakeWord) {
-                            handleTranscript(afterWakeWord);
-                            // After processing command with wake word, go back to standby
-                            isActiveDictation = false;
-                            if (alwaysListen && !continuousMode) {
-                                setTimeout(() => {
-                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
-                                    transcriptEl.classList.remove('active');
-                                    document.getElementById('voice-status').textContent = 'Standby';
-                                }, 1500);
-                            }
+                            // Use async/await for proper Claude integration
+                            (async () => {
+                                const result = await handleTranscript(afterWakeWord);
+                                
+                                // Check if Claude detected a stop command
+                                if (result && result.isStop) {
+                                    handleStopCommand();
+                                    return;
+                                }
+                                
+                                // After processing command with wake word, go back to standby
+                                isActiveDictation = false;
+                                if (alwaysListen && !continuousMode) {
+                                    setTimeout(() => {
+                                        transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                        transcriptEl.classList.remove('active');
+                                        document.getElementById('voice-status').textContent = 'Standby';
+                                    }, 1500);
+                                }
+                            })();
                         } else {
                             // Just activated, waiting for command
                             isActiveDictation = true;
@@ -3174,33 +3215,43 @@ DASHBOARD_PAGE = '''
                             document.getElementById('voice-hint').innerHTML = 'Say "stop" when done';
                         }
                     } else if (isActiveDictation || continuousMode || !alwaysListen) {
-                        // In active dictation mode, type everything
+                        // In active dictation mode, process through Claude
                         addToTranscriptHistory(finalTranscript, 'command');
-                        handleTranscript(finalTranscript);
                         
-                        // End the active dictation session
-                        isActiveDictation = false;
+                        // Use async/await for proper Claude integration
+                        (async () => {
+                            const result = await handleTranscript(finalTranscript);
+                            
+                            // Check if Claude detected a stop command intelligently
+                            if (result && result.isStop) {
+                                handleStopCommand();
+                                return;
+                            }
+                            
+                            // End the active dictation session
+                            isActiveDictation = false;
                         
-                        // Reset to standby mode after processing command
-                        if (alwaysListen && !continuousMode) {
-                            // Go back to waiting for wake word
-                            setTimeout(() => {
-                                transcriptEl.textContent = `Ready for "${wakeWord}"`;
-                                transcriptEl.classList.remove('active');
-                                document.getElementById('voice-status').textContent = 'Standby';
-                                document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
-                            }, 1500);
-                            addActivity('💬 Command processed - waiting for wake word', 'info');
-                        } else if (!alwaysListen && !continuousMode) {
-                            // Manual mode without continuous - stop after command
-                            setTimeout(() => {
-                                if (!isActiveDictation && !continuousMode) {
-                                    stopListening();
-                                    transcriptEl.textContent = 'Click mic to start again';
-                                    addActivity('🎤 Dictation ended', 'info');
-                                }
-                            }, 2000);
-                        }
+                            // Reset to standby mode after processing command
+                            if (alwaysListen && !continuousMode) {
+                                // Go back to waiting for wake word
+                                setTimeout(() => {
+                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                    transcriptEl.classList.remove('active');
+                                    document.getElementById('voice-status').textContent = 'Standby';
+                                    document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
+                                }, 1500);
+                                addActivity('💬 Command processed - waiting for wake word', 'info');
+                            } else if (!alwaysListen && !continuousMode) {
+                                // Manual mode without continuous - stop after command
+                                setTimeout(() => {
+                                    if (!isActiveDictation && !continuousMode) {
+                                        stopListening();
+                                        transcriptEl.textContent = 'Click mic to start again';
+                                        addActivity('🎤 Dictation ended', 'info');
+                                    }
+                                }, 2000);
+                            }
+                        })();
                     }
                     // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
                 }
@@ -3378,15 +3429,32 @@ DASHBOARD_PAGE = '''
         
         async function parseWithClaude(text) {
             try {
+                // Build context for adaptive AI
+                const contextData = {
+                    text: text,
+                    sessionId: sessionId,
+                    currentApp: lastTargetApp || 'unknown',
+                    lastAction: lastAction ? `${lastAction.action} to ${lastAction.app || 'local'}: "${lastAction.content}"` : 'none',
+                    activity: isActiveDictation ? 'active_dictation' : (continuousMode ? 'continuous' : 'general')
+                };
+                
                 const response = await fetch('/api/parse-command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
+                    body: JSON.stringify(contextData)
                 });
                 const data = await response.json();
                 if (data.error || data.fallback) return null;
+                
+                // Log if Claude corrected the transcription
+                if (data.correctedText && data.correctedText !== text) {
+                    console.log('🔧 Speech corrected:', text, '→', data.correctedText);
+                    addActivity(`🔧 Heard "${text}" → corrected to "${data.correctedText}"`, 'info');
+                }
+                
                 return data;
             } catch (e) {
+                console.error('Claude parse error:', e);
                 return null;
             }
         }
@@ -3394,11 +3462,11 @@ DASHBOARD_PAGE = '''
         async function handleTranscript(text, skipRouting = false) {
             text = text.trim();
             
-            // Fix common speech recognition errors before processing
+            // Basic pre-processing (Claude will do more sophisticated correction)
             // "right" is often misheard as "write"
             if (/^right\s/i.test(text)) {
                 text = text.replace(/^right\s/i, 'write ');
-                console.log('Corrected "right" to "write":', text);
+                console.log('Pre-corrected "right" to "write":', text);
             }
             // "cursor right something" → "cursor write something"
             text = text.replace(/\b(cursor|claude|chatgpt|terminal)\s+right\s/gi, '$1 write ');
@@ -3406,17 +3474,40 @@ DASHBOARD_PAGE = '''
             console.log('Voice:', text);
             
             let parsed = null;
+            let claudeResult = null;
             
-            // Try Claude first for intelligent parsing
+            // Try Claude first for intelligent parsing with context
             if (claudeAvailable && text.length > 2) {
-                const claudeResult = await parseWithClaude(text);
+                claudeResult = await parseWithClaude(text);
                 
                 if (claudeResult) {
-                    // Show what user said in chat
-                    addChatMessage(text, 'user');
+                    // Use corrected text if Claude fixed transcription errors
+                    const displayText = claudeResult.correctedText || text;
                     
+                    // Show what user said in chat (use corrected version)
+                    addChatMessage(displayText, 'user');
+                    
+                    // Check if Claude detected a stop command
+                    if (claudeResult.isStopCommand) {
+                        console.log('🧠 Claude detected stop command');
+                        return { isStop: true };  // Return to let caller handle stop
+                    }
+                    
+                    // Handle "repeat" action
+                    if (claudeResult.action === 'repeat' && lastAction) {
+                        console.log('🔄 Repeating last action:', lastAction);
+                        addChatMessage('Repeating last action...', 'jarvis');
+                        // Re-execute last action
+                        parsed = {
+                            originalText: text,
+                            targetDevice: null,
+                            targetApp: lastAction.appObj || null,
+                            command: lastAction.content,
+                            action: lastAction.action
+                        };
+                    }
                     // Check if Claude needs clarification
-                    if (claudeResult.needsClarification || claudeResult.action === 'clarify') {
+                    else if (claudeResult.needsClarification || claudeResult.action === 'clarify') {
                         const clarifyMessage = claudeResult.speak || 'Could you be more specific?';
                         
                         // Show Jarvis response in chat
@@ -3433,15 +3524,14 @@ DASHBOARD_PAGE = '''
                         console.log('🧠 Claude needs clarification:', clarifyMessage);
                         return; // Don't execute anything, wait for user response
                     }
-                    
                     // Claude has a response to speak (but still executing)
-                    if (claudeResult.speak && !claudeResult.needsClarification) {
+                    else if (claudeResult.speak && !claudeResult.needsClarification) {
                         addChatMessage(claudeResult.speak, 'jarvis');
                         speakText(claudeResult.speak);
                     }
                     
-                    // Normal execution
-                    if (claudeResult.targetApp || claudeResult.action) {
+                    // Normal execution (if not already set by repeat)
+                    if (!parsed && (claudeResult.targetApp || claudeResult.action)) {
                         const appId = (claudeResult.targetApp || '').toLowerCase();
                         const knownApp = knownApps[appId];
                         
@@ -3452,6 +3542,16 @@ DASHBOARD_PAGE = '''
                             command: claudeResult.content || text,
                             action: claudeResult.action || 'type'
                         };
+                        
+                        // Track this action for "repeat" and context
+                        lastAction = {
+                            action: parsed.action,
+                            app: appId || null,
+                            appObj: parsed.targetApp,
+                            content: parsed.command,
+                            timestamp: Date.now()
+                        };
+                        lastTargetApp = appId || lastTargetApp;
                         
                         console.log('🧠 Claude:', claudeResult.response || `${parsed.action} → ${appId || 'local'}`);
                         if (claudeResult.response) {
@@ -4908,161 +5008,179 @@ def install_page():
     return render_template_string(INSTALL_PAGE, server=server_url)
 
 # Desktop client version - increment this when you update the client
-CLIENT_VERSION = "1.4.0"
+CLIENT_VERSION = "1.5.0"
 
 # ============================================================================
-# CLAUDE AI COMMAND PARSING
+# CLAUDE AI COMMAND PARSING - ADAPTIVE & CONTEXT-AWARE
 # ============================================================================
 
-COMMAND_PARSE_PROMPT = """You are Jarvis, an intelligent voice assistant. Your job is to understand INTENT and help the user.
+# Store conversation history per session (in-memory, resets on restart)
+# Key: session_id, Value: list of {role, content, timestamp}
+conversation_history = {}
+MAX_HISTORY_LENGTH = 20  # Keep last 20 exchanges for context
 
-CORE PRINCIPLE: Understand what the user MEANS. If you're confident, execute silently. If unsure, ASK.
+def get_session_history(session_id):
+    """Get conversation history for a session"""
+    if session_id not in conversation_history:
+        conversation_history[session_id] = []
+    return conversation_history[session_id]
+
+def add_to_history(session_id, role, content):
+    """Add a message to conversation history"""
+    history = get_session_history(session_id)
+    history.append({
+        'role': role,
+        'content': content,
+        'timestamp': time.time()
+    })
+    # Keep only the last N messages
+    if len(history) > MAX_HISTORY_LENGTH:
+        conversation_history[session_id] = history[-MAX_HISTORY_LENGTH:]
+
+def format_history_for_claude(session_id, limit=10):
+    """Format recent history for Claude context"""
+    history = get_session_history(session_id)[-limit:]
+    if not history:
+        return ""
+    
+    formatted = []
+    for msg in history:
+        role_label = "User" if msg['role'] == 'user' else "Jarvis"
+        formatted.append(f"{role_label}: {msg['content']}")
+    
+    return "\n".join(formatted)
+
+def build_adaptive_prompt(context=None, history_text=None):
+    """Build a dynamic, context-aware system prompt"""
+    
+    base_prompt = """You are Jarvis, an intelligent, ADAPTIVE voice assistant. You understand context, remember recent conversation, and can infer what the user means even from incomplete commands.
+
+CORE PRINCIPLES:
+1. USE CONVERSATION CONTEXT - If the user says "do that again" or "write this", look at recent history to understand what they mean
+2. FIX TRANSCRIPTION ERRORS - Speech recognition often mishears words. Correct obvious errors:
+   - "right" at start of sentence → usually "write"
+   - "coarser/cursor/curser" → "cursor"
+   - "cloud/claud" → "claude"
+   - "terminal right" → "terminal write"
+   - Numbers like "to" → "2", "for" → "4" when in code context
+3. BE ADAPTIVE - If the user is coding, assume code context. If chatting, assume conversation context.
+4. WHEN UNSURE, ASK - But be smart about it. Use context first.
 
 Return JSON:
 {
+  "correctedText": "the speech-corrected version of what user said (fix mishearings)",
   "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
-  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "stop" | "clarify" | null,
+  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "stop" | "clarify" | "repeat" | null,
   "content": "the actual content to type/send/search",
   "response": "Brief confirmation (3-5 words) - shown in activity log",
-  "speak": "What Jarvis says out loud to the user (only if action is 'clarify' or there's an error)",
-  "needsClarification": true | false
+  "speak": "What Jarvis says out loud (only for clarifications, errors, or helpful context)",
+  "needsClarification": true | false,
+  "isStopCommand": true | false
 }
 
-WHEN TO USE "clarify" ACTION:
-- Command is ambiguous: "open it" (open what?)
-- Missing critical info: "send this" (send to whom? what content?)
-- Multiple interpretations: "type that" (type what exactly?)
-- User seems confused or command makes no sense
+STOP COMMAND DETECTION (intelligent):
+- "stop" / "stop listening" / "cancel" / "that's enough" / "okay stop" / "please stop" → isStopCommand: true
+- "don't stop" / "stop sign" / "bus stop" / "stop the music" → isStopCommand: false (these are content, not commands)
+- "I'm done" / "end dictation" / "that's all" → isStopCommand: true
 
-WHEN TO JUST EXECUTE (no speak):
-- Clear command: "open youtube" → just do it
-- Obvious intent: "cursor write hello world" → just type it
-- Standard patterns: "search for pizza" → just search
+CONTEXT-AWARE PARSING:
 
-WHEN TO SPEAK (explain something):
-- Error situation: "I can't find an app called 'blurp'"
-- Helpful context: "Opening YouTube in your browser"
-- Clarification needed: "Did you mean Cursor or Chrome?"
+When user says "this" or "that" or "it":
+- Look at recent conversation history
+- If user just said something, "this" likely refers to that
+- If user mentioned an app, "it" likely refers to that app
+
+When user says "again" or "repeat":
+- Look at the last command/action
+- Repeat that action with same parameters
 
 SMART DEFAULTS BY APP TYPE:
 
 AI ASSISTANTS (cursor, claude, chatgpt, copilot, gemini):
 - These are CONVERSATIONAL - default to "type_and_send" (type + press Enter)
-- "ask cursor how do I fix this" → type_and_send "how do I fix this" to cursor
-- "cursor what is python" → type_and_send "what is python" to cursor
-- "tell claude to explain recursion" → type_and_send "explain recursion" to claude
-- ANY mention of these apps with a question/request = type_and_send
+- "cursor how do I fix this" → type_and_send to cursor
+- "ask claude about python" → type_and_send to claude
 
 CODE EDITORS (cursor, vscode) when writing code:
-- "cursor write a function" → type "a function" (no enter, they're coding)
-- "in cursor type hello world" → type "hello world"
-- Distinguish: questions go to AI chat, code goes to editor
+- "write a function" → type (no enter)
+- "cursor write hello" → type in cursor
 
 TERMINAL:
 - Default to "run" (type + enter)
-- "terminal npm install" → run "npm install"
+- "run npm install" → run in terminal
 
 BROWSER:
-- Websites → "open_url" with full URL
-- Questions → "search" 
-- "open youtube" → open_url "https://youtube.com"
-- "search for recipes" → search "recipes"
+- Websites → "open_url"
+- Questions → "search"
 
-INTENT RECOGNITION (be smart about this):
+SPEECH CORRECTION EXAMPLES:
+- "coarser right hello world" → correctedText: "cursor write hello world"
+- "cloud explain this" → correctedText: "claude explain this"  
+- "terminal right npm install" → correctedText: "terminal write npm install"
+- "in cursor right function add to numbers" → correctedText: "in cursor write function add 2 numbers"
 
-"ask [app] [question]" = type_and_send the question to that app
-"tell [app] [message]" = type_and_send the message
-"[app] [question/request]" = type_and_send (for AI apps)
-"in [app] type [text]" = type the text
-"[app] write [code]" = type (for code editors)
-"open [website]" = open_url
-"go to [website]" = open_url
-"search [query]" = search
-"google [query]" = search
-"run [command]" = run in terminal
-
-APP RECOGNITION (be flexible with names):
-- cursor/curser/coursor/cursur = "cursor" (AI-powered code editor)
-- claude/cloud/claud = "claude" 
-- chatgpt/chat gpt/GPT/gpt/chat = "chatgpt"
-- vscode/vs code/visual studio = "vscode"
-- copilot/co-pilot = "copilot"
-- gemini/bard = "gemini"
-- terminal/command/shell/cmd = "terminal"
-- chrome/safari/firefox/browser = "browser"
+APP RECOGNITION (be very flexible):
+- cursor/curser/coarser/coursor/cursur/cursor IDE = "cursor"
+- claude/cloud/claud/Claude AI = "claude" 
+- chatgpt/chat gpt/GPT/gpt/chat GPT/openai = "chatgpt"
+- vscode/vs code/visual studio/VS Code = "vscode"
+- copilot/co-pilot/GitHub copilot = "copilot"
+- gemini/bard/Google AI = "gemini"
+- terminal/command/shell/cmd/command line = "terminal"
+- chrome/safari/firefox/browser/web = "browser"
 
 WEBSITE SHORTCUTS:
-youtube/google/github/twitter/x/facebook/reddit/amazon/netflix/spotify/linkedin/instagram/gmail → use https://[site].com
+youtube/google/github/twitter/x/facebook/reddit/amazon/netflix/spotify/linkedin/instagram/gmail → https://[site].com
 
-STOP DETECTION:
-- Pure stop commands: "stop", "stop listening", "cancel", "that's enough" → {"action":"stop","response":"Stopping"}
-- NOT stop: "don't stop", "stop sign", "bus stop" → parse normally
+EXAMPLES WITH CONTEXT:
 
-EXAMPLES OF SMART PARSING:
+[Previous: User asked Cursor about centering a div]
+User: "now explain flexbox"
+→ {"correctedText":"now explain flexbox","targetApp":"cursor","action":"type_and_send","content":"now explain flexbox","response":"Asking Cursor"}
+(Inferred: user is still talking to Cursor)
 
-"ask cursor how do I center a div" 
-→ {"targetApp":"cursor","action":"type_and_send","content":"how do I center a div","response":"Asking Cursor"}
+[Previous: User typed some code]
+User: "write this in cursor"
+→ {"action":"clarify","needsClarification":true,"speak":"Write what in Cursor? Can you say what you want me to write?","response":"Need content"}
 
-"cursor what is recursion"
-→ {"targetApp":"cursor","action":"type_and_send","content":"what is recursion","response":"Asking Cursor"}
+User: "cursor right a function that adds two numbers"
+→ {"correctedText":"cursor write a function that adds two numbers","targetApp":"cursor","action":"type","content":"a function that adds two numbers","response":"Typing in Cursor"}
 
-"tell cursor to help me fix this bug"
-→ {"targetApp":"cursor","action":"type_and_send","content":"help me fix this bug","response":"Asking Cursor"}
-
-"in cursor write function add numbers"
-→ {"targetApp":"cursor","action":"type","content":"function add numbers","response":"Typing in Cursor"}
-
-"claude explain python decorators"
-→ {"targetApp":"claude","action":"type_and_send","content":"explain python decorators","response":"Asking Claude"}
-
-"open youtube"
-→ {"targetApp":"browser","action":"open_url","content":"https://youtube.com","response":"Opening YouTube"}
-
-"search best pizza near me"
-→ {"targetApp":"browser","action":"search","content":"best pizza near me","response":"Searching"}
-
-"terminal npm install express"
-→ {"targetApp":"terminal","action":"run","content":"npm install express","response":"Running"}
-
-"this is working"
-→ {"action":"type","content":"this is working","response":"Typing"}
-
-CLARIFICATION EXAMPLES:
-
-"open it"
-→ {"action":"clarify","needsClarification":true,"speak":"Open what? Say the app or website name.","response":"Need more info"}
-
-"send this"
-→ {"action":"clarify","needsClarification":true,"speak":"Send what, and where? Try saying 'send hello to Claude' for example.","response":"Need more info"}
-
-"do the thing"
-→ {"action":"clarify","needsClarification":true,"speak":"I'm not sure what you want me to do. Can you be more specific?","response":"Need clarification"}
-
-"blurp help me"
-→ {"action":"clarify","needsClarification":true,"speak":"I don't recognize 'blurp'. Did you mean Cursor, Claude, or Chrome?","response":"Unknown app"}
-
-ERROR EXAMPLES:
-
-"open netflix" (but Netflix requires login)
-→ {"action":"open_url","content":"https://netflix.com","response":"Opening Netflix"}
-(No speak needed - just execute, user knows they need to log in)
-
-SILENT EXECUTION (no speak field):
-
-"cursor write a hello world function"
-→ {"targetApp":"cursor","action":"type","content":"a hello world function","response":"Typing in Cursor"}
-
-"open github"  
-→ {"targetApp":"browser","action":"open_url","content":"https://github.com","response":"Opening GitHub"}
+User: "do that again"
+→ {"action":"repeat","response":"Repeating last action"}
+(System should look at last action and repeat it)
 
 Return ONLY valid JSON."""
+
+    # Add context section if provided
+    context_section = ""
+    if context:
+        context_section = f"""
+
+CURRENT CONTEXT:
+- Current app in focus: {context.get('currentApp', 'unknown')}
+- Last action: {context.get('lastAction', 'none')}
+- User activity: {context.get('activity', 'general')}
+"""
+
+    # Add conversation history if provided
+    history_section = ""
+    if history_text:
+        history_section = f"""
+
+RECENT CONVERSATION:
+{history_text}
+---
+"""
+
+    return base_prompt + context_section + history_section
 
 @app.route('/api/parse-command', methods=['POST'])
 @csrf.exempt
 @login_required
 @api_limit
 def api_parse_command():
-    """Use Claude to intelligently parse a voice command"""
+    """Use Claude to intelligently parse a voice command with context"""
     if not CLAUDE_AVAILABLE or not claude_client:
         return jsonify({'error': 'Claude not available', 'fallback': True}), 200
     
@@ -5073,19 +5191,36 @@ def api_parse_command():
         data = {}
     
     text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
+    session_id = data.get('sessionId', 'default')
+    
+    # Get context about what user is doing
+    context = {
+        'currentApp': data.get('currentApp', 'unknown'),
+        'lastAction': data.get('lastAction', 'none'),
+        'activity': data.get('activity', 'general')
+    }
     
     if not text or len(text.strip()) == 0:
         # Return fallback instead of 400 - let regex handle it
         return jsonify({'error': 'No text provided', 'fallback': True}), 200
     
     try:
+        # Get conversation history for context
+        history_text = format_history_for_claude(session_id)
+        
+        # Build adaptive prompt with context
+        system_prompt = build_adaptive_prompt(context, history_text)
+        
+        # Add user's message to history
+        add_to_history(session_id, 'user', text)
+        
         message = claude_client.messages.create(
-            model="claude-3-haiku-20240307",  # Fast and cheap
-            max_tokens=200,
+            model="claude-opus-4-5-20251101",  # Opus 4.5 - most intelligent model
+            max_tokens=500,
             messages=[
                 {"role": "user", "content": f"Parse this voice command: \"{text}\""}
             ],
-            system=COMMAND_PARSE_PROMPT
+            system=system_prompt
         )
         
         # Parse the response
@@ -5095,6 +5230,11 @@ def api_parse_command():
         try:
             parsed = json.loads(response_text)
             parsed['claude'] = True
+            
+            # Store Jarvis response in history for context
+            if parsed.get('response'):
+                add_to_history(session_id, 'jarvis', parsed.get('speak') or parsed.get('response'))
+            
             return jsonify(parsed)
         except json.JSONDecodeError:
             # If Claude didn't return valid JSON, return the raw response
@@ -5108,12 +5248,31 @@ def api_parse_command():
         print(f"Claude API error: {e}")
         return jsonify({'error': str(e), 'fallback': True}), 200
 
+
+@app.route('/api/clear-history', methods=['POST'])
+@csrf.exempt
+@login_required
+def api_clear_history():
+    """Clear conversation history for a session"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
+    
+    session_id = data.get('sessionId', 'default')
+    
+    if session_id in conversation_history:
+        conversation_history[session_id] = []
+    
+    return jsonify({'success': True, 'message': 'History cleared'})
+
 @app.route('/api/claude-status')
 def claude_status():
     """Check if Claude is available"""
     return jsonify({
         'available': CLAUDE_AVAILABLE,
-        'model': 'claude-3-haiku-20240307' if CLAUDE_AVAILABLE else None
+        'model': 'claude-opus-4-5-20251101' if CLAUDE_AVAILABLE else None,
+        'features': ['adaptive', 'context-aware', 'speech-correction'] if CLAUDE_AVAILABLE else []
     })
 
 @app.route('/api/version')
