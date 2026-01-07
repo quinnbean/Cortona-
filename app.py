@@ -3897,16 +3897,21 @@ DASHBOARD_PAGE = '''
         }
         
         async function toggleListening() {
+            console.log('toggleListening called, recognition:', !!recognition, 'isListening:', isListening);
+            
             if (!recognition) {
+                console.error('No recognition object!');
                 addActivity('⚠️ Speech recognition not available in this browser', 'warning');
                 return;
             }
             
             if (isListening) {
+                console.log('Stopping...');
                 stopListening();
             } else {
                 // Just try to start - the recognition.onerror will handle permission issues
                 try {
+                    console.log('Starting recognition...');
                     recognition.lang = currentDevice?.language || 'en-US';
                     recognition.start();
                     addActivity('🎤 Starting microphone...', 'info');
@@ -4487,13 +4492,20 @@ DASHBOARD_PAGE = '''
         }
         
         async function toggleAlwaysListen() {
+            console.log('toggleAlwaysListen called, current:', alwaysListen, 'micPermission:', micPermission);
+            
             // If enabling, check permission first
             if (!alwaysListen && micPermission !== 'granted') {
+                console.log('Requesting mic permission...');
                 const granted = await requestMicPermission();
-                if (!granted) return;
+                if (!granted) {
+                    console.log('Mic permission denied');
+                    return;
+                }
             }
             
             alwaysListen = !alwaysListen;
+            console.log('alwaysListen now:', alwaysListen);
             document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
             currentDevice.alwaysListen = alwaysListen;
             saveDevices();
