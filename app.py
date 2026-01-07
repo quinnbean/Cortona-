@@ -1236,7 +1236,24 @@ DASHBOARD_PAGE = '''
         }
         .device-item.active {
             border-color: var(--accent);
-            background: rgba(0, 245, 212, 0.05);
+            border-width: 2px;
+            background: rgba(0, 245, 212, 0.1);
+            box-shadow: 0 0 20px rgba(0, 245, 212, 0.15);
+        }
+        .device-item.active::before {
+            content: '✓ EDITING';
+            position: absolute;
+            top: -10px;
+            right: 12px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .device-item {
+            position: relative;
         }
         .device-item.listening {
             border-color: var(--success);
@@ -1692,7 +1709,7 @@ DASHBOARD_PAGE = '''
             
             <!-- Device Settings -->
             <div class="settings-section" id="device-settings">
-                <h3>⚙️ Device Settings</h3>
+                <h3>⚙️ Settings for: <span id="editing-device-name" style="color: var(--accent);">This Device</span></h3>
                 <div class="setting-row">
                     <div class="setting-label">
                         <h4>Device Name</h4>
@@ -2673,6 +2690,12 @@ DASHBOARD_PAGE = '''
             
             wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
             
+            // Update settings header to show which device is being edited
+            const editingLabel = document.getElementById('editing-device-name');
+            if (editingLabel) {
+                editingLabel.textContent = currentDevice?.name || 'This Device';
+            }
+            
             // Update settings inputs
             document.getElementById('device-name-input').value = currentDevice?.name || '';
             document.getElementById('wake-word-input').value = currentDevice?.wakeWord || '';
@@ -2757,11 +2780,29 @@ DASHBOARD_PAGE = '''
         function selectDevice(id) {
             if (devices[id]) {
                 currentDevice = devices[id];
+                
+                // Load this device's settings into the UI
+                alwaysListen = currentDevice.alwaysListen || false;
+                continuousMode = currentDevice.continuous || false;
+                autoType = currentDevice.autoType ?? true;
+                spellCheckEnabled = currentDevice.spellCheck ?? true;
+                sensitivity = currentDevice.sensitivity || 3;
+                
                 if (recognition) {
                     recognition.lang = currentDevice.language || 'en-US';
                 }
+                
+                // Update all toggle states
+                document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+                document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
+                document.getElementById('toggle-autotype').classList.toggle('active', autoType);
+                document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
+                
                 updateUI();
                 renderDeviceList();
+                
+                // Show which device is selected
+                addActivity(`Selected device: ${currentDevice.name || 'Unnamed'}`, 'info');
             }
         }
         
