@@ -58,8 +58,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true,
-      // Required for Chrome Speech Recognition to work
+      webSecurity: false, // Required for Speech Recognition API to reach Google servers
       allowRunningInsecureContent: false,
       webviewTag: false
     },
