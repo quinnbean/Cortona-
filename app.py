@@ -1355,27 +1355,29 @@ DASHBOARD_PAGE = '''
             margin-bottom: 32px;
         }
         .mic-button {
-            width: 140px;
-            height: 140px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            background: var(--accent);
             border: none;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 56px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--bg-primary);
             margin: 0 auto 24px;
             transition: all 0.3s;
-            box-shadow: 0 10px 40px rgba(0, 245, 212, 0.3);
+            box-shadow: 0 4px 12px rgba(0, 245, 212, 0.2);
         }
         .mic-button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 15px 50px rgba(0, 245, 212, 0.4);
+            transform: scale(1.02);
+            box-shadow: 0 6px 16px rgba(0, 245, 212, 0.3);
         }
         .mic-button.listening {
-            background: linear-gradient(135deg, var(--success), var(--accent));
-            box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+            background: var(--success);
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
         }
         .mic-button.disabled {
             opacity: 0.5;
@@ -2550,82 +2552,27 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Check if Claude is available
+        // Check if Claude is available (disabled for now - using regex)
         let claudeAvailable = false;
-        fetch('/api/claude-status')
-            .then(r => r.json())
-            .then(data => {
-                claudeAvailable = data.available;
-                if (claudeAvailable) {
-                    console.log('🧠 Claude AI enabled for command parsing');
-                    addActivity('🧠 Claude AI enabled', 'success');
-                }
-            })
-            .catch(() => { claudeAvailable = false; });
         
-        async function parseWithClaude(text) {
-            try {
-                const response = await fetch('/api/parse-command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
-                });
-                const data = await response.json();
-                
-                if (data.fallback || data.error) {
-                    console.log('Claude fallback, using regex');
-                    return null;
-                }
-                
-                console.log('🧠 Claude parsed:', data);
-                return data;
-            } catch (e) {
-                console.log('Claude error:', e);
-                return null;
-            }
-        }
-        
-        async function handleTranscript(text, skipRouting = false) {
-            // DEBUG: Show what we're processing
-            console.log('=== VOICE INPUT ===');
-            console.log('Raw text:', text);
-            
-            // Try Claude first if available
-            let parsed = null;
-            let claudeResponse = null;
-            
-            if (claudeAvailable && !skipRouting) {
-                const claudeResult = await parseWithClaude(text);
-                if (claudeResult && claudeResult.targetApp) {
-                    // Convert Claude result to our format
-                    const appId = claudeResult.targetApp.toLowerCase();
-                    const knownApp = knownApps[appId];
-                    parsed = {
-                        originalText: text,
-                        targetDevice: null,
-                        targetApp: knownApp ? { id: appId, ...knownApp } : { id: appId, name: claudeResult.targetApp, icon: '🤖' },
-                        command: claudeResult.content || text,
-                        action: claudeResult.action || 'type'
-                    };
-                    claudeResponse = claudeResult.response;
-                    console.log('🧠 Using Claude parse:', parsed);
-                    
-                    // Show Claude's response
-                    if (claudeResponse) {
-                        addActivity(`🧠 ${claudeResponse}`, 'info');
+        // Claude check - wrapped in try/catch to prevent blocking
+        setTimeout(() => {
+            fetch('/api/claude-status')
+                .then(r => r.json())
+                .then(data => {
+                    claudeAvailable = data.available;
+                    if (claudeAvailable) {
+                        console.log('🧠 Claude AI available');
                     }
-                }
-            }
-            
-            // Fallback to regex parsing
-            if (!parsed) {
-                parsed = parseCommand(text);
-                console.log('📝 Using regex parse:', {
-                    targetApp: parsed.targetApp?.name || 'NONE',
-                    targetDevice: parsed.targetDevice?.name || 'NONE', 
-                    command: parsed.command
-                });
-            }
+                })
+                .catch(() => { claudeAvailable = false; });
+        }, 2000); // Delay check to not block page load
+        
+        function handleTranscript(text, skipRouting = false) {
+            // Use regex parsing (fast and reliable)
+            const parsed = parseCommand(text);
+            console.log('Voice input:', text);
+            console.log('Parsed:', parsed.targetApp?.name || 'local', '->', parsed.command);
             
             // If targeting another device, route the command
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
