@@ -2089,7 +2089,9 @@ DASHBOARD_PAGE = '''
         
         // Parse a command to extract target device/app and the actual command
         function parseCommand(text) {
-            const lowerText = text.toLowerCase().trim();
+            // Trim whitespace - speech recognition often adds leading/trailing spaces
+            text = text.trim();
+            const lowerText = text.toLowerCase();
             const result = {
                 originalText: text,
                 targetDevice: null,
@@ -2127,8 +2129,10 @@ DASHBOARD_PAGE = '''
             for (const [appId, app] of Object.entries(knownApps)) {
                 for (const keyword of app.keywords) {
                     const patterns = [
-                        // "cursor, write something" or "cursor write something"
+                        // "cursor, write something" or "cursor write something" or even just "cursor type"
                         new RegExp(`^${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
+                        // "cursor type" or "cursor hello" (single word after app name)
+                        new RegExp(`^${escapeRegex(keyword)}[,:]?\\s+(\\S+)`, 'i'),
                         // "in cursor write something"
                         new RegExp(`^(in|to|for|into)\\s+${escapeRegex(keyword)}[,:]?\\s+(.+)`, 'i'),
                         // "send to cursor something"
