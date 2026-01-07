@@ -2333,6 +2333,32 @@ DASHBOARD_PAGE = '''
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let micPermission = 'prompt'; // 'granted', 'denied', or 'prompt'
         
+        // Electron API detection
+        const isElectron = window.electronAPI?.isElectron || false;
+        
+        if (isElectron) {
+            console.log('🖥️ Running in Electron app');
+            
+            // Listen for global shortcut activation
+            window.electronAPI.onActivateVoice(() => {
+                console.log('🎤 Activated via global shortcut');
+                if (!isListening) {
+                    toggleListening();
+                }
+                // Focus the mic and show we're ready
+                document.getElementById('mic-button').focus();
+                addActivity('🎤 Activated via ⌘+Shift+J', 'success');
+            });
+            
+            // Listen for quick recording
+            window.electronAPI.onStartRecording(() => {
+                console.log('🎤 Quick recording started');
+                if (!isListening) {
+                    toggleListening();
+                }
+            });
+        }
+        
         if (!SpeechRecognition) {
             document.getElementById('browser-warning').style.display = 'flex';
             document.getElementById('mic-button').classList.add('disabled');
@@ -3311,8 +3337,22 @@ DASHBOARD_PAGE = '''
         document.addEventListener('click', () => initAudioContext(), { once: true });
         
         // Text-to-Speech for Jarvis responses
+        // Show native notification (Electron) or browser notification
+        function showNativeNotification(title, body) {
+            if (isElectron && window.electronAPI) {
+                window.electronAPI.showNotification(title, body);
+            } else if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, { body, icon: '/static/icon.png' });
+            }
+        }
+        
         function speakText(text) {
             if (!text) return;
+            
+            // Also show as native notification in Electron (for when minimized)
+            if (isElectron) {
+                showNativeNotification('Jarvis', text);
+            }
             
             // Use Web Speech API
             if ('speechSynthesis' in window) {
