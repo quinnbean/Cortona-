@@ -2772,10 +2772,24 @@ DASHBOARD_PAGE = '''
         }
         
         // Test desktop client connection
-        function testDesktopConnection() {
+        async function testDesktopConnection() {
             console.log('Testing desktop connection...');
-            console.log('All devices:', devices);
             
+            // ELECTRON: Check if Electron app control is available
+            if (isElectron && window.electronAPI?.canControlApps) {
+                try {
+                    const canControl = await window.electronAPI.canControlApps();
+                    if (canControl) {
+                        addActivity('✅ Electron app control available! No separate client needed.', 'success');
+                        return;
+                    }
+                } catch (e) {
+                    console.log('Electron control check failed:', e);
+                }
+            }
+            
+            // Fallback: Check for desktop client
+            console.log('All devices:', devices);
             const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
             
             if (desktopClient) {
@@ -2792,15 +2806,36 @@ DASHBOARD_PAGE = '''
                 });
                 addActivity(`📤 Sent test ping to ${desktopClient.name}`, 'info');
             } else {
-                addActivity('❌ No desktop client found! Check if terminal is running.', 'warning');
+                addActivity('ℹ️ Use the Electron app for app control (no separate client needed)', 'info');
                 console.log('No desktop client. Device types:', Object.values(devices).map(d => ({name: d.name, type: d.type})));
             }
         }
         
         // Test typing to Cursor app
-        function testTypeToCursor() {
+        async function testTypeToCursor() {
             console.log('Testing type to Cursor...');
             
+            // ELECTRON: Use built-in app control
+            if (isElectron && window.electronAPI?.executeCommand) {
+                try {
+                    addActivity('🖥️ Using Electron to type to Cursor...', 'info');
+                    const result = await window.electronAPI.executeCommand(
+                        'type',
+                        'Hello from Cortona! This is a test.',
+                        'cursor'
+                    );
+                    if (result.success) {
+                        addActivity('✅ Typed to Cursor successfully!', 'success');
+                    } else {
+                        addActivity('❌ Failed: ' + (result.error || 'Unknown error'), 'warning');
+                    }
+                } catch (e) {
+                    addActivity('❌ Electron error: ' + e.message, 'warning');
+                }
+                return;
+            }
+            
+            // Fallback: Use desktop client
             const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
             
             if (desktopClient) {
@@ -2814,7 +2849,7 @@ DASHBOARD_PAGE = '''
                 });
                 addActivity('📤 Sent test text to Cursor', 'success');
             } else {
-                addActivity('❌ No desktop client! Run the client in terminal first.', 'warning');
+                addActivity('❌ No desktop client! Use the Electron app for app control.', 'warning');
             }
         }
         
