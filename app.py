@@ -3209,6 +3209,46 @@ DASHBOARD_PAGE = '''
         // Initialize audio on first user click
         document.addEventListener('click', () => initAudioContext(), { once: true });
         
+        // Text-to-Speech for Jarvis responses
+        function speakText(text) {
+            if (!text) return;
+            
+            // Use Web Speech API
+            if ('speechSynthesis' in window) {
+                // Cancel any ongoing speech
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1.1; // Slightly faster
+                utterance.pitch = 1.0;
+                utterance.volume = 0.9;
+                
+                // Try to find a good voice
+                const voices = window.speechSynthesis.getVoices();
+                const preferredVoices = voices.filter(v => 
+                    v.name.includes('Samantha') || 
+                    v.name.includes('Google') || 
+                    v.name.includes('Microsoft') ||
+                    v.lang.startsWith('en')
+                );
+                if (preferredVoices.length > 0) {
+                    utterance.voice = preferredVoices[0];
+                }
+                
+                window.speechSynthesis.speak(utterance);
+                console.log('🔊 Speaking:', text);
+            } else {
+                console.log('Speech synthesis not available');
+            }
+        }
+        
+        // Load voices when available
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                window.speechSynthesis.getVoices(); // Cache voices
+            };
+        }
+        
         function playSound(type) {
             const ctx = initAudioContext();
             if (!ctx) return;
@@ -3278,21 +3318,53 @@ DASHBOARD_PAGE = '''
             // Try Claude first for intelligent parsing
             if (claudeAvailable && text.length > 2) {
                 const claudeResult = await parseWithClaude(text);
-                if (claudeResult && (claudeResult.targetApp || claudeResult.action)) {
-                    const appId = (claudeResult.targetApp || '').toLowerCase();
-                    const knownApp = knownApps[appId];
+                
+                if (claudeResult) {
+                    // Check if Claude needs clarification
+                    if (claudeResult.needsClarification || claudeResult.action === 'clarify') {
+                        const clarifyMessage = claudeResult.speak || 'Could you be more specific?';
+                        
+                        // Show clarification in transcript
+                        const transcriptEl = document.getElementById('transcript');
+                        transcriptEl.innerHTML = `<span style="color: var(--accent);">🤖 Jarvis:</span> ${clarifyMessage}`;
+                        transcriptEl.classList.add('active');
+                        
+                        // Speak the clarification
+                        speakText(clarifyMessage);
+                        
+                        // Keep listening for the user's response
+                        isActiveDictation = true;
+                        document.getElementById('voice-status').textContent = 'Listening...';
+                        addActivity(`🤖 ${claudeResult.response || 'Asking for clarification'}`, 'info');
+                        
+                        console.log('🧠 Claude needs clarification:', clarifyMessage);
+                        return; // Don't execute anything, wait for user response
+                    }
                     
-                    parsed = {
-                        originalText: text,
-                        targetDevice: null,
-                        targetApp: knownApp ? { id: appId, ...knownApp } : (appId ? { id: appId, name: claudeResult.targetApp, icon: '🤖' } : null),
-                        command: claudeResult.content || text,
-                        action: claudeResult.action || 'type'
-                    };
+                    // Claude has a response to speak (but still executing)
+                    if (claudeResult.speak && !claudeResult.needsClarification) {
+                        speakText(claudeResult.speak);
+                        const transcriptEl = document.getElementById('transcript');
+                        transcriptEl.innerHTML = `<span style="color: var(--accent);">🤖</span> ${claudeResult.speak}`;
+                    }
                     
-                    console.log('🧠 Claude:', claudeResult.response || `${parsed.action} → ${appId || 'local'}`);
-                    if (claudeResult.response) {
-                        addActivity(`🧠 ${claudeResult.response}`, 'info');
+                    // Normal execution
+                    if (claudeResult.targetApp || claudeResult.action) {
+                        const appId = (claudeResult.targetApp || '').toLowerCase();
+                        const knownApp = knownApps[appId];
+                        
+                        parsed = {
+                            originalText: text,
+                            targetDevice: null,
+                            targetApp: knownApp ? { id: appId, ...knownApp } : (appId ? { id: appId, name: claudeResult.targetApp, icon: '🤖' } : null),
+                            command: claudeResult.content || text,
+                            action: claudeResult.action || 'type'
+                        };
+                        
+                        console.log('🧠 Claude:', claudeResult.response || `${parsed.action} → ${appId || 'local'}`);
+                        if (claudeResult.response) {
+                            addActivity(`🧠 ${claudeResult.response}`, 'info');
+                        }
                     }
                 }
             }
@@ -4743,17 +4815,35 @@ CLIENT_VERSION = "1.4.0"
 # CLAUDE AI COMMAND PARSING
 # ============================================================================
 
-COMMAND_PARSE_PROMPT = """You are Jarvis, an intelligent voice command interpreter. Your job is to understand INTENT, not just keywords.
+COMMAND_PARSE_PROMPT = """You are Jarvis, an intelligent voice assistant. Your job is to understand INTENT and help the user.
 
-CORE PRINCIPLE: Understand what the user MEANS, not just what they literally say. Use context and common sense.
+CORE PRINCIPLE: Understand what the user MEANS. If you're confident, execute silently. If unsure, ASK.
 
 Return JSON:
 {
   "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
-  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "stop" | null,
+  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "stop" | "clarify" | null,
   "content": "the actual content to type/send/search",
-  "response": "Brief confirmation (3-5 words)"
+  "response": "Brief confirmation (3-5 words) - shown in activity log",
+  "speak": "What Jarvis says out loud to the user (only if action is 'clarify' or there's an error)",
+  "needsClarification": true | false
 }
+
+WHEN TO USE "clarify" ACTION:
+- Command is ambiguous: "open it" (open what?)
+- Missing critical info: "send this" (send to whom? what content?)
+- Multiple interpretations: "type that" (type what exactly?)
+- User seems confused or command makes no sense
+
+WHEN TO JUST EXECUTE (no speak):
+- Clear command: "open youtube" → just do it
+- Obvious intent: "cursor write hello world" → just type it
+- Standard patterns: "search for pizza" → just search
+
+WHEN TO SPEAK (explain something):
+- Error situation: "I can't find an app called 'blurp'"
+- Helpful context: "Opening YouTube in your browser"
+- Clarification needed: "Did you mean Cursor or Chrome?"
 
 SMART DEFAULTS BY APP TYPE:
 
@@ -4837,6 +4927,34 @@ EXAMPLES OF SMART PARSING:
 
 "this is working"
 → {"action":"type","content":"this is working","response":"Typing"}
+
+CLARIFICATION EXAMPLES:
+
+"open it"
+→ {"action":"clarify","needsClarification":true,"speak":"Open what? Say the app or website name.","response":"Need more info"}
+
+"send this"
+→ {"action":"clarify","needsClarification":true,"speak":"Send what, and where? Try saying 'send hello to Claude' for example.","response":"Need more info"}
+
+"do the thing"
+→ {"action":"clarify","needsClarification":true,"speak":"I'm not sure what you want me to do. Can you be more specific?","response":"Need clarification"}
+
+"blurp help me"
+→ {"action":"clarify","needsClarification":true,"speak":"I don't recognize 'blurp'. Did you mean Cursor, Claude, or Chrome?","response":"Unknown app"}
+
+ERROR EXAMPLES:
+
+"open netflix" (but Netflix requires login)
+→ {"action":"open_url","content":"https://netflix.com","response":"Opening Netflix"}
+(No speak needed - just execute, user knows they need to log in)
+
+SILENT EXECUTION (no speak field):
+
+"cursor write a hello world function"
+→ {"targetApp":"cursor","action":"type","content":"a hello world function","response":"Typing in Cursor"}
+
+"open github"  
+→ {"targetApp":"browser","action":"open_url","content":"https://github.com","response":"Opening GitHub"}
 
 Return ONLY valid JSON."""
 
