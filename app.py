@@ -3188,9 +3188,32 @@ DASHBOARD_PAGE = '''
             };
         }
         
+        // Audio context - initialized on first user interaction
+        let audioCtx = null;
+        
+        function initAudioContext() {
+            if (!audioCtx) {
+                try {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.log('AudioContext not available');
+                }
+            }
+            // Resume if suspended (browsers suspend until user gesture)
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+        
+        // Initialize audio on first user click
+        document.addEventListener('click', () => initAudioContext(), { once: true });
+        
         function playSound(type) {
+            const ctx = initAudioContext();
+            if (!ctx) return;
+            
             try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = ctx.createOscillator();
                 const gainNode = ctx.createGain();
                 
@@ -3210,7 +3233,7 @@ DASHBOARD_PAGE = '''
                 oscillator.start(ctx.currentTime);
                 oscillator.stop(ctx.currentTime + 0.2);
             } catch (e) {
-                console.log('Sound playback not available');
+                // Silently fail - sounds are optional
             }
         }
         
@@ -4553,6 +4576,16 @@ def ping():
     """Simple test endpoint"""
     return 'pong', 200, {'Content-Type': 'text/plain'}
 
+@app.route('/favicon.ico')
+def favicon():
+    """Return a simple SVG favicon"""
+    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <rect width="100" height="100" rx="20" fill="#0a0a0f"/>
+        <circle cx="50" cy="45" r="25" fill="#00f5d4"/>
+        <rect x="45" y="65" width="10" height="20" rx="2" fill="#00f5d4"/>
+    </svg>'''
+    return Response(svg, mimetype='image/svg+xml')
+
 @app.route('/download/mac')
 def download_mac_app():
     """Download a double-clickable .command file for Mac"""
@@ -4855,11 +4888,17 @@ def api_parse_command():
     if not CLAUDE_AVAILABLE or not claude_client:
         return jsonify({'error': 'Claude not available', 'fallback': True}), 200
     
-    data = request.get_json()
+    # Try to get JSON data, handle errors gracefully
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
+    
     text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
     
-    if not text:
-        return jsonify({'error': 'No text provided'}), 400
+    if not text or len(text.strip()) == 0:
+        # Return fallback instead of 400 - let regex handle it
+        return jsonify({'error': 'No text provided', 'fallback': True}), 200
     
     try:
         message = claude_client.messages.create(
