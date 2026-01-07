@@ -40,6 +40,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Check if app control is available
   canControlApps: () => ipcRenderer.invoke('can-control-apps'),
   
+  // ========== WHISPER SPEECH-TO-TEXT ==========
+  // Check if Whisper service is running
+  whisperHealth: () => ipcRenderer.invoke('whisper-health'),
+  
+  // Transcribe audio using local Whisper
+  whisperTranscribe: (audioBlob) => ipcRenderer.invoke('whisper-transcribe', audioBlob),
+  
   // Listen for events from main process
   onActivateVoice: (callback) => {
     ipcRenderer.on('activate-voice', callback);

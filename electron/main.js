@@ -598,6 +598,99 @@ function setupIPC() {
   ipcMain.handle('can-control-apps', () => {
     return process.platform === 'darwin'; // For now, only macOS
   });
+  
+  // ========== WHISPER IPC HANDLERS ==========
+  
+  // Check Whisper service health
+  ipcMain.handle('whisper-health', async () => {
+    try {
+      const http = require('http');
+      return new Promise((resolve) => {
+        const req = http.get('http://127.0.0.1:5051/health', (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              resolve({ available: true, modelLoaded: json.model_loaded });
+            } catch (e) {
+              resolve({ available: false });
+            }
+          });
+        });
+        req.on('error', () => resolve({ available: false }));
+        req.setTimeout(2000, () => {
+          req.destroy();
+          resolve({ available: false });
+        });
+      });
+    } catch (e) {
+      return { available: false };
+    }
+  });
+  
+  // Transcribe audio with Whisper
+  ipcMain.handle('whisper-transcribe', async (event, audioArrayBuffer) => {
+    try {
+      const http = require('http');
+      const FormData = require('form-data');
+      
+      // Convert ArrayBuffer to Buffer
+      const audioBuffer = Buffer.from(audioArrayBuffer);
+      
+      return new Promise((resolve, reject) => {
+        const boundary = '----FormBoundary' + Math.random().toString(36).substring(2);
+        
+        // Build multipart form data manually
+        const header = `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="audio.webm"\r\nContent-Type: audio/webm\r\n\r\n`;
+        const footer = `\r\n--${boundary}--\r\n`;
+        
+        const bodyBuffer = Buffer.concat([
+          Buffer.from(header),
+          audioBuffer,
+          Buffer.from(footer)
+        ]);
+        
+        const options = {
+          hostname: '127.0.0.1',
+          port: 5051,
+          path: '/transcribe',
+          method: 'POST',
+          headers: {
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': bodyBuffer.length
+          }
+        };
+        
+        const req = http.request(options, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              resolve({ success: true, text: json.text || '' });
+            } catch (e) {
+              resolve({ success: false, error: 'Failed to parse response' });
+            }
+          });
+        });
+        
+        req.on('error', (e) => {
+          resolve({ success: false, error: e.message });
+        });
+        
+        req.setTimeout(30000, () => {
+          req.destroy();
+          resolve({ success: false, error: 'Timeout' });
+        });
+        
+        req.write(bodyBuffer);
+        req.end();
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
 }
 
 // ============================================================================

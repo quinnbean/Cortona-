@@ -3393,6 +3393,19 @@ DASHBOARD_PAGE = '''
         // ============================================================
         
         async function checkWhisperService() {
+            // In Electron, use IPC to check Whisper service
+            if (isElectron && window.electronAPI?.whisperHealth) {
+                try {
+                    const result = await window.electronAPI.whisperHealth();
+                    console.log('[WHISPER] Health check via IPC:', result);
+                    return result.available && result.modelLoaded;
+                } catch (e) {
+                    console.log('[WHISPER] IPC health check failed:', e);
+                    return false;
+                }
+            }
+            
+            // Fallback to direct fetch (for browser/local dev)
             try {
                 const response = await fetch(`${WHISPER_URL}/health`);
                 if (response.ok) {
@@ -3481,6 +3494,24 @@ DASHBOARD_PAGE = '''
         
         async function transcribeWithWhisper(audioBlob) {
             try {
+                // In Electron, use IPC to transcribe
+                if (isElectron && window.electronAPI?.whisperTranscribe) {
+                    // Convert blob to ArrayBuffer for IPC
+                    const arrayBuffer = await audioBlob.arrayBuffer();
+                    
+                    console.log('[WHISPER] Sending audio via IPC, size:', arrayBuffer.byteLength);
+                    const result = await window.electronAPI.whisperTranscribe(arrayBuffer);
+                    
+                    if (result.success && result.text) {
+                        console.log('[WHISPER] Transcribed via IPC:', result.text);
+                        processWhisperTranscript(result.text);
+                    } else if (result.error) {
+                        console.error('[WHISPER] IPC transcription error:', result.error);
+                    }
+                    return;
+                }
+                
+                // Fallback to direct fetch (for browser/local dev)
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'audio.webm');
                 
@@ -3499,7 +3530,6 @@ DASHBOARD_PAGE = '''
                 
                 if (text && text.length > 0) {
                     console.log('[WHISPER] Transcribed:', text);
-                    // Process the transcription like we would with Web Speech API
                     processWhisperTranscript(text);
                 }
                 
