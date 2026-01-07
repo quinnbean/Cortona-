@@ -5246,7 +5246,6 @@ def api_parse_command():
     
     text = sanitize_input(data.get('text', ''), max_length=1000)  # Sanitize and limit
     session_id = data.get('sessionId', 'default')
-    print(f"📥 RECEIVED: {text}")
     
     # Get context about what user is doing
     context = {
@@ -5254,6 +5253,11 @@ def api_parse_command():
         'lastAction': data.get('lastAction', 'none'),
         'activity': data.get('activity', 'general')
     }
+    
+    print(f"========== PARSE COMMAND DEBUG ==========")
+    print(f"INPUT TEXT: '{text}'")
+    print(f"SESSION ID: {session_id}")
+    print(f"CONTEXT: {context}")
     
     if not text or len(text.strip()) == 0:
         return jsonify({
@@ -5294,6 +5298,9 @@ def api_parse_command():
             system=system_prompt
         )
         
+        print(f"CLAUDE RAW RESPONSE: {message.content[0].text}")
+        print(f"==========================================")
+        
         # Parse the response
         response_text = message.content[0].text.strip()
         
@@ -5326,10 +5333,15 @@ def api_parse_command():
             })
             
     except Exception as e:
-        print(f"Claude API error: {e}")
+        import traceback
+        print(f"========== CLAUDE ERROR ==========")
+        print(f"ERROR TYPE: {type(e).__name__}")
+        print(f"ERROR MESSAGE: {str(e)}")
+        print(f"TRACEBACK: {traceback.format_exc()}")
+        print(f"===================================")
         return jsonify({
             'action': 'clarify',
-            'speak': 'Sorry, I had trouble understanding. Could you try again?',
+            'speak': f'Error: {str(e)[:50]}',
             'response': 'Error',
             'needsClarification': True,
             'claude': True,
