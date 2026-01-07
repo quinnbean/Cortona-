@@ -1699,7 +1699,18 @@ DASHBOARD_PAGE = '''
         </div>
     </header>
     
-    <div class="main-layout" style="grid-template-columns: 1fr;">
+    <div class="main-layout">
+        <!-- Sidebar: Device Manager -->
+        <aside class="sidebar">
+            <h2>📱 My Devices</h2>
+            <div class="device-list" id="device-list">
+                <!-- Devices will be rendered here -->
+            </div>
+            <button class="add-device-btn" onclick="openAddDeviceModal()" style="margin-top: 16px;">
+                <span>➕</span> Add Device
+            </button>
+        </aside>
+        
         <!-- Main Content -->
         <main class="main-content">
             <div id="browser-warning" class="browser-warning" style="display: none;">
@@ -2037,34 +2048,49 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Use a consistent device ID based on this browser
-        const deviceId = 'browser_' + (localStorage.getItem('voicehub_browser_id') || (() => {
-            const id = Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('voicehub_browser_id', id);
-            return id;
-        })());
+        // Use a consistent device ID for this browser
+        let deviceId = localStorage.getItem('voicehub_device_id');
+        if (!deviceId) {
+            deviceId = 'browser_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('voicehub_device_id', deviceId);
+        }
         
-        // Load this device's settings (just this device, not a list)
-        const savedSettings = localStorage.getItem('voicehub_my_settings');
-        currentDevice = savedSettings ? JSON.parse(savedSettings) : {
-            id: deviceId,
-            name: navigator.platform.includes('Mac') ? "Quinn's MacBook Pro" : 'My Computer',
-            wakeWord: 'jarvis',
-            icon: '💻',
-            language: 'en-US',
-            wordsTyped: 0,
-            sessions: 0,
-            alwaysListen: false,
-            continuous: false,
-            autoType: true,
-            sensitivity: 3
-        };
-        currentDevice.id = deviceId; // Ensure ID is current
-        devices[deviceId] = currentDevice;
+        // Load saved devices from localStorage
+        const savedDevices = localStorage.getItem('voicehub_devices');
+        if (savedDevices) {
+            try {
+                devices = JSON.parse(savedDevices);
+            } catch (e) {
+                devices = {};
+            }
+        }
+        
+        // Initialize this browser's device if it doesn't exist
+        if (!devices[deviceId]) {
+            devices[deviceId] = {
+                id: deviceId,
+                name: navigator.platform.includes('Mac') ? "Quinn's MacBook Pro" : 'My Computer',
+                wakeWord: 'jarvis',
+                icon: '💻',
+                language: 'en-US',
+                wordsTyped: 0,
+                sessions: 0,
+                alwaysListen: false,
+                continuous: false,
+                autoType: true,
+                sensitivity: 3
+            };
+        }
+        
+        currentDevice = devices[deviceId];
         alwaysListen = currentDevice.alwaysListen || false;
         
+        function saveDevices() {
+            localStorage.setItem('voicehub_devices', JSON.stringify(devices));
+        }
+        
         function saveSettings() {
-            localStorage.setItem('voicehub_my_settings', JSON.stringify(currentDevice));
+            saveDevices();
         }
         sensitivity = currentDevice.sensitivity || 3;
         
@@ -2916,8 +2942,31 @@ DASHBOARD_PAGE = '''
         }
         
         function renderDeviceList() {
-            // Device list removed - single device mode
-            return;
+            const listEl = document.getElementById('device-list');
+            if (!listEl) return;
+            
+            // Only show browser devices (not desktop clients which are the same machine)
+            const browserDevices = Object.values(devices).filter(d => d.type !== 'desktop_client');
+            
+            if (browserDevices.length === 0) {
+                listEl.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">No devices yet</div>';
+                return;
+            }
+            
+            listEl.innerHTML = browserDevices.map(d => `
+                <div class="device-item ${d.id === currentDevice?.id ? 'active' : ''}"
+                     onclick="selectDevice('${d.id}')"
+                     style="cursor: pointer; padding: 12px; background: ${d.id === currentDevice?.id ? 'rgba(0,245,212,0.1)' : 'var(--bg-secondary)'}; border-radius: 10px; margin-bottom: 8px; border: 1px solid ${d.id === currentDevice?.id ? 'var(--accent)' : 'transparent'};">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span>${d.icon || '💻'}</span>
+                            <strong>${d.name || 'Unnamed'}</strong>
+                        </div>
+                        ${d.id === currentDevice?.id ? '<span style="font-size: 10px; background: var(--accent); color: var(--bg-primary); padding: 2px 8px; border-radius: 10px;">EDITING</span>' : ''}
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Wake: "${d.wakeWord || 'jarvis'}"</div>
+                </div>
+            `).join('');
             `).join('');
         }
         
@@ -3098,11 +3147,6 @@ DASHBOARD_PAGE = '''
             currentDevice.spellCheck = spellCheckEnabled;
             saveDevices();
             addActivity(spellCheckEnabled ? '✓ Spell check enabled' : 'Spell check disabled', 'info');
-        }
-        
-        function saveDevices() {
-            // Save current device settings
-            saveSettings();
         }
         
         // ============================================================
