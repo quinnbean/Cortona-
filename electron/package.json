@@ -1,0 +1,65 @@
+{
+  "name": "cortona",
+  "productName": "Cortona",
+  "version": "1.0.0",
+  "description": "Jarvis Voice Assistant - Your AI-powered voice companion",
+  "main": "main.js",
+  "author": "Quinn Bean",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:mac:arm64": "electron-builder --mac --arm64",
+    "build:mac:x64": "electron-builder --mac --x64",
+    "dist": "electron-builder --mac --publish never"
+  },
+  "build": {
+    "appId": "com.cortona.jarvis",
+    "productName": "Cortona",
+    "copyright": "Copyright © 2025 Quinn Bean",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "Cortona",
+      "icon": "assets/icon.icns",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "files": [
+      "**/*",
+      "!*.md"
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "auto-launch": "^5.0.6"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  }
+}
+
