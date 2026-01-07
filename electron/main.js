@@ -180,6 +180,15 @@ function createTray() {
     },
     { type: 'separator' },
     {
+      label: '🔧 Developer Tools',
+      accelerator: 'CommandOrControl+Shift+D',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.webContents.openDevTools({ mode: 'detach' });
+        }
+      }
+    },
+    {
       label: '🌐 Open in Browser',
       click: () => shell.openExternal(RENDER_URL)
     },
