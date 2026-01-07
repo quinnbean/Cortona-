@@ -2396,7 +2396,13 @@ DASHBOARD_PAGE = '''
             });
         }
         
-        if (!SpeechRecognition) {
+        // ELECTRON: Always use Whisper, skip Web Speech API entirely
+        if (isElectron) {
+            console.log('[ELECTRON] Using Whisper for speech recognition (skipping Web Speech API)');
+            useWhisper = true;  // Force Whisper mode
+            checkMicPermission();
+            // Don't initialize Web Speech API at all in Electron
+        } else if (!SpeechRecognition) {
             document.getElementById('browser-warning').style.display = 'flex';
             document.getElementById('mic-button').classList.add('disabled');
         } else {
@@ -4317,7 +4323,7 @@ DASHBOARD_PAGE = '''
         }
         
         async function toggleListening() {
-            console.log('toggleListening called, recognition:', !!recognition, 'isListening:', isListening, 'useWhisper:', useWhisper);
+            console.log('toggleListening called, isListening:', isListening, 'useWhisper:', useWhisper, 'isElectron:', isElectron);
             
             if (isListening) {
                 console.log('Stopping...');
@@ -4325,41 +4331,34 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // If we're in Electron and Whisper mode is active, use Whisper
-            if (useWhisper) {
-                addActivity('🎤 Starting Whisper microphone...', 'info');
-                startWhisperRecording();
+            // ELECTRON: Always use Whisper, never try Web Speech API
+            if (isElectron || useWhisper) {
+                console.log('[ELECTRON] Using Whisper for speech recognition');
+                
+                const whisperAvailable = await checkWhisperService();
+                if (whisperAvailable) {
+                    useWhisper = true;
+                    addActivity('🎤 Starting Whisper...', 'info');
+                    startWhisperRecording();
+                } else {
+                    addActivity('⚠️ Whisper service not running. Restart the Cortona app.', 'warning');
+                }
                 return;
             }
             
-            // In Electron, try Whisper first since Web Speech API often fails
-            if (isElectron) {
-                const whisperAvailable = await checkWhisperService();
-                if (whisperAvailable) {
-                    console.log('[WHISPER] Using local Whisper service');
-                    useWhisper = true;
-                    addActivity('🎤 Starting local Whisper...', 'info');
-                    startWhisperRecording();
-                    return;
-                }
-                // If Whisper not available, fall through to Web Speech API
-                console.log('[WHISPER] Service not available, trying Web Speech API...');
-            }
-            
+            // BROWSER: Use Web Speech API
             if (!recognition) {
                 console.error('No recognition object!');
                 addActivity('⚠️ Speech recognition not available in this browser', 'warning');
                 return;
             }
             
-            // Try Web Speech API - will fall back to Whisper on network error
             try {
-                console.log('Starting recognition...');
+                console.log('Starting Web Speech API...');
                 recognition.lang = currentDevice?.language || 'en-US';
                 recognition.start();
                 addActivity('🎤 Starting microphone...', 'info');
             } catch (e) {
-                // Handle "already started" or stale recognition object
                 if (e.name === 'InvalidStateError') {
                     console.log('Recognition in invalid state, reinitializing...');
                     initSpeechRecognition();
