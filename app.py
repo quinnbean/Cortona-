@@ -4615,13 +4615,17 @@ DASHBOARD_PAGE = '''
                     assistantName: assistantName.charAt(0).toUpperCase() + assistantName.slice(1).toLowerCase()
                 };
                 
+                console.log('🔍 SENDING TO AI:', JSON.stringify(contextData, null, 2));
+                console.log('🔍 Text being sent:', text);
+                console.log('🔍 Text length:', text.length);
+                
                 const response = await fetch('/api/parse-command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(contextData)
                 });
                 const data = await response.json();
-                console.log('🧠 CLAUDE RESPONSE:', JSON.stringify(data, null, 2));
+                console.log('🧠 AI RESPONSE:', JSON.stringify(data, null, 2));
                 
                 // Claude ALWAYS returns a valid response now (no fallback)
                 // Log if Claude corrected the transcription
