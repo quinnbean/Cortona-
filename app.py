@@ -3247,10 +3247,18 @@ DASHBOARD_PAGE = '''
                 'siri': ['siri', 'serie', 'cereal']
             };
             
+            // Debug: Log exactly what we're checking
+            console.log('[WAKE-DEBUG] lowerTranscript:', lowerTranscript);
+            console.log('[WAKE-DEBUG] lowerWake:', lowerWake);
+            console.log('[WAKE-DEBUG] includes check:', lowerTranscript.includes(lowerWake));
+            
             // Check mishearings first
             const mishearings = commonMishearings[lowerWake] || [lowerWake];
+            console.log('[WAKE-DEBUG] Checking mishearings:', mishearings);
             for (const variant of mishearings) {
-                if (lowerTranscript.includes(variant)) {
+                const hasVariant = lowerTranscript.includes(variant);
+                console.log('[WAKE-DEBUG] Variant:', variant, '-> found:', hasVariant);
+                if (hasVariant) {
                     console.log('[WAKE] Matched variant:', variant);
                     return { detected: true, index: lowerTranscript.indexOf(variant), length: variant.length };
                 }
@@ -3258,6 +3266,7 @@ DASHBOARD_PAGE = '''
             
             // Exact match
             if (lowerTranscript.includes(lowerWake)) {
+                console.log('[WAKE] Exact match found');
                 return { detected: true, index: lowerTranscript.indexOf(lowerWake), length: lowerWake.length };
             }
             
