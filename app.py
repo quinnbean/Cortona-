@@ -2447,7 +2447,20 @@ DASHBOARD_PAGE = '''
         let useCloudWhisper = true;  // Use OpenAI cloud Whisper (fast, accurate)
         let whisperRecorder = null;
         let whisperMediaStream = null;
+        let preWarmedMicStream = null;  // Pre-initialized mic for instant start
         const WHISPER_LOCAL_URL = 'http://localhost:5051';  // Fallback local
+        
+        // Pre-warm the microphone so it starts instantly
+        async function preWarmMicrophone() {
+            if (preWarmedMicStream) return; // Already warmed
+            try {
+                console.log('[MIC] Pre-warming microphone...');
+                preWarmedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log('[MIC] ✅ Microphone pre-warmed and ready!');
+            } catch (e) {
+                console.log('[MIC] Pre-warm failed:', e.message);
+            }
+        }
         
         // TTS state
         let ttsEnabled = true;
@@ -3704,53 +3717,95 @@ DASHBOARD_PAGE = '''
         // WHISPER SPEECH RECOGNITION (Cloud API - OpenAI)
         // ============================================================
         
-        async function checkWhisperService() {
-            // For cloud Whisper, just check if API is available
-            if (useCloudWhisper) {
+        // Cache for Whisper availability - checked once at startup
+        let whisperServiceAvailable = null;
+        let whisperCheckPromise = null;
+        
+        async function checkWhisperService(forceCheck = false) {
+            // Use cached value if available (fast path!)
+            if (!forceCheck && whisperServiceAvailable !== null) {
+                return whisperServiceAvailable;
+            }
+            
+            // Avoid duplicate parallel checks
+            if (whisperCheckPromise) {
+                return whisperCheckPromise;
+            }
+            
+            whisperCheckPromise = (async () => {
+                // For cloud Whisper, just check if API is available
+                if (useCloudWhisper) {
+                    try {
+                        const response = await fetch('/api/openai-status');
+                        if (response.ok) {
+                            const data = await response.json();
+                            whisperServiceAvailable = data.available && data.features?.whisper;
+                            return whisperServiceAvailable;
+                        }
+                        whisperServiceAvailable = false;
+                        return false;
+                    } catch (e) {
+                        console.log('[WHISPER-CLOUD] Status check failed:', e.message);
+                        whisperServiceAvailable = false;
+                        return false;
+                    }
+                }
+                
+                // Fallback: In Electron, use IPC for local Whisper
+                if (isElectron && window.electronAPI?.whisperHealth) {
+                    try {
+                        const result = await window.electronAPI.whisperHealth();
+                        console.log('[WHISPER-LOCAL] Health check via IPC:', result);
+                        whisperServiceAvailable = result.available && result.modelLoaded;
+                        return whisperServiceAvailable;
+                    } catch (e) {
+                        console.log('[WHISPER-LOCAL] IPC health check failed:', e);
+                        whisperServiceAvailable = false;
+                        return false;
+                    }
+                }
+                
+                // Fallback to direct local fetch
                 try {
-                    const response = await fetch('/api/openai-status');
+                    const response = await fetch(`${WHISPER_LOCAL_URL}/health`);
                     if (response.ok) {
                         const data = await response.json();
-                        return data.available && data.features?.whisper;
+                        whisperServiceAvailable = data.model_loaded;
+                        return whisperServiceAvailable;
                     }
+                    whisperServiceAvailable = false;
                     return false;
                 } catch (e) {
-                    console.log('[WHISPER-CLOUD] Status check failed:', e.message);
+                    console.log('[WHISPER-LOCAL] Service not available:', e.message);
+                    whisperServiceAvailable = false;
                     return false;
                 }
-            }
+            })();
             
-            // Fallback: In Electron, use IPC for local Whisper
-            if (isElectron && window.electronAPI?.whisperHealth) {
-                try {
-                    const result = await window.electronAPI.whisperHealth();
-                    console.log('[WHISPER-LOCAL] Health check via IPC:', result);
-                    return result.available && result.modelLoaded;
-                } catch (e) {
-                    console.log('[WHISPER-LOCAL] IPC health check failed:', e);
-                    return false;
+            const result = await whisperCheckPromise;
+            whisperCheckPromise = null;
+            return result;
+        }
+        
+        // Pre-check Whisper status AND pre-warm mic on page load (so it's instant when you click)
+        if (isElectron) {
+            setTimeout(() => {
+                console.log('[WHISPER] Pre-checking service availability...');
+                checkWhisperService();
+                // Pre-warm the mic after permission is granted
+                if (micPermission === 'granted') {
+                    preWarmMicrophone();
                 }
-            }
-            
-            // Fallback to direct local fetch
-            try {
-                const response = await fetch(`${WHISPER_LOCAL_URL}/health`);
-                if (response.ok) {
-                    const data = await response.json();
-                    return data.model_loaded;
-                }
-                return false;
-            } catch (e) {
-                console.log('[WHISPER-LOCAL] Service not available:', e.message);
-                return false;
-            }
+            }, 1000);
         }
         
         async function startWhisperRecording() {
             console.log('[WHISPER] Starting recording mode, cloud:', useCloudWhisper);
-            playChime('start');  // Audio feedback
             
-            // Check if Whisper service is running
+            // Play chime async (don't block on it)
+            playChime('start');
+            
+            // Use cached Whisper status (instant!) or quick check
             const whisperAvailable = await checkWhisperService();
             if (!whisperAvailable) {
                 if (useCloudWhisper) {
@@ -3765,8 +3820,14 @@ DASHBOARD_PAGE = '''
             addActivity(useCloudWhisper ? '☁️ Using OpenAI Whisper (cloud)' : '✅ Connected to local Whisper', 'success');
             
             try {
-                // Get microphone access
-                whisperMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Use pre-warmed stream if available (INSTANT!), otherwise get new one
+                if (preWarmedMicStream) {
+                    whisperMediaStream = preWarmedMicStream;
+                    preWarmedMicStream = null; // Clear so we get fresh one next time
+                    console.log('[WHISPER] Using pre-warmed mic stream (instant!)');
+                } else {
+                    whisperMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                }
                 
                 // Track when recording started (for silence detection)
                 window.recordingStartTime = Date.now();
@@ -4534,6 +4595,9 @@ DASHBOARD_PAGE = '''
                 isListening = false;
                 updateUI();
                 console.log('[WHISPER] Cleanup complete');
+                
+                // Pre-warm mic again for next use (instant start next time!)
+                setTimeout(() => preWarmMicrophone(), 500);
             }, 500);
         }
         
