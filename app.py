@@ -6630,12 +6630,13 @@ def add_security_headers(response):
     # but restrict external sources
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://unpkg.com blob:; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: blob:; "
         "media-src 'self' blob:; "
-        "connect-src 'self' wss: ws: https://cdnjs.cloudflare.com; "
+        "connect-src 'self' wss: ws: https://cdnjs.cloudflare.com https://unpkg.com; "
+        "worker-src 'self' blob: https://unpkg.com; "
         "frame-ancestors 'self';"
     )
     response.headers['Content-Security-Policy'] = csp
