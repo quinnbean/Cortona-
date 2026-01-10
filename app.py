@@ -7321,7 +7321,7 @@ def api_parse_command():
                     system=system_prompt
                 )
                 
-        response_text = message.content[0].text.strip()
+                response_text = message.content[0].text.strip()
                 used_provider = 'claude'
                 print(f"CLAUDE RAW RESPONSE: {response_text}")
                 print(f"==========================================")
@@ -7409,7 +7409,7 @@ def claude_status():
     """Check AI availability (OpenAI preferred, Claude fallback)"""
     # Prefer OpenAI for speed
     if OPENAI_AVAILABLE:
-    return jsonify({
+        return jsonify({
             'available': True,
             'provider': 'openai',
             'model': 'gpt-4o',
