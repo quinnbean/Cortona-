@@ -3928,12 +3928,12 @@ DASHBOARD_PAGE = '''
         
         // Patterns to remove (bracketed content, etc.)
         const fillerPatterns = [
-            /\[inaudible\]/gi,
-            /\[unclear\]/gi,
-            /\[music\]/gi,
-            /\[applause\]/gi,
-            /\([^)]*\)/g,  // Parenthetical content
-            /\.{3,}/g,     // Multiple periods
+            /\\[inaudible\\]/gi,
+            /\\[unclear\\]/gi,
+            /\\[music\\]/gi,
+            /\\[applause\\]/gi,
+            /\\([^)]*\\)/g,  // Parenthetical content
+            /\\.{3,}/g,     // Multiple periods
         ];
         
         // User-configurable word replacements (misrecognition → correct)
@@ -4054,9 +4054,9 @@ DASHBOARD_PAGE = '''
             cleaned = expanded;
             
             // Clean up extra spaces and punctuation
-            cleaned = cleaned.replace(/\s+/g, ' ').trim();
-            cleaned = cleaned.replace(/^[,\s]+/, '').replace(/[,\s]+$/, '');
-            cleaned = cleaned.replace(/\s+([,.])/g, '$1');
+            cleaned = cleaned.replace(/\\s+/g, ' ').trim();
+            cleaned = cleaned.replace(/^[,\\s]+/, '').replace(/[,\\s]+$/, '');
+            cleaned = cleaned.replace(/\\s+([,.])/g, '$1');
             
             if (cleaned !== text) {
                 console.log('[FILLER] Cleaned:', text, '→', cleaned);
