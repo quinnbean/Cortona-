@@ -6860,6 +6860,33 @@ def openai_status():
         'voices': ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] if OPENAI_AVAILABLE else []
     })
 
+@app.route('/api/test-gpt4o')
+def test_gpt4o():
+    """Test GPT-4o chat completion directly"""
+    if not OPENAI_AVAILABLE or not openai_client:
+        return jsonify({'error': 'OpenAI not available', 'OPENAI_AVAILABLE': OPENAI_AVAILABLE}), 503
+    
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=50,
+            messages=[
+                {"role": "system", "content": "You are a test. Reply with exactly: GPT-4o is working!"},
+                {"role": "user", "content": "Test"}
+            ]
+        )
+        return jsonify({
+            'success': True,
+            'response': response.choices[0].message.content,
+            'model': response.model
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'error_type': type(e).__name__
+        }), 500
+
 @app.route('/api/debug-claude')
 def debug_claude():
     """Debug endpoint to check AI configuration"""
