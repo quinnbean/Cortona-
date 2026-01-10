@@ -2554,7 +2554,7 @@ DASHBOARD_PAGE = '''
         }
         
         function showPermissionHelp() {
-            alert('To enable microphone access:\\n\\n1. Click the lock icon 🔒 in Chrome\\'s address bar\\n2. Find "Microphone" and set it to "Allow"\\n3. Refresh the page\\n\\nOr go to: chrome://settings/content/microphone');
+            alert('To enable microphone access:' + String.fromCharCode(10,10) + '1. Click the lock icon in Chrome address bar' + String.fromCharCode(10) + '2. Find Microphone and set it to Allow' + String.fromCharCode(10) + '3. Refresh the page' + String.fromCharCode(10,10) + 'Or go to: chrome://settings/content/microphone');
         }
         
         // Request microphone permission explicitly
