@@ -3866,7 +3866,7 @@ DASHBOARD_PAGE = '''
                     if (level < silenceThreshold && recordingDuration > minRecordingTime) {
                         if (!window.silenceStart) {
                             window.silenceStart = Date.now();
-                            console.log('[SILENCE] Silence detected, starting timer...');
+                            // Only log once, not every 50ms
                         } else {
                             const silenceDuration = Date.now() - window.silenceStart;
                             // Update UI to show countdown
@@ -3890,8 +3890,7 @@ DASHBOARD_PAGE = '''
                     } else if (level >= silenceThreshold) {
                         // Reset silence timer when speech detected
                         if (window.silenceStart) {
-                            console.log('[SILENCE] Speech detected, resetting timer');
-                            // Restore status
+                            // Restore status (don't log every time - too noisy)
                             const statusEl = document.getElementById('voice-status');
                             if (statusEl) statusEl.textContent = 'Listening...';
                         }
