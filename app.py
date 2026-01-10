@@ -4333,11 +4333,17 @@ DASHBOARD_PAGE = '''
             
             // Check for wake word
             console.log('[WAKE] Checking for wake word:', wakeWord, 'in text:', text);
-            console.log('[WAKE] alwaysListen:', alwaysListen, 'isActiveDictation:', isActiveDictation, 'continuousMode:', continuousMode);
+            console.log('[WAKE] alwaysListen:', alwaysListen, 'isActiveDictation:', isActiveDictation, 'continuousMode:', continuousMode, 'manualMicClick:', manualMicClick);
             const detection = detectWakeWord(text, wakeWord);
             console.log('[WAKE] Detection result:', detection);
             
-            if (detection.detected || isActiveDictation || continuousMode || !alwaysListen) {
+            // Process if: wake word detected, OR manual mic click, OR active dictation, OR continuous mode, OR not in always-listen mode
+            if (detection.detected || manualMicClick || isActiveDictation || continuousMode || !alwaysListen) {
+                // Reset manual mic flag after use
+                if (manualMicClick) {
+                    console.log('[WAKE] Bypassing wake word - manual mic click');
+                    manualMicClick = false;
+                }
                 let commandText = text;
                 
                 if (detection.detected) {
@@ -5062,6 +5068,10 @@ DASHBOARD_PAGE = '''
             if (isElectron || useWhisper || useCloudWhisper) {
                 console.log('[WHISPER] Using', useCloudWhisper ? 'OpenAI Cloud' : 'Local', 'Whisper');
                 
+                // Mark this as a manual mic click - bypasses wake word requirement
+                manualMicClick = true;
+                console.log('[MIC] Manual mic click - wake word not required');
+                
                 const whisperAvailable = await checkWhisperService();
                 if (whisperAvailable) {
                     useWhisper = true;
@@ -5674,14 +5684,11 @@ DASHBOARD_PAGE = '''
             socket.emit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
         }
         
+        // Track if mic was manually clicked (bypasses wake word requirement)
+        let manualMicClick = false;
+        
         async function toggleAlwaysListen() {
             console.log('toggleAlwaysListen called, current:', alwaysListen, 'micPermission:', micPermission);
-            
-            // In Electron, always-listen uses Whisper which would be expensive for continuous use
-            if (isElectron) {
-                addActivity('Wake word listening not available in desktop app - use mic button instead', 'warning');
-                return;
-            }
             
             // If enabling, check permission first
             if (!alwaysListen && micPermission !== 'granted') {
@@ -5701,7 +5708,11 @@ DASHBOARD_PAGE = '''
             
             if (alwaysListen) {
                 addActivity('Wake word listening enabled', 'success');
-                startListening();
+                // Note: Continuous listening with Whisper is expensive, so we don't auto-start
+                // User must click mic button to start
+                if (!isElectron) {
+                    startListening();
+                }
             } else {
                 addActivity('Wake word listening disabled', 'info');
                 if (isListening && !continuousMode) {
