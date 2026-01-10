@@ -6321,6 +6321,18 @@ Return JSON:
 STOP COMMANDS:
 - "stop" / "stop listening" / "cancel" / "that's enough" → isStopCommand: true
 - "stop sign" / "bus stop" / "don't stop" → isStopCommand: false (content, not command)
+- CONTEXT MATTERS: If user was actively dictating text, "stop" ends dictation. If idle/conversational, "stop" might be content they want typed.
+
+MEMORY & CONTEXT:
+- "do that again" / "same thing" / "repeat" → Look at lastAction in context, repeat it
+- "undo" / "never mind" → If possible, reverse the last action
+- Remember what app was targeted last - if user says "write more", continue in same app
+- Use conversation history to understand "this", "that", "it" references
+
+ERROR RECOVERY:
+- If an action might fail, offer alternatives: "I'll try opening that. If it doesn't work, I can search for it instead."
+- Don't just say "I couldn't do that" - suggest what you CAN do
+- If app isn't available, suggest similar: "Cursor isn't responding, shall I try VS Code?"
 
 APP ROUTING:
 
@@ -6389,9 +6401,9 @@ Return ONLY valid JSON."""
         context_section = f"""
 
 CURRENT SESSION CONTEXT:
-- Your name: {context.get('assistantName', 'Jarvis')} (the user chose this name for you)
+- Your name: {assistant_name} (the user chose this name for you)
 - Current app in focus: {context.get('currentApp', 'unknown')}
-- Last action: {context.get('lastAction', 'none')}
+- Last action: {context.get('lastAction', 'none')} (use this for "repeat", "again", "same thing")
 - User activity: {context.get('activity', 'general')}
 """
 
