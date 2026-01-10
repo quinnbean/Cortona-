@@ -3851,9 +3851,9 @@ DASHBOARD_PAGE = '''
                     }
                     
                     // SILENCE DETECTION - auto-stop after silence
-                    const silenceThreshold = 0.02; // Below this = silence
-                    const silenceTimeout = 2000; // 2 seconds of silence = stop
-                    const minRecordingTime = 1000; // Minimum 1 second before silence detection kicks in
+                    const silenceThreshold = 0.015; // Below this = silence (lowered for sensitivity)
+                    const silenceTimeout = 3000; // 3 seconds of silence = stop (increased)
+                    const minRecordingTime = 2000; // Minimum 2 seconds before silence detection kicks in
                     
                     // Only check silence after minimum recording time
                     const recordingDuration = window.recordingStartTime ? Date.now() - window.recordingStartTime : 0;
@@ -4112,9 +4112,20 @@ DASHBOARD_PAGE = '''
             cleaned = expanded;
             
             // Clean up extra spaces and punctuation
-            cleaned = cleaned.replace(/\\s+/g, ' ').trim();
-            cleaned = cleaned.replace(/^[,\\s]+/, '').replace(/[,\\s]+$/, '');
-            cleaned = cleaned.replace(/\\s+([,.])/g, '$1');
+            // Using split/join to avoid regex escaping issues
+            while (cleaned.includes('  ')) {
+                cleaned = cleaned.split('  ').join(' ');
+            }
+            cleaned = cleaned.trim();
+            // Remove leading/trailing commas and spaces
+            while (cleaned.startsWith(',') || cleaned.startsWith(' ')) {
+                cleaned = cleaned.substring(1);
+            }
+            while (cleaned.endsWith(',') || cleaned.endsWith(' ')) {
+                cleaned = cleaned.slice(0, -1);
+            }
+            // Remove space before punctuation
+            cleaned = cleaned.split(' ,').join(',').split(' .').join('.');
             
             if (cleaned !== text) {
                 console.log('[FILLER] Cleaned:', text, '→', cleaned);
@@ -4207,8 +4218,14 @@ DASHBOARD_PAGE = '''
         
         function processWhisperTranscript(text) {
             // Remove filler words first
+            console.log('[WHISPER] Raw input:', text);
+            const originalText = text;
             text = removeFillerWords(text);
-            if (!text || text.length < 2) return;  // Skip if empty after cleaning
+            console.log('[WHISPER] After filler removal:', text);
+            if (!text || text.length < 2) {
+                console.log('[WHISPER] Skipped - too short after cleaning');
+                return;  // Skip if empty after cleaning
+            }
             
             // Filter out Whisper hallucinations (common when there's silence or noise)
             function isWhisperHallucination(text) {
