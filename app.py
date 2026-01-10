@@ -1415,7 +1415,7 @@ DASHBOARD_PAGE = '''
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
     <!-- Picovoice for local wake word + speech-to-text (FREE & FAST) -->
     <script src="https://unpkg.com/@picovoice/porcupine-web@3.0.0/dist/iife/index.js"></script>
-    <script src="https://unpkg.com/@picovoice/cheetah-web@2.0.0/dist/iife/index.js"></script>
+    <script src="https://unpkg.com/@picovoice/cheetah-web@3.0.0/dist/iife/index.js"></script>
     <style>
         :root {
             --bg-primary: #0a0a0f;
@@ -3724,9 +3724,23 @@ DASHBOARD_PAGE = '''
         let porcupineInstance = null;
         let porcupineStream = null;
         let usePorcupine = true;  // Use local wake word detection (free)
-        const PICOVOICE_ACCESS_KEY = '{{ picovoice_key }}';  // Set in Render environment
+        
+        // Safely get Picovoice key (empty if not set)
+        let PICOVOICE_ACCESS_KEY = '';
+        try {
+            PICOVOICE_ACCESS_KEY = '{{ picovoice_key }}' || '';
+        } catch (e) {
+            console.log('[PICOVOICE] No access key configured');
+        }
         
         async function initPorcupine() {
+            // Check if library loaded
+            if (typeof PorcupineWeb === 'undefined') {
+                console.log('[PORCUPINE] Library not loaded');
+                usePorcupine = false;
+                return false;
+            }
+            
             if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.includes('{{')) {
                 console.log('[PORCUPINE] No access key configured - using Whisper for wake word');
                 usePorcupine = false;
@@ -3894,6 +3908,13 @@ DASHBOARD_PAGE = '''
         let cheetahSilenceTimer = null;
         
         async function initCheetah() {
+            // Check if library loaded
+            if (typeof CheetahWeb === 'undefined') {
+                console.log('[CHEETAH] Library not loaded');
+                useCheetah = false;
+                return false;
+            }
+            
             if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.includes('{{')) {
                 console.log('[CHEETAH] No access key configured - using Whisper');
                 useCheetah = false;
@@ -3906,7 +3927,7 @@ DASHBOARD_PAGE = '''
                 cheetahInstance = await CheetahWeb.CheetahWorker.create(
                     PICOVOICE_ACCESS_KEY,
                     {
-                        publicPath: 'https://unpkg.com/@picovoice/cheetah-web@2.0.0/dist/',
+                        publicPath: 'https://unpkg.com/@picovoice/cheetah-web@3.0.0/dist/',
                         enableAutomaticPunctuation: true
                     },
                     {
@@ -5665,7 +5686,7 @@ DASHBOARD_PAGE = '''
             
             // Stop Web Speech API if active
             if (recognition && isListening) {
-                recognition.stop();
+            recognition.stop();
             }
             
             isListening = false;
@@ -7299,7 +7320,7 @@ def api_parse_command():
                     system=system_prompt
                 )
                 
-                response_text = message.content[0].text.strip()
+        response_text = message.content[0].text.strip()
                 used_provider = 'claude'
                 print(f"CLAUDE RAW RESPONSE: {response_text}")
                 print(f"==========================================")
@@ -7387,7 +7408,7 @@ def claude_status():
     """Check AI availability (OpenAI preferred, Claude fallback)"""
     # Prefer OpenAI for speed
     if OPENAI_AVAILABLE:
-        return jsonify({
+    return jsonify({
             'available': True,
             'provider': 'openai',
             'model': 'gpt-4o',
