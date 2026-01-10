@@ -3656,47 +3656,52 @@ DASHBOARD_PAGE = '''
         function whisperContinuousRecord() {
             if (!useWhisper || !whisperMediaStream) return;
             
-            const chunks = [];
+            // Store all audio chunks for the ENTIRE recording session
+            window.whisperAudioChunks = [];
+            
             whisperRecorder = new MediaRecorder(whisperMediaStream, { mimeType: 'audio/webm' });
             
             whisperRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
-                    chunks.push(e.data);
+                    window.whisperAudioChunks.push(e.data);
                 }
             };
             
             whisperRecorder.onstop = async () => {
-                if (chunks.length === 0) {
-                    // No audio, restart
-                    if (useWhisper && (alwaysListen || continuousMode)) {
-                        setTimeout(whisperContinuousRecord, 100);
-                    }
+                console.log('[WHISPER] Recording stopped, chunks:', window.whisperAudioChunks.length);
+                
+                if (!window.whisperAudioChunks || window.whisperAudioChunks.length === 0) {
+                    console.log('[WHISPER] No audio chunks');
                     return;
                 }
                 
-                const blob = new Blob(chunks, { type: 'audio/webm' });
+                // Combine ALL chunks into one blob
+                const blob = new Blob(window.whisperAudioChunks, { type: 'audio/webm' });
+                console.log('[WHISPER] Total audio size:', blob.size, 'bytes');
                 
                 // Only transcribe if there's meaningful audio (> 1KB)
                 if (blob.size > 1000) {
+                    // Update UI to show processing
+                    const statusEl = document.getElementById('voice-status');
+                    if (statusEl) statusEl.textContent = 'Processing...';
+                    
                     await transcribeWithWhisper(blob);
+                } else {
+                    console.log('[WHISPER] Audio too small, skipping');
+                    addActivity('🔇 No speech detected', 'info');
                 }
                 
-                // Continue recording if in always-listen mode
-                if (useWhisper && (alwaysListen || continuousMode || isActiveDictation)) {
-                    setTimeout(whisperContinuousRecord, 100);
-                }
+                // Clear chunks
+                window.whisperAudioChunks = [];
             };
             
-            // Record for 3 seconds at a time
-            whisperRecorder.start();
+            // Start recording - collect data every 250ms for smooth chunks
+            // But DON'T auto-stop - let silence detection handle it
+            whisperRecorder.start(250);
             isListening = true;
             updateUI();
             
-            setTimeout(() => {
-                if (whisperRecorder && whisperRecorder.state === 'recording') {
-                    whisperRecorder.stop();
-                }
-            }, 3000);
+            console.log('[WHISPER] Recording started - speak, then pause to process');
         }
         
         async function transcribeWithWhisper(audioBlob) {
@@ -4356,26 +4361,37 @@ DASHBOARD_PAGE = '''
         }
         
         function stopWhisperRecording() {
+            console.log('[WHISPER] Stopping recording...');
             playChime('stop');  // Audio feedback
-            stopAudioLevelTracking();  // Stop visualization
-            useWhisper = false;
             
-            // Reset silence detection
+            // Reset silence detection FIRST
             window.recordingStartTime = null;
             window.silenceStart = null;
             
+            // Stop the recorder - this triggers onstop which processes the audio
             if (whisperRecorder && whisperRecorder.state === 'recording') {
+                console.log('[WHISPER] Calling recorder.stop()');
                 whisperRecorder.stop();
-            }
-            whisperRecorder = null;
-            
-            if (whisperMediaStream) {
-                whisperMediaStream.getTracks().forEach(track => track.stop());
-                whisperMediaStream = null;
+                // Don't null out the recorder yet - onstop needs it
             }
             
-            isListening = false;
-            updateUI();
+            // Stop level tracking AFTER recorder stops
+            stopAudioLevelTracking();
+            
+            // Wait a bit before cleaning up to let onstop finish
+            setTimeout(() => {
+                whisperRecorder = null;
+                useWhisper = false;
+                
+                if (whisperMediaStream) {
+                    whisperMediaStream.getTracks().forEach(track => track.stop());
+                    whisperMediaStream = null;
+                }
+                
+                isListening = false;
+                updateUI();
+                console.log('[WHISPER] Cleanup complete');
+            }, 500);
         }
         
         // Audio context - initialized on first user interaction
