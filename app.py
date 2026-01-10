@@ -4163,6 +4163,59 @@ DASHBOARD_PAGE = '''
             text = removeFillerWords(text);
             if (!text || text.length < 2) return;  // Skip if empty after cleaning
             
+            // Filter out Whisper hallucinations (common when there's silence or noise)
+            function isWhisperHallucination(text) {
+                const hallucinations = [
+                    'thank you for watching',
+                    'thanks for watching', 
+                    'please subscribe',
+                    'like and subscribe',
+                    'see you next time',
+                    'goodbye',
+                    'チャンネル',
+                    'ご視聴',
+                    'ありがとう',
+                    'お願い',
+                    '谢谢',
+                    '订阅',
+                    'music',
+                    '[music]',
+                    '...',
+                    '. .',
+                    '..'
+                ];
+                const lower = text.toLowerCase().trim();
+                
+                // Check for non-ASCII characters (likely hallucination if user expects English)
+                const nonAsciiRatio = (text.match(/[^\x00-\x7F]/g) || []).length / text.length;
+                if (nonAsciiRatio > 0.3) {
+                    console.log('[WHISPER] Filtered non-English hallucination:', text);
+                    return true;
+                }
+                
+                // Check for known hallucination phrases
+                for (const h of hallucinations) {
+                    if (lower.includes(h)) {
+                        console.log('[WHISPER] Filtered hallucination:', text);
+                        return true;
+                    }
+                }
+                
+                // Too short to be meaningful
+                if (lower.replace(/[^a-z]/g, '').length < 2) {
+                    console.log('[WHISPER] Filtered too-short:', text);
+                    return true;
+                }
+                
+                return false;
+            }
+            
+            // Filter hallucinations
+            if (isWhisperHallucination(text)) {
+                addActivity('🔇 Filtered background noise', 'info');
+                return;
+            }
+            
             // This mirrors the logic from recognition.onresult
             const transcriptEl = document.getElementById('transcript');
             const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
