@@ -5503,6 +5503,12 @@ DASHBOARD_PAGE = '''
         async function toggleAlwaysListen() {
             console.log('toggleAlwaysListen called, current:', alwaysListen, 'micPermission:', micPermission);
             
+            // In Electron, always-listen uses Whisper which would be expensive for continuous use
+            if (isElectron) {
+                addActivity('Wake word listening not available in desktop app - use mic button instead', 'warning');
+                return;
+            }
+            
             // If enabling, check permission first
             if (!alwaysListen && micPermission !== 'granted') {
                 console.log('Requesting mic permission...');
@@ -5755,11 +5761,14 @@ DASHBOARD_PAGE = '''
         });
         
         // Auto-start listening if always-listen or continuous mode is enabled
-        if (alwaysListen || continuousMode) {
+        // Skip in Electron - use mic button instead (Whisper doesn't support continuous listening)
+        if ((alwaysListen || continuousMode) && !isElectron) {
             setTimeout(() => {
                 addActivity('🚀 Auto-starting voice recognition...', 'info');
                 startListening();
             }, 1000);
+        } else if (isElectron) {
+            console.log('[ELECTRON] Skipping auto-start - use mic button for Whisper');
         }
     </script>
 </body>
