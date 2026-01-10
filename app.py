@@ -3238,7 +3238,25 @@ DASHBOARD_PAGE = '''
             const lowerTranscript = transcript.toLowerCase();
             const lowerWake = wakeWord.toLowerCase();
             
-            // Exact match - always works
+            // Common Whisper mishearings for popular wake words
+            const commonMishearings = {
+                'jarvis': ['jarvis', 'javis', 'jarvas', 'jarvus', 'jervis', 'service', 'jar vis', 'jar-vis', 'jarves'],
+                'hey jarvis': ['hey jarvis', 'hey javis', 'a jarvis', 'hey jervis'],
+                'computer': ['computer', 'compooter'],
+                'alexa': ['alexa', 'alexis', 'alexi'],
+                'siri': ['siri', 'serie', 'cereal']
+            };
+            
+            // Check mishearings first
+            const mishearings = commonMishearings[lowerWake] || [lowerWake];
+            for (const variant of mishearings) {
+                if (lowerTranscript.includes(variant)) {
+                    console.log('[WAKE] Matched variant:', variant);
+                    return { detected: true, index: lowerTranscript.indexOf(variant), length: variant.length };
+                }
+            }
+            
+            // Exact match
             if (lowerTranscript.includes(lowerWake)) {
                 return { detected: true, index: lowerTranscript.indexOf(lowerWake), length: lowerWake.length };
             }
@@ -4314,7 +4332,10 @@ DASHBOARD_PAGE = '''
             }
             
             // Check for wake word
+            console.log('[WAKE] Checking for wake word:', wakeWord, 'in text:', text);
+            console.log('[WAKE] alwaysListen:', alwaysListen, 'isActiveDictation:', isActiveDictation, 'continuousMode:', continuousMode);
             const detection = detectWakeWord(text, wakeWord);
+            console.log('[WAKE] Detection result:', detection);
             
             if (detection.detected || isActiveDictation || continuousMode || !alwaysListen) {
                 let commandText = text;
