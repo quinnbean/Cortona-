@@ -6591,35 +6591,53 @@ def api_parse_command():
                 all_messages.insert(-1, {"role": "assistant", "content": '{"response": "Listening..."}'})
         
         # Use OpenAI GPT-4o for faster responses (preferred)
+        response_text = None
+        used_provider = None
+        
         if OPENAI_AVAILABLE and openai_client:
-            # OpenAI format: system message is part of messages array
-            openai_messages = [{"role": "system", "content": system_prompt}] + all_messages
-            
-            response = openai_client.chat.completions.create(
-                model="gpt-4o",  # Fast + smart
-                max_tokens=1024,
-                messages=openai_messages,
-                temperature=0.3  # Lower for more consistent command parsing
-            )
-            
-            response_text = response.choices[0].message.content.strip()
-            print(f"GPT-4o RAW RESPONSE: {response_text}")
-            print(f"==========================================")
+            try:
+                # OpenAI format: system message is part of messages array
+                openai_messages = [{"role": "system", "content": system_prompt}] + all_messages
+                
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o",  # Fast + smart
+                    max_tokens=1024,
+                    messages=openai_messages,
+                    temperature=0.3  # Lower for more consistent command parsing
+                )
+                
+                response_text = response.choices[0].message.content.strip()
+                used_provider = 'gpt-4o'
+                print(f"GPT-4o RAW RESPONSE: {response_text}")
+                print(f"==========================================")
+            except Exception as e:
+                print(f"[ERROR] GPT-4o failed: {e}, falling back to Claude")
+                response_text = None  # Force Claude fallback
         
-        # Fallback to Claude if OpenAI not available
-        elif CLAUDE_AVAILABLE and claude_client:
-            message = claude_client.messages.create(
-                model="claude-sonnet-4-20250514",  # Sonnet 4 - fast + smart
-                max_tokens=1024,
-                messages=all_messages,
-                system=system_prompt
-            )
-            
-            response_text = message.content[0].text.strip()
-            print(f"CLAUDE RAW RESPONSE: {response_text}")
-            print(f"==========================================")
+        # Fallback to Claude if OpenAI not available or failed
+        if response_text is None and CLAUDE_AVAILABLE and claude_client:
+            try:
+                message = claude_client.messages.create(
+                    model="claude-sonnet-4-20250514",  # Sonnet 4 - fast + smart
+                    max_tokens=1024,
+                    messages=all_messages,
+                    system=system_prompt
+                )
+                
+                response_text = message.content[0].text.strip()
+                used_provider = 'claude'
+                print(f"CLAUDE RAW RESPONSE: {response_text}")
+                print(f"==========================================")
+            except Exception as e:
+                print(f"[ERROR] Claude also failed: {e}")
+                return jsonify({
+                    'action': 'clarify',
+                    'speak': f'AI error: {str(e)[:50]}',
+                    'response': 'AI error',
+                    'needsClarification': True
+                }), 200
         
-        else:
+        if response_text is None:
             return jsonify({
                 'action': 'clarify',
                 'speak': 'No AI configured. Add OPENAI_API_KEY or ANTHROPIC_API_KEY.',
