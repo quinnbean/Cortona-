@@ -4355,11 +4355,14 @@ DASHBOARD_PAGE = '''
                 }
                 
                 if (commandText) {
+                    console.log('[COMMAND] Processing command:', commandText);
+                    console.log('[COMMAND] Length:', commandText.length, 'chars');
                     transcriptEl.textContent = commandText;
                     transcriptEl.classList.add('active');
                     
                     // Process command
                     (async () => {
+                        console.log('[COMMAND] Calling handleTranscript with:', commandText);
                         const result = await handleTranscript(commandText);
                         
                         if (result && result.isStop) {
@@ -4626,7 +4629,16 @@ DASHBOARD_PAGE = '''
         }
         
         async function handleTranscript(text, skipRouting = false) {
+            console.log('[HANDLE] handleTranscript called with:', text);
+            console.log('[HANDLE] text type:', typeof text, 'length:', text ? text.length : 0);
+            
+            if (!text || text.length < 2) {
+                console.log('[HANDLE] Text too short, returning null');
+                return null;
+            }
+            
             text = text.trim();
+            console.log('[HANDLE] After trim:', text);
             
             // Basic pre-processing (Claude will do more sophisticated correction)
             // "right" is often misheard as "write"
