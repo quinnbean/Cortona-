@@ -3706,10 +3706,7 @@ DASHBOARD_PAGE = '''
                     
                     const response = await fetch('/api/whisper', {
                         method: 'POST',
-                        body: formData,
-                        headers: {
-                            'X-CSRFToken': csrfToken
-                        }
+                        body: formData
                     });
                     
                     if (!response.ok) {
@@ -4107,8 +4104,7 @@ DASHBOARD_PAGE = '''
                 const response = await fetch('/api/tts', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
                         text: text,
