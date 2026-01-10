@@ -3956,7 +3956,7 @@ DASHBOARD_PAGE = '''
             // Examples - users can add their own
             // 'my email': 'user@example.com',
             // 'my phone': '555-123-4567',
-            // 'sig': 'Best regards,\nYour Name',
+            // 'sig': 'Best regards, Your Name',
         };
         
         // Load saved replacements/snippets from localStorage
