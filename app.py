@@ -47,6 +47,21 @@ except ImportError:
     claude_client = None
     print("⚠️ anthropic package not installed - using regex parsing")
 
+# OpenAI for Whisper (STT) and TTS
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = bool(os.environ.get('OPENAI_API_KEY'))
+    if OPENAI_AVAILABLE:
+        openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+        print("🎤 OpenAI Whisper (STT) and TTS enabled")
+    else:
+        openai_client = None
+        print("[WARNING] OPENAI_API_KEY not set - cloud speech features unavailable")
+except ImportError:
+    OPENAI_AVAILABLE = False
+    openai_client = None
+    print("⚠️ openai package not installed - cloud speech features unavailable")
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -2341,11 +2356,17 @@ DASHBOARD_PAGE = '''
         let sensitivity = 3; // 1-5, higher = more strict matching
         let isActiveDictation = false; // true when wake word triggered dictation
         
-        // Whisper mode (for Electron when Web Speech API doesn't work)
+        // Whisper mode - now uses OpenAI cloud API for better accuracy
         let useWhisper = false;
+        let useCloudWhisper = true;  // Use OpenAI cloud Whisper (fast, accurate)
         let whisperRecorder = null;
         let whisperMediaStream = null;
-        const WHISPER_URL = 'http://localhost:5051';
+        const WHISPER_LOCAL_URL = 'http://localhost:5051';  // Fallback local
+        
+        // TTS state
+        let ttsEnabled = true;
+        let ttsVoice = 'nova';  // Options: alloy, echo, fable, onyx, nova, shimmer
+        let currentTTSAudio = null;
         
         // Transcript history
         let transcriptHistory = [];
@@ -2398,8 +2419,9 @@ DASHBOARD_PAGE = '''
         
         // ELECTRON: Always use Whisper, skip Web Speech API entirely
         if (isElectron) {
-            console.log('[ELECTRON] Using Whisper for speech recognition (skipping Web Speech API)');
+            console.log('[ELECTRON] Using OpenAI Cloud Whisper for speech recognition');
             useWhisper = true;  // Force Whisper mode
+            useCloudWhisper = true;  // Use cloud API (faster, more accurate)
             checkMicPermission();
             // Don't initialize Web Speech API at all in Electron
         } else if (!SpeechRecognition) {
@@ -3218,14 +3240,14 @@ DASHBOARD_PAGE = '''
                                 console.log('[MIC] Restart error:', e.message);
                                 // If it fails, try reinitializing
                                 if (e.name === 'InvalidStateError') {
-                                    initSpeechRecognition();
-                                    setTimeout(() => {
-                                        if (alwaysListen || continuousMode) {
+                                initSpeechRecognition();
+                                setTimeout(() => {
+                                    if (alwaysListen || continuousMode) {
                                             try { recognition.start(); } catch (e2) { console.log('[MIC] Re-init start failed:', e2.message); }
-                                        }
+                                    }
                                     }, 200);
-                                }
                             }
+                        }
                         }
                     }, 100); // Very short delay - just enough to avoid race condition
                 } else {
@@ -3366,15 +3388,15 @@ DASHBOARD_PAGE = '''
                                     return;
                                 }
                                 
-                                // After processing command with wake word, go back to standby
-                                isActiveDictation = false;
-                                if (alwaysListen && !continuousMode) {
-                                    setTimeout(() => {
-                                        transcriptEl.textContent = `Ready for "${wakeWord}"`;
-                                        transcriptEl.classList.remove('active');
-                                        document.getElementById('voice-status').textContent = 'Standby';
-                                    }, 1500);
-                                }
+                            // After processing command with wake word, go back to standby
+                            isActiveDictation = false;
+                            if (alwaysListen && !continuousMode) {
+                                setTimeout(() => {
+                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                    transcriptEl.classList.remove('active');
+                                    document.getElementById('voice-status').textContent = 'Standby';
+                                }, 1500);
+                            }
                             })();
                         } else {
                             // Just activated, waiting for command
@@ -3397,30 +3419,30 @@ DASHBOARD_PAGE = '''
                                 handleStopCommand();
                                 return;
                             }
-                            
-                            // End the active dictation session
-                            isActiveDictation = false;
                         
-                            // Reset to standby mode after processing command
-                            if (alwaysListen && !continuousMode) {
-                                // Go back to waiting for wake word
-                                setTimeout(() => {
-                                    transcriptEl.textContent = `Ready for "${wakeWord}"`;
-                                    transcriptEl.classList.remove('active');
-                                    document.getElementById('voice-status').textContent = 'Standby';
-                                    document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
-                                }, 1500);
-                                addActivity('💬 Command processed - waiting for wake word', 'info');
-                            } else if (!alwaysListen && !continuousMode) {
-                                // Manual mode without continuous - stop after command
-                                setTimeout(() => {
-                                    if (!isActiveDictation && !continuousMode) {
-                                        stopListening();
-                                        transcriptEl.textContent = 'Click mic to start again';
-                                        addActivity('🎤 Dictation ended', 'info');
-                                    }
-                                }, 2000);
-                            }
+                        // End the active dictation session
+                        isActiveDictation = false;
+                        
+                        // Reset to standby mode after processing command
+                        if (alwaysListen && !continuousMode) {
+                            // Go back to waiting for wake word
+                            setTimeout(() => {
+                                transcriptEl.textContent = `Ready for "${wakeWord}"`;
+                                transcriptEl.classList.remove('active');
+                                document.getElementById('voice-status').textContent = 'Standby';
+                                document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
+                            }, 1500);
+                            addActivity('💬 Command processed - waiting for wake word', 'info');
+                        } else if (!alwaysListen && !continuousMode) {
+                            // Manual mode without continuous - stop after command
+                            setTimeout(() => {
+                                if (!isActiveDictation && !continuousMode) {
+                                    stopListening();
+                                    transcriptEl.textContent = 'Click mic to start again';
+                                    addActivity('🎤 Dictation ended', 'info');
+                                }
+                            }, 2000);
+                        }
                         })();
                     }
                     // In always-listen mode without wake word, don't update transcript (keep showing waiting message)
@@ -3479,48 +3501,67 @@ DASHBOARD_PAGE = '''
         }
         
         // ============================================================
-        // WHISPER SPEECH RECOGNITION (for Electron)
+        // WHISPER SPEECH RECOGNITION (Cloud API - OpenAI)
         // ============================================================
         
         async function checkWhisperService() {
-            // In Electron, use IPC to check Whisper service
-            if (isElectron && window.electronAPI?.whisperHealth) {
+            // For cloud Whisper, just check if API is available
+            if (useCloudWhisper) {
                 try {
-                    const result = await window.electronAPI.whisperHealth();
-                    console.log('[WHISPER] Health check via IPC:', result);
-                    return result.available && result.modelLoaded;
+                    const response = await fetch('/api/openai-status');
+                    if (response.ok) {
+                        const data = await response.json();
+                        return data.available && data.features?.whisper;
+                    }
+                    return false;
                 } catch (e) {
-                    console.log('[WHISPER] IPC health check failed:', e);
+                    console.log('[WHISPER-CLOUD] Status check failed:', e.message);
                     return false;
                 }
             }
             
-            // Fallback to direct fetch (for browser/local dev)
+            // Fallback: In Electron, use IPC for local Whisper
+            if (isElectron && window.electronAPI?.whisperHealth) {
+                try {
+                    const result = await window.electronAPI.whisperHealth();
+                    console.log('[WHISPER-LOCAL] Health check via IPC:', result);
+                    return result.available && result.modelLoaded;
+                } catch (e) {
+                    console.log('[WHISPER-LOCAL] IPC health check failed:', e);
+                    return false;
+                }
+            }
+            
+            // Fallback to direct local fetch
             try {
-                const response = await fetch(`${WHISPER_URL}/health`);
+                const response = await fetch(`${WHISPER_LOCAL_URL}/health`);
                 if (response.ok) {
                     const data = await response.json();
                     return data.model_loaded;
                 }
                 return false;
             } catch (e) {
-                console.log('[WHISPER] Service not available:', e.message);
+                console.log('[WHISPER-LOCAL] Service not available:', e.message);
                 return false;
             }
         }
         
         async function startWhisperRecording() {
-            console.log('[WHISPER] Starting Whisper recording mode...');
+            console.log('[WHISPER] Starting recording mode, cloud:', useCloudWhisper);
             
             // Check if Whisper service is running
             const whisperAvailable = await checkWhisperService();
             if (!whisperAvailable) {
-                addActivity('⚠️ Local Whisper service not running. Restart the app.', 'warning');
+                if (useCloudWhisper) {
+                    addActivity('⚠️ OpenAI API not configured. Add OPENAI_API_KEY in Render settings.', 'warning');
+                } else {
+                    addActivity('⚠️ Local Whisper service not running. Restart the app.', 'warning');
+                }
                 useWhisper = false;
                 return;
             }
             
-            addActivity('✅ Connected to local Whisper service', 'success');
+            addActivity(useCloudWhisper ? '☁️ Using OpenAI Whisper (cloud)' : '✅ Connected to local Whisper', 'success');
             
             try {
                 // Get microphone access
@@ -3584,34 +3625,66 @@ DASHBOARD_PAGE = '''
         
         async function transcribeWithWhisper(audioBlob) {
             try {
-                // In Electron, use IPC to transcribe
-                if (isElectron && window.electronAPI?.whisperTranscribe) {
-                    // Convert blob to ArrayBuffer for IPC
-                    const arrayBuffer = await audioBlob.arrayBuffer();
+                // CLOUD WHISPER (preferred - fast, accurate)
+                if (useCloudWhisper) {
+                    console.log('[WHISPER-CLOUD] Sending audio to OpenAI, size:', audioBlob.size);
                     
-                    console.log('[WHISPER] Sending audio via IPC, size:', arrayBuffer.byteLength);
-                    const result = await window.electronAPI.whisperTranscribe(arrayBuffer);
+                    const formData = new FormData();
+                    formData.append('audio', audioBlob, 'audio.webm');
                     
-                    if (result.success && result.text) {
-                        console.log('[WHISPER] Transcribed via IPC:', result.text);
-                        processWhisperTranscript(result.text);
-                    } else if (result.error) {
-                        console.error('[WHISPER] IPC transcription error:', result.error);
+                    const response = await fetch('/api/whisper', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-CSRFToken': csrfToken
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        console.error('[WHISPER-CLOUD] Transcription failed:', response.status);
+                        const errorData = await response.json().catch(() => ({}));
+                        if (errorData.error) {
+                            addActivity(`❌ ${errorData.error}`, 'warning');
+                        }
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    if (data.success && data.text) {
+                        console.log('[WHISPER-CLOUD] Transcribed:', data.text);
+                        processWhisperTranscript(data.text);
                     }
                     return;
                 }
                 
-                // Fallback to direct fetch (for browser/local dev)
+                // LOCAL WHISPER (fallback)
+                // In Electron, use IPC to transcribe
+                if (isElectron && window.electronAPI?.whisperTranscribe) {
+                    const arrayBuffer = await audioBlob.arrayBuffer();
+                    
+                    console.log('[WHISPER-LOCAL] Sending audio via IPC, size:', arrayBuffer.byteLength);
+                    const result = await window.electronAPI.whisperTranscribe(arrayBuffer);
+                    
+                    if (result.success && result.text) {
+                        console.log('[WHISPER-LOCAL] Transcribed via IPC:', result.text);
+                        processWhisperTranscript(result.text);
+                    } else if (result.error) {
+                        console.error('[WHISPER-LOCAL] IPC transcription error:', result.error);
+                    }
+                    return;
+                }
+                
+                // Direct local fetch
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'audio.webm');
                 
-                const response = await fetch(`${WHISPER_URL}/transcribe`, {
+                const response = await fetch(`${WHISPER_LOCAL_URL}/transcribe`, {
                     method: 'POST',
                     body: formData
                 });
                 
                 if (!response.ok) {
-                    console.error('[WHISPER] Transcription failed:', response.status);
+                    console.error('[WHISPER-LOCAL] Transcription failed:', response.status);
                     return;
                 }
                 
@@ -3619,12 +3692,77 @@ DASHBOARD_PAGE = '''
                 const text = data.text?.trim();
                 
                 if (text && text.length > 0) {
-                    console.log('[WHISPER] Transcribed:', text);
+                    console.log('[WHISPER-LOCAL] Transcribed:', text);
                     processWhisperTranscript(text);
                 }
                 
             } catch (e) {
                 console.error('[WHISPER] Transcription error:', e);
+            }
+        }
+        
+        // ============================================================
+        // TEXT-TO-SPEECH (OpenAI TTS)
+        // ============================================================
+        
+        async function speak(text) {
+            if (!ttsEnabled || !text) return;
+            
+            // Stop any currently playing audio
+            if (currentTTSAudio) {
+                currentTTSAudio.pause();
+                currentTTSAudio = null;
+            }
+            
+            try {
+                console.log('[TTS] Speaking:', text.substring(0, 50) + '...');
+                addActivity(`🔊 Speaking...`, 'info');
+                
+                const response = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: ttsVoice
+                    })
+                });
+                
+                if (!response.ok) {
+                    console.error('[TTS] Failed:', response.status);
+                    return;
+                }
+                
+                // Play the audio
+                const audioBlob = await response.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
+                currentTTSAudio = new Audio(audioUrl);
+                
+                currentTTSAudio.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                    currentTTSAudio = null;
+                    console.log('[TTS] Finished speaking');
+                };
+                
+                currentTTSAudio.onerror = (e) => {
+                    console.error('[TTS] Playback error:', e);
+                    URL.revokeObjectURL(audioUrl);
+                    currentTTSAudio = null;
+                };
+                
+                await currentTTSAudio.play();
+                
+            } catch (e) {
+                console.error('[TTS] Error:', e);
+            }
+        }
+        
+        function stopSpeaking() {
+            if (currentTTSAudio) {
+                currentTTSAudio.pause();
+                currentTTSAudio = null;
             }
         }
         
@@ -3755,7 +3893,13 @@ DASHBOARD_PAGE = '''
                 showNativeNotification('Jarvis', text);
             }
             
-            // Use Web Speech API
+            // Use OpenAI TTS if available (better quality)
+            if (ttsEnabled) {
+                speak(text);  // Uses OpenAI TTS API
+                return;
+            }
+            
+            // Fallback to Web Speech API
             if ('speechSynthesis' in window) {
                 // Cancel any ongoing speech
                 window.speechSynthesis.cancel();
@@ -3855,18 +3999,23 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Check if Claude is available
-        let claudeAvailable = false;
+        // Check if AI is available (GPT-4o preferred, Claude fallback)
+        let claudeAvailable = false;  // Keep variable name for compatibility
+        let aiProvider = null;
+        let aiModel = null;
         
-        // Check Claude status after page loads
+        // Check AI status after page loads
         setTimeout(() => {
             fetch('/api/claude-status')
                 .then(r => r.json())
                 .then(data => {
                     claudeAvailable = data.available;
+                    aiProvider = data.provider;
+                    aiModel = data.model;
                     if (claudeAvailable) {
-                        console.log('🧠 Claude AI ready');
-                        addActivity('🧠 AI mode enabled', 'success');
+                        const providerName = aiProvider === 'openai' ? 'GPT-4o' : 'Claude';
+                        console.log(`🧠 ${providerName} AI ready`);
+                        addActivity(`🧠 ${providerName} enabled (fast mode)`, 'success');
                     }
                 })
                 .catch(() => { claudeAvailable = false; });
@@ -3874,13 +4023,18 @@ DASHBOARD_PAGE = '''
         
         async function parseWithClaude(text) {
             try {
+                // Extract assistant name from wake word (e.g., "Hey Jarvis" → "Jarvis")
+                const wakeWord = currentDevice?.wakeWord || 'hey jarvis';
+                const assistantName = wakeWord.replace(/^(hey|ok|hi|hello)\s+/i, '').trim() || 'Jarvis';
+                
                 // Build context for adaptive AI
                 const contextData = {
                     text: text,
                     sessionId: sessionId,
                     currentApp: lastTargetApp || 'unknown',
                     lastAction: lastAction ? `${lastAction.action} to ${lastAction.app || 'local'}: "${lastAction.content}"` : 'none',
-                    activity: isActiveDictation ? 'active_dictation' : (continuousMode ? 'continuous' : 'general')
+                    activity: isActiveDictation ? 'active_dictation' : (continuousMode ? 'continuous' : 'general'),
+                    assistantName: assistantName.charAt(0).toUpperCase() + assistantName.slice(1).toLowerCase()
                 };
                 
                 const response = await fetch('/api/parse-command', {
@@ -4316,14 +4470,14 @@ DASHBOARD_PAGE = '''
             
             // Stop Web Speech API if active
             if (recognition && isListening) {
-                recognition.stop();
+            recognition.stop();
             }
             
             socket.emit('device_status', { deviceId, status: 'idle' });
         }
         
         async function toggleListening() {
-            console.log('toggleListening called, isListening:', isListening, 'useWhisper:', useWhisper, 'isElectron:', isElectron);
+            console.log('toggleListening called, isListening:', isListening, 'useWhisper:', useWhisper, 'useCloudWhisper:', useCloudWhisper, 'isElectron:', isElectron);
             
             if (isListening) {
                 console.log('Stopping...');
@@ -4331,17 +4485,21 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // ELECTRON: Always use Whisper, never try Web Speech API
-            if (isElectron || useWhisper) {
-                console.log('[ELECTRON] Using Whisper for speech recognition');
+            // ELECTRON or CLOUD WHISPER: Use OpenAI Whisper API
+            if (isElectron || useWhisper || useCloudWhisper) {
+                console.log('[WHISPER] Using', useCloudWhisper ? 'OpenAI Cloud' : 'Local', 'Whisper');
                 
                 const whisperAvailable = await checkWhisperService();
                 if (whisperAvailable) {
                     useWhisper = true;
-                    addActivity('🎤 Starting Whisper...', 'info');
+                    addActivity(useCloudWhisper ? '☁️ Starting OpenAI Whisper...' : '🎤 Starting Whisper...', 'info');
                     startWhisperRecording();
                 } else {
-                    addActivity('⚠️ Whisper service not running. Restart the Cortona app.', 'warning');
+                    if (useCloudWhisper) {
+                        addActivity('⚠️ OpenAI API not configured. Add OPENAI_API_KEY in Render.', 'warning');
+                    } else {
+                        addActivity('⚠️ Whisper service not running. Restart the Cortona app.', 'warning');
+                    }
                 }
                 return;
             }
@@ -4353,26 +4511,26 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            try {
+                try {
                 console.log('Starting Web Speech API...');
-                recognition.lang = currentDevice?.language || 'en-US';
-                recognition.start();
-                addActivity('🎤 Starting microphone...', 'info');
-            } catch (e) {
-                if (e.name === 'InvalidStateError') {
-                    console.log('Recognition in invalid state, reinitializing...');
-                    initSpeechRecognition();
-                    setTimeout(() => {
-                        try {
-                            recognition.lang = currentDevice?.language || 'en-US';
-                            recognition.start();
-                            addActivity('🎤 Starting microphone...', 'info');
-                        } catch (e2) {
-                            addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
-                        }
-                    }, 100);
-                } else {
-                    addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
+                    recognition.lang = currentDevice?.language || 'en-US';
+                    recognition.start();
+                    addActivity('🎤 Starting microphone...', 'info');
+                } catch (e) {
+                    if (e.name === 'InvalidStateError') {
+                        console.log('Recognition in invalid state, reinitializing...');
+                        initSpeechRecognition();
+                        setTimeout(() => {
+                            try {
+                                recognition.lang = currentDevice?.language || 'en-US';
+                                recognition.start();
+                                addActivity('🎤 Starting microphone...', 'info');
+                            } catch (e2) {
+                                addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
+                            }
+                        }, 100);
+                    } else {
+                        addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
                 }
             }
         }
@@ -4437,8 +4595,8 @@ DASHBOARD_PAGE = '''
                     voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
                 } else if (alwaysListen && !hasInitialized) {
                     // First time starting always-listen mode
-                    micButton.classList.remove('listening');
-                    micButton.innerHTML = 'MIC';
+                micButton.classList.remove('listening');
+                micButton.innerHTML = 'MIC';
                     voiceStatus.textContent = 'Starting';
                     voiceHint.innerHTML = 'Initializing microphone...';
                 } else {
@@ -5654,102 +5812,98 @@ def build_adaptive_prompt(context=None):
     not embedded in the system prompt. This gives Claude better context understanding.
     """
     
-    base_prompt = """You are Jarvis, an intelligent, ADAPTIVE voice assistant. You understand context, remember recent conversation, and can infer what the user means even from incomplete commands.
+    # Get the assistant's name from context (defaults to "Jarvis")
+    assistant_name = context.get('assistantName', 'Jarvis') if context else 'Jarvis'
+    
+    base_prompt = f"""You are {assistant_name}, a sophisticated AI assistant with a refined British personality. Think Tony Stark's JARVIS - intelligent, witty, warm yet professional, and effortlessly cool.
 
-CORE PRINCIPLES:
-1. USE CONVERSATION CONTEXT - If the user says "do that again" or "write this", look at recent history to understand what they mean
-2. FIX TRANSCRIPTION ERRORS - Speech recognition often mishears words. Correct obvious errors:
-   - "right" at start of sentence → usually "write"
-   - "coarser/cursor/curser" → "cursor"
-   - "cloud/claud" → "claude"
-   - "terminal right" → "terminal write"
-   - Numbers like "to" → "2", "for" → "4" when in code context
-3. BE ADAPTIVE - If the user is coding, assume code context. If chatting, assume conversation context.
-4. WHEN UNSURE, ASK - But be smart about it. Use context first.
+PERSONALITY:
+- British, refined, slightly formal but never stiff
+- Dry wit and subtle humor when appropriate  
+- Calm and composed, never flustered
+- Helpful and proactive - anticipate what the user needs
+- Conversational - you're a trusted companion, not a robot
+- Confident but not arrogant
+
+VOICE STYLE (for the "speak" field):
+- "Right away, sir." / "Consider it done."
+- "Pulling that up for you now."
+- "Ah, excellent choice. Opening YouTube."
+- "I've got that sorted."
+- "One moment... there we are."
+- "Certainly. Writing that to Cursor now."
+- "I'm afraid I didn't quite catch that. Could you elaborate?"
+- "Shall I proceed with that?"
+
+ALWAYS include a "speak" response - you're conversational! Keep it natural, 5-15 words typically.
+
+CORE ABILITIES:
+1. CONTEXT AWARENESS - Remember conversation, infer meaning from "this", "that", "again"
+2. SPEECH CORRECTION - Fix transcription errors naturally:
+   - "right" → "write", "coarser" → "cursor", "cloud" → "claude"
+3. SMART ROUTING - Know which app to target based on the request
+4. ANTICIPATION - If user is coding, assume code context
 
 Return JSON:
-{
-  "correctedText": "the speech-corrected version of what user said (fix mishearings)",
+{{
+  "correctedText": "speech-corrected version (fix mishearings)",
   "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
-  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "stop" | "clarify" | "repeat" | null,
+  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "focus" | "stop" | "clarify" | "repeat" | null,
   "content": "the actual content to type/send/search",
-  "response": "Brief confirmation (3-5 words) - shown in activity log",
-  "speak": "What Jarvis says out loud (only for clarifications, errors, or helpful context)",
+  "response": "Brief log message (3-5 words)",
+  "speak": "What {assistant_name} says aloud - ALWAYS include this, be conversational and British!",
   "needsClarification": true | false,
   "isStopCommand": true | false
-}
+}}
 
-STOP COMMAND DETECTION (intelligent):
-- "stop" / "stop listening" / "cancel" / "that's enough" / "okay stop" / "please stop" → isStopCommand: true
-- "don't stop" / "stop sign" / "bus stop" / "stop the music" → isStopCommand: false (these are content, not commands)
-- "I'm done" / "end dictation" / "that's all" → isStopCommand: true
+STOP COMMANDS:
+- "stop" / "stop listening" / "cancel" / "that's enough" → isStopCommand: true
+- "stop sign" / "bus stop" / "don't stop" → isStopCommand: false (content, not command)
 
-CONTEXT-AWARE PARSING:
+APP ROUTING:
 
-When user says "this" or "that" or "it":
-- Look at recent conversation history
-- If user just said something, "this" likely refers to that
-- If user mentioned an app, "it" likely refers to that app
+AI Assistants (cursor, claude, chatgpt, copilot, gemini):
+- Conversational → "type_and_send" (sends the message)
+- "ask cursor about..." → type_and_send
 
-When user says "again" or "repeat":
-- Look at the last command/action
-- Repeat that action with same parameters
+Code Editors (cursor, vscode):
+- "write a function" → "type" (no enter, just types)
 
-SMART DEFAULTS BY APP TYPE:
+Terminal:
+- "run npm install" → "run" (types + enter)
 
-AI ASSISTANTS (cursor, claude, chatgpt, copilot, gemini):
-- These are CONVERSATIONAL - default to "type_and_send" (type + press Enter)
-- "cursor how do I fix this" → type_and_send to cursor
-- "ask claude about python" → type_and_send to claude
+Browser:
+- "open youtube" → "open_url" with https://youtube.com
+- "search for..." → "search"
 
-CODE EDITORS (cursor, vscode) when writing code:
-- "write a function" → type (no enter)
-- "cursor write hello" → type in cursor
+APP RECOGNITION (flexible):
+- cursor/curser/coarser = "cursor"
+- claude/cloud/claud = "claude"
+- chatgpt/chat gpt/GPT = "chatgpt"
+- vscode/vs code = "vscode"
+- terminal/command/shell = "terminal"
 
-TERMINAL:
-- Default to "run" (type + enter)
-- "run npm install" → run in terminal
+EXAMPLE RESPONSES:
 
-BROWSER:
-- Websites → "open_url"
-- Questions → "search"
+User: "open YouTube"
+→ {{"action":"open_url","content":"https://youtube.com","response":"Opening YouTube","speak":"Pulling up YouTube for you now."}}
 
-SPEECH CORRECTION EXAMPLES:
-- "coarser right hello world" → correctedText: "cursor write hello world"
-- "cloud explain this" → correctedText: "claude explain this"  
-- "terminal right npm install" → correctedText: "terminal write npm install"
-- "in cursor right function add to numbers" → correctedText: "in cursor write function add 2 numbers"
+User: "cursor write a function that adds two numbers"
+→ {{"correctedText":"cursor write a function that adds two numbers","targetApp":"cursor","action":"type","content":"function add(a, b) {{ return a + b; }}","response":"Writing to Cursor","speak":"Certainly. Writing that function to Cursor."}}
 
-APP RECOGNITION (be very flexible):
-- cursor/curser/coarser/coursor/cursur/cursor IDE = "cursor"
-- claude/cloud/claud/Claude AI = "claude" 
-- chatgpt/chat gpt/GPT/gpt/chat GPT/openai = "chatgpt"
-- vscode/vs code/visual studio/VS Code = "vscode"
-- copilot/co-pilot/GitHub copilot = "copilot"
-- gemini/bard/Google AI = "gemini"
-- terminal/command/shell/cmd/command line = "terminal"
-- chrome/safari/firefox/browser/web = "browser"
-
-WEBSITE SHORTCUTS:
-youtube/google/github/twitter/x/facebook/reddit/amazon/netflix/spotify/linkedin/instagram/gmail → https://[site].com
-
-EXAMPLES WITH CONTEXT:
-
-[Previous: User asked Cursor about centering a div]
-User: "now explain flexbox"
-→ {"correctedText":"now explain flexbox","targetApp":"cursor","action":"type_and_send","content":"now explain flexbox","response":"Asking Cursor"}
-(Inferred: user is still talking to Cursor)
-
-[Previous: User typed some code]
-User: "write this in cursor"
-→ {"action":"clarify","needsClarification":true,"speak":"Write what in Cursor? Can you say what you want me to write?","response":"Need content"}
-
-User: "cursor right a function that adds two numbers"
-→ {"correctedText":"cursor write a function that adds two numbers","targetApp":"cursor","action":"type","content":"a function that adds two numbers","response":"Typing in Cursor"}
+User: "what's the weather like"
+→ {{"action":"search","content":"weather forecast","response":"Searching weather","speak":"Let me check that for you. Searching now."}}
 
 User: "do that again"
-→ {"action":"repeat","response":"Repeating last action"}
-(System should look at last action and repeat it)
+→ {{"action":"repeat","response":"Repeating","speak":"Of course. Running that again."}}
+
+User: "terminal run npm install"
+→ {{"targetApp":"terminal","action":"run","content":"npm install","response":"Running npm install","speak":"Running npm install in the terminal."}}
+
+User: (unclear audio)
+→ {{"action":"clarify","needsClarification":true,"speak":"I'm afraid I didn't quite catch that. Could you say that again?","response":"Need clarification"}}
+
+Remember: ALWAYS be conversational in "speak". You're {assistant_name}, not a robot. Be cool, be British, be helpful.
 
 Return ONLY valid JSON."""
 
@@ -5759,6 +5913,7 @@ Return ONLY valid JSON."""
         context_section = f"""
 
 CURRENT SESSION CONTEXT:
+- Your name: {context.get('assistantName', 'Jarvis')} (the user chose this name for you)
 - Current app in focus: {context.get('currentApp', 'unknown')}
 - Last action: {context.get('lastAction', 'none')}
 - User activity: {context.get('activity', 'general')}
@@ -5774,15 +5929,17 @@ CURRENT SESSION CONTEXT:
 @login_required
 @api_limit
 def api_parse_command():
-    """Use Claude to intelligently parse a voice command with context - NO FALLBACK"""
-    if not CLAUDE_AVAILABLE or not claude_client:
-        # No Claude = tell user to configure it, but still return a valid response
+    """Use GPT-4o (or Claude fallback) to intelligently parse voice commands"""
+    # Check if any AI is available (prefer OpenAI for speed)
+    ai_available = (OPENAI_AVAILABLE and openai_client) or (CLAUDE_AVAILABLE and claude_client)
+    
+    if not ai_available:
         return jsonify({
             'action': 'clarify',
-            'speak': 'AI is not configured. Please add your ANTHROPIC_API_KEY in Render settings.',
+            'speak': 'AI is not configured. Please add OPENAI_API_KEY in Render settings.',
             'response': 'AI unavailable',
             'needsClarification': True,
-            'claude': False
+            'ai': False
         }), 200
     
     # Try to get JSON data, handle errors gracefully
@@ -5798,7 +5955,8 @@ def api_parse_command():
     context = {
         'currentApp': data.get('currentApp', 'unknown'),
         'lastAction': data.get('lastAction', 'none'),
-        'activity': data.get('activity', 'general')
+        'activity': data.get('activity', 'general'),
+        'assistantName': data.get('assistantName', 'Jarvis')
     }
     
     print(f"========== PARSE COMMAND DEBUG ==========")
@@ -5816,40 +5974,61 @@ def api_parse_command():
         }), 200
     
     try:
-        # Get conversation history as proper message objects (not embedded in system prompt)
+        # Get conversation history as proper message objects
         history_messages = format_history_for_claude(session_id, limit=10)
         
-        # Build system prompt with context (no history - that's in messages now)
+        # Build system prompt with context
         system_prompt = build_adaptive_prompt(context)
         
         # Add user's message to history BEFORE the API call
         add_to_history(session_id, 'user', text)
         
         # Build the full messages array: history + current command
-        # This gives Claude proper conversation context through message turns
         all_messages = history_messages + [
-            {"role": "user", "content": f"Parse this voice command: \"{text}\""}
+                {"role": "user", "content": f"Parse this voice command: \"{text}\""}
         ]
         
         # Ensure we don't have consecutive same-role messages (API requirement)
-        # This can happen if the last history message was 'user' and we're adding another 'user'
         if len(all_messages) >= 2:
             if all_messages[-2]['role'] == 'user':
-                # Merge with previous user message or insert assistant acknowledgment
                 all_messages.insert(-1, {"role": "assistant", "content": '{"response": "Listening..."}'})
         
-        message = claude_client.messages.create(
-            model="claude-opus-4-5-20251101",  # Opus 4.5 - most intelligent model
-            max_tokens=2048,  # Increased for quality responses
-            messages=all_messages,
-            system=system_prompt
-        )
+        # Use OpenAI GPT-4o for faster responses (preferred)
+        if OPENAI_AVAILABLE and openai_client:
+            # OpenAI format: system message is part of messages array
+            openai_messages = [{"role": "system", "content": system_prompt}] + all_messages
+            
+            response = openai_client.chat.completions.create(
+                model="gpt-4o",  # Fast + smart
+                max_tokens=1024,
+                messages=openai_messages,
+                temperature=0.3  # Lower for more consistent command parsing
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            print(f"GPT-4o RAW RESPONSE: {response_text}")
+            print(f"==========================================")
         
-        print(f"CLAUDE RAW RESPONSE: {message.content[0].text}")
-        print(f"==========================================")
-        
-        # Parse the response
+        # Fallback to Claude if OpenAI not available
+        elif CLAUDE_AVAILABLE and claude_client:
+            message = claude_client.messages.create(
+                model="claude-sonnet-4-20250514",  # Sonnet 4 - fast + smart
+                max_tokens=1024,
+                messages=all_messages,
+                system=system_prompt
+            )
+            
         response_text = message.content[0].text.strip()
+            print(f"CLAUDE RAW RESPONSE: {response_text}")
+            print(f"==========================================")
+        
+        else:
+            return jsonify({
+                'action': 'clarify',
+                'speak': 'No AI configured. Add OPENAI_API_KEY or ANTHROPIC_API_KEY.',
+                'response': 'No AI',
+                'needsClarification': True
+            }), 200
         
         # Clean up response - remove markdown code blocks if Claude added them
         if response_text.startswith('```'):
@@ -5915,34 +6094,204 @@ def api_clear_history():
 
 @app.route('/api/claude-status')
 def claude_status():
-    """Check if Claude is available"""
+    """Check AI availability (OpenAI preferred, Claude fallback)"""
+    # Prefer OpenAI for speed
+    if OPENAI_AVAILABLE:
     return jsonify({
-        'available': CLAUDE_AVAILABLE,
-        'model': 'claude-opus-4-5-20251101' if CLAUDE_AVAILABLE else None,
-        'features': ['adaptive', 'context-aware', 'speech-correction'] if CLAUDE_AVAILABLE else []
+            'available': True,
+            'provider': 'openai',
+            'model': 'gpt-4o',
+            'features': ['fast', 'adaptive', 'context-aware', 'speech-correction']
+        })
+    elif CLAUDE_AVAILABLE:
+        return jsonify({
+            'available': True,
+            'provider': 'anthropic',
+            'model': 'claude-sonnet-4-20250514',
+            'features': ['adaptive', 'context-aware', 'speech-correction']
+        })
+    else:
+        return jsonify({
+            'available': False,
+            'provider': None,
+            'model': None,
+            'features': []
+        })
+
+# ============================================================================
+# OPENAI WHISPER (CLOUD STT) & TTS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/whisper', methods=['POST'])
+@csrf.exempt
+@login_required
+def api_whisper_transcribe():
+    """Transcribe audio using OpenAI Whisper API (cloud)"""
+    if not OPENAI_AVAILABLE or not openai_client:
+        return jsonify({
+            'success': False,
+            'error': 'OpenAI API key not configured. Add OPENAI_API_KEY to Render settings.'
+        }), 503
+    
+    if 'audio' not in request.files:
+        return jsonify({'success': False, 'error': 'No audio file provided'}), 400
+    
+    audio_file = request.files['audio']
+    
+    try:
+        import tempfile
+        import os as temp_os
+        
+        # Save to temp file (OpenAI API needs a file-like object with name)
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp:
+            audio_file.save(tmp.name)
+            tmp_path = tmp.name
+        
+        try:
+            # Call OpenAI Whisper API
+            with open(tmp_path, 'rb') as audio:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio,
+                    response_format="text"
+                )
+            
+            print(f"[WHISPER-CLOUD] Transcribed: {transcript[:100]}...")
+            
+            return jsonify({
+                'success': True,
+                'text': transcript.strip(),
+                'source': 'openai-whisper'
+            })
+            
+        finally:
+            # Clean up temp file
+            if temp_os.path.exists(tmp_path):
+                temp_os.remove(tmp_path)
+                
+    except Exception as e:
+        import traceback
+        print(f"[WHISPER-CLOUD] Error: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/tts', methods=['POST'])
+@csrf.exempt
+@login_required
+def api_tts():
+    """Generate speech using OpenAI TTS API"""
+    if not OPENAI_AVAILABLE or not openai_client:
+        return jsonify({
+            'success': False,
+            'error': 'OpenAI API key not configured. Add OPENAI_API_KEY to Render settings.'
+        }), 503
+    
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
+    
+    text = data.get('text', '')
+    voice = data.get('voice', 'nova')  # Default: nova (friendly, natural)
+    speed = data.get('speed', 1.0)
+    
+    if not text:
+        return jsonify({'success': False, 'error': 'No text provided'}), 400
+    
+    # Limit text length to prevent abuse
+    if len(text) > 4096:
+        text = text[:4096]
+    
+    try:
+        # Generate speech with OpenAI TTS
+        response = openai_client.audio.speech.create(
+            model="tts-1",  # Use tts-1-hd for higher quality
+            voice=voice,    # alloy, echo, fable, onyx, nova, shimmer
+            input=text,
+            speed=speed     # 0.25 to 4.0
+        )
+        
+        # Stream the audio back
+        return Response(
+            response.iter_bytes(),
+            mimetype='audio/mpeg',
+            headers={
+                'Content-Type': 'audio/mpeg',
+                'Cache-Control': 'no-cache'
+            }
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"[TTS] Error: {e}")
+        print(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/openai-status')
+def openai_status():
+    """Check if OpenAI is available"""
+    return jsonify({
+        'available': OPENAI_AVAILABLE,
+        'features': {
+            'whisper': OPENAI_AVAILABLE,  # Cloud STT
+            'tts': OPENAI_AVAILABLE       # Text-to-Speech
+        },
+        'voices': ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] if OPENAI_AVAILABLE else []
     })
 
 @app.route('/api/debug-claude')
 def debug_claude():
-    """Debug endpoint to check Claude configuration"""
+    """Debug endpoint to check AI configuration"""
     import os
-    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    openai_key = os.environ.get('OPENAI_API_KEY', '')
+    anthropic_key = os.environ.get('ANTHROPIC_API_KEY', '')
     
-    # Try to actually call Claude with a simple test
-    test_error = None
-    if CLAUDE_AVAILABLE and claude_client:
+    results = {}
+    
+    # Test OpenAI (preferred)
+    if OPENAI_AVAILABLE and openai_client:
         try:
-            test = claude_client.messages.create(
-                model="claude-opus-4-5-20251101",
+            test = openai_client.chat.completions.create(
+                model="gpt-4o",
                 max_tokens=10,
                 messages=[{"role": "user", "content": "Say hi"}]
             )
-            test_result = "SUCCESS: " + test.content[0].text
+            results['openai'] = {
+                'status': 'SUCCESS',
+                'response': test.choices[0].message.content,
+                'model': 'gpt-4o'
+            }
         except Exception as e:
-            test_result = "FAILED"
-            test_error = str(e)
+            results['openai'] = {'status': 'FAILED', 'error': str(e)}
     else:
-        test_result = "CLIENT NOT CREATED"
+        results['openai'] = {'status': 'NOT CONFIGURED', 'key_set': bool(openai_key)}
+    
+    # Test Claude (fallback)
+    if CLAUDE_AVAILABLE and claude_client:
+        try:
+            test = claude_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Say hi"}]
+            )
+            results['claude'] = {
+                'status': 'SUCCESS',
+                'response': test.content[0].text,
+                'model': 'claude-sonnet-4-20250514'
+            }
+        except Exception as e:
+            results['claude'] = {'status': 'FAILED', 'error': str(e)}
+    else:
+        results['claude'] = {'status': 'NOT CONFIGURED', 'key_set': bool(anthropic_key)}
+    
+    test_result = results.get('openai', {}).get('status', 'UNKNOWN')
+    test_error = results.get('openai', {}).get('error') or results.get('claude', {}).get('error')
     
     return jsonify({
         'key_exists': bool(api_key),
