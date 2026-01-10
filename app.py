@@ -4557,9 +4557,23 @@ DASHBOARD_PAGE = '''
                                 transcriptEl.textContent = `Ready for "${wakeWord}"`;
                                 transcriptEl.classList.remove('active');
                                 document.getElementById('voice-status').textContent = 'Standby';
+                                
+                                // CRITICAL: Restart listening for next wake word!
+                                console.log('[ALWAYS-LISTEN] Restarting to listen for wake word...');
+                                startListening();
                             }, 1500);
                         }
                     })();
+                }
+            } else {
+                // Wake word not detected and we're in alwaysListen mode - restart to keep listening
+                if (alwaysListen) {
+                    console.log('[ALWAYS-LISTEN] Wake word not detected, continuing to listen...');
+                    setTimeout(() => {
+                        if (alwaysListen && !isListening) {
+                            startListening();
+                        }
+                    }, 500);
                 }
             }
         }
@@ -4596,8 +4610,18 @@ DASHBOARD_PAGE = '''
                 updateUI();
                 console.log('[WHISPER] Cleanup complete');
                 
-                // Pre-warm mic again for next use (instant start next time!)
-                setTimeout(() => preWarmMicrophone(), 500);
+                // If alwaysListen is on, restart listening for wake word
+                if (alwaysListen) {
+                    console.log('[ALWAYS-LISTEN] Restarting to listen for wake word...');
+                    setTimeout(() => {
+                        if (alwaysListen) {
+                            startListening();
+                        }
+                    }, 1000);
+                } else {
+                    // Pre-warm mic again for next use (instant start next time!)
+                    setTimeout(() => preWarmMicrophone(), 500);
+                }
             }, 500);
         }
         
@@ -5901,12 +5925,9 @@ DASHBOARD_PAGE = '''
             saveDevices();
             
             if (alwaysListen) {
-                addActivity('Wake word listening enabled', 'success');
-                // Note: Continuous listening with Whisper is expensive, so we don't auto-start
-                // User must click mic button to start
-                if (!isElectron) {
-                    startListening();
-                }
+                addActivity('🎤 Wake word listening enabled - say "' + (currentDevice?.wakeWord || 'jarvis') + '" to activate', 'success');
+                // Start listening for wake word (both browser and Electron)
+                startListening();
             } else {
                 addActivity('Wake word listening disabled', 'info');
                 if (isListening && !continuousMode) {
