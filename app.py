@@ -2415,6 +2415,16 @@ DASHBOARD_PAGE = '''
                     toggleListening();
                 }
             });
+            
+            // Push-to-Talk: stop recording when key released
+            if (window.electronAPI.onStopRecording) {
+                window.electronAPI.onStopRecording(() => {
+                    console.log('🎤 Push-to-talk released');
+                    if (isListening) {
+                        stopListening();
+                    }
+                });
+            }
         }
         
         // ELECTRON: Always use Whisper, skip Web Speech API entirely
@@ -3548,6 +3558,7 @@ DASHBOARD_PAGE = '''
         
         async function startWhisperRecording() {
             console.log('[WHISPER] Starting recording mode, cloud:', useCloudWhisper);
+            playChime('start');  // Audio feedback
             
             // Check if Whisper service is running
             const whisperAvailable = await checkWhisperService();
@@ -3702,6 +3713,123 @@ DASHBOARD_PAGE = '''
         }
         
         // ============================================================
+        // AUDIO FEEDBACK (Chimes)
+        // ============================================================
+        
+        let audioContext = null;
+        let audioFeedbackEnabled = true;
+        
+        function getAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioContext;
+        }
+        
+        function playChime(type = 'start') {
+            if (!audioFeedbackEnabled) return;
+            
+            try {
+                const ctx = getAudioContext();
+                const oscillator = ctx.createOscillator();
+                const gainNode = ctx.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(ctx.destination);
+                
+                if (type === 'start') {
+                    // Rising tone for start (friendly "ready" sound)
+                    oscillator.frequency.setValueAtTime(440, ctx.currentTime); // A4
+                    oscillator.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1); // A5
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.15);
+                } else if (type === 'stop') {
+                    // Falling tone for stop (gentle "done" sound)
+                    oscillator.frequency.setValueAtTime(660, ctx.currentTime); // E5
+                    oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15); // A4
+                    gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.2);
+                } else if (type === 'error') {
+                    // Double low tone for error
+                    oscillator.frequency.setValueAtTime(220, ctx.currentTime); // A3
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.1);
+                    
+                    // Second beep
+                    setTimeout(() => {
+                        const osc2 = ctx.createOscillator();
+                        const gain2 = ctx.createGain();
+                        osc2.connect(gain2);
+                        gain2.connect(ctx.destination);
+                        osc2.frequency.setValueAtTime(220, ctx.currentTime);
+                        gain2.gain.setValueAtTime(0.3, ctx.currentTime);
+                        gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                        osc2.start(ctx.currentTime);
+                        osc2.stop(ctx.currentTime + 0.1);
+                    }, 150);
+                }
+                
+                console.log('[AUDIO] Played chime:', type);
+            } catch (e) {
+                console.log('[AUDIO] Chime failed:', e.message);
+            }
+        }
+        
+        // ============================================================
+        // FILLER WORD REMOVAL
+        // ============================================================
+        
+        const fillerWords = [
+            'um', 'uh', 'uhh', 'umm', 'er', 'err', 'ah', 'ahh',
+            'like', 'you know', 'basically', 'actually', 'literally',
+            'so', 'well', 'anyway', 'i mean', 'right',
+            'kind of', 'sort of', 'kinda', 'sorta'
+        ];
+        
+        const fillerPatterns = [
+            /\[inaudible\]/gi,
+            /\[unclear\]/gi,
+            /\[music\]/gi,
+            /\[applause\]/gi,
+            /\.{3,}/g,  // Multiple periods
+        ];
+        
+        function removeFillerWords(text) {
+            if (!text) return text;
+            
+            let cleaned = text;
+            
+            // Remove bracketed content
+            fillerPatterns.forEach(pattern => {
+                cleaned = cleaned.replace(pattern, '');
+            });
+            
+            // Remove filler words (only when standalone, not part of other words)
+            fillerWords.forEach(filler => {
+                // Match filler word with word boundaries, case insensitive
+                const regex = new RegExp(`\\b${filler}\\b[,]?\\s*`, 'gi');
+                cleaned = cleaned.replace(regex, '');
+            });
+            
+            // Clean up extra spaces and punctuation
+            cleaned = cleaned.replace(/\s+/g, ' ').trim();
+            cleaned = cleaned.replace(/^[,\s]+/, '').replace(/[,\s]+$/, '');
+            cleaned = cleaned.replace(/\s+([,.])/g, '$1');
+            
+            if (cleaned !== text) {
+                console.log('[FILLER] Cleaned:', text, '→', cleaned);
+            }
+            
+            return cleaned;
+        }
+        
+        // ============================================================
         // TEXT-TO-SPEECH (OpenAI TTS)
         // ============================================================
         
@@ -3767,6 +3895,10 @@ DASHBOARD_PAGE = '''
         }
         
         function processWhisperTranscript(text) {
+            // Remove filler words first
+            text = removeFillerWords(text);
+            if (!text || text.length < 2) return;  // Skip if empty after cleaning
+            
             // This mirrors the logic from recognition.onresult
             const transcriptEl = document.getElementById('transcript');
             const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
@@ -3838,6 +3970,7 @@ DASHBOARD_PAGE = '''
         }
         
         function stopWhisperRecording() {
+            playChime('stop');  // Audio feedback
             useWhisper = false;
             
             if (whisperRecorder && whisperRecorder.state === 'recording') {
@@ -6097,7 +6230,7 @@ def claude_status():
     """Check AI availability (OpenAI preferred, Claude fallback)"""
     # Prefer OpenAI for speed
     if OPENAI_AVAILABLE:
-    return jsonify({
+        return jsonify({
             'available': True,
             'provider': 'openai',
             'model': 'gpt-4o',

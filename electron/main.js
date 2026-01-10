@@ -315,12 +315,34 @@ function registerGlobalShortcuts() {
     console.error('Failed to register global shortcut:', shortcut);
   }
 
-  // Quick record shortcut (hold to record)
+  // Quick record shortcut (toggle recording)
   globalShortcut.register('CommandOrControl+Shift+V', () => {
     if (mainWindow) {
       mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send('start-recording');
+    }
+  });
+
+  // Push-to-Talk shortcut (Cmd+Shift+Space)
+  // Tracks state to toggle recording on/off
+  let pttRecording = false;
+  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+      
+      if (!pttRecording) {
+        // Start recording
+        console.log('[PTT] Starting recording');
+        mainWindow.webContents.send('start-recording');
+        pttRecording = true;
+      } else {
+        // Stop recording
+        console.log('[PTT] Stopping recording');
+        mainWindow.webContents.send('stop-recording');
+        pttRecording = false;
+      }
     }
   });
 

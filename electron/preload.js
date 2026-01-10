@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onStartRecording: (callback) => {
     ipcRenderer.on('start-recording', callback);
   },
+  onStopRecording: (callback) => {
+    ipcRenderer.on('stop-recording', callback);
+  },
   
   // Remove listeners
   removeAllListeners: (channel) => {
