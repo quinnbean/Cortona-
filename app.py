@@ -2864,7 +2864,7 @@ DASHBOARD_PAGE = '''
         
         function escapeRegex(string) {
             // Escape special regex characters
-            return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return String(string).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
         }
         
         // Route a command to a specific device
