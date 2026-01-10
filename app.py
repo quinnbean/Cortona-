@@ -3986,11 +3986,6 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        // Escape regex special characters
-        function escapeRegex(str) {
-            return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }
-        
         // Apply word replacements
         function applyWordReplacements(text) {
             if (!text) return text;
