@@ -2863,8 +2863,13 @@ DASHBOARD_PAGE = '''
         }
         
         function escapeRegex(string) {
-            // Escape special regex characters
-            return String(string).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+            // Escape special regex characters - using split/map to avoid escaping issues
+            var specials = ['.', '*', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']', String.fromCharCode(92)];
+            var result = String(string);
+            specials.forEach(function(char) {
+                result = result.split(char).join(String.fromCharCode(92) + char);
+            });
+            return result;
         }
         
         // Route a command to a specific device
