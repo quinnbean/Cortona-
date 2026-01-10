@@ -3636,6 +3636,10 @@ DASHBOARD_PAGE = '''
                 // Get microphone access
                 whisperMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
+                // Track when recording started (for silence detection)
+                window.recordingStartTime = Date.now();
+                window.silenceStart = null;
+                
                 // Start audio level visualization
                 startAudioLevelTracking(whisperMediaStream);
                 
@@ -3844,6 +3848,49 @@ DASHBOARD_PAGE = '''
                             const height = Math.max(4, Math.min(24, (level * 24 + 4) * baseScales[i]));
                             bar.style.height = height + 'px';
                         }
+                    }
+                    
+                    // SILENCE DETECTION - auto-stop after silence
+                    const silenceThreshold = 0.02; // Below this = silence
+                    const silenceTimeout = 2000; // 2 seconds of silence = stop
+                    const minRecordingTime = 1000; // Minimum 1 second before silence detection kicks in
+                    
+                    // Only check silence after minimum recording time
+                    const recordingDuration = window.recordingStartTime ? Date.now() - window.recordingStartTime : 0;
+                    
+                    if (level < silenceThreshold && recordingDuration > minRecordingTime) {
+                        if (!window.silenceStart) {
+                            window.silenceStart = Date.now();
+                            console.log('[SILENCE] Silence detected, starting timer...');
+                        } else {
+                            const silenceDuration = Date.now() - window.silenceStart;
+                            // Update UI to show countdown
+                            if (silenceDuration > 500) {
+                                const remaining = Math.ceil((silenceTimeout - silenceDuration) / 1000);
+                                const statusEl = document.getElementById('voice-status');
+                                if (statusEl && remaining > 0) {
+                                    statusEl.textContent = 'Processing in ' + remaining + 's...';
+                                }
+                            }
+                            
+                            if (silenceDuration > silenceTimeout && isListening) {
+                                console.log('[SILENCE] 2 seconds of silence - auto-stopping');
+                                window.silenceStart = null;
+                                // Auto-stop recording
+                                if (useWhisper && whisperRecorder) {
+                                    stopWhisperRecording();
+                                }
+                            }
+                        }
+                    } else if (level >= silenceThreshold) {
+                        // Reset silence timer when speech detected
+                        if (window.silenceStart) {
+                            console.log('[SILENCE] Speech detected, resetting timer');
+                            // Restore status
+                            const statusEl = document.getElementById('voice-status');
+                            if (statusEl) statusEl.textContent = 'Listening...';
+                        }
+                        window.silenceStart = null;
                     }
                 }, 50);
                 
@@ -4295,6 +4342,10 @@ DASHBOARD_PAGE = '''
             playChime('stop');  // Audio feedback
             stopAudioLevelTracking();  // Stop visualization
             useWhisper = false;
+            
+            // Reset silence detection
+            window.recordingStartTime = null;
+            window.silenceStart = null;
             
             if (whisperRecorder && whisperRecorder.state === 'recording') {
                 whisperRecorder.stop();
