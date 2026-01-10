@@ -1413,8 +1413,9 @@ DASHBOARD_PAGE = '''
     <title>Voice Hub Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
-    <!-- Picovoice Porcupine for local wake word detection -->
+    <!-- Picovoice for local wake word + speech-to-text (FREE & FAST) -->
     <script src="https://unpkg.com/@picovoice/porcupine-web@3.0.0/dist/iife/index.js"></script>
+    <script src="https://unpkg.com/@picovoice/cheetah-web@2.0.0/dist/iife/index.js"></script>
     <style>
         :root {
             --bg-primary: #0a0a0f;
@@ -3848,19 +3849,25 @@ DASHBOARD_PAGE = '''
             playSound('activate');
             addActivity('🎯 Wake word detected! Listening for command...', 'success');
             
-            // Start Whisper recording for the actual command
+            // Start recording for the actual command
             isActiveDictation = true;
             document.getElementById('voice-status').textContent = 'Speak your command...';
             document.getElementById('transcript').textContent = 'Listening...';
             document.getElementById('transcript').classList.add('active');
             
-            // Stop Porcupine temporarily, start Whisper
+            // Stop Porcupine temporarily
             if (porcupineInstance) {
                 porcupineInstance.stop();
             }
             
-            // Start Whisper recording for the command
-            startWhisperRecording();
+            // Use Cheetah (local, fast) or fall back to Whisper
+            if (useCheetah) {
+                console.log('[WAKE] Using Cheetah for command (local, fast)');
+                startCheetahRecording();
+            } else {
+                console.log('[WAKE] Using Whisper for command (cloud)');
+                startWhisperRecording();
+            }
         }
         
         function stopPorcupineListening() {
@@ -3875,7 +3882,200 @@ DASHBOARD_PAGE = '''
         }
         
         // ============================================================
-        // WHISPER SPEECH RECOGNITION (Cloud API - OpenAI)
+        // CHEETAH LOCAL SPEECH-TO-TEXT (Fast & Free!)
+        // ============================================================
+        
+        let cheetahInstance = null;
+        let cheetahStream = null;
+        let cheetahAudioContext = null;
+        let cheetahProcessor = null;
+        let useCheetah = true;  // Use local Cheetah for STT (free & fast)
+        let cheetahTranscript = '';  // Accumulated transcript
+        let cheetahSilenceTimer = null;
+        
+        async function initCheetah() {
+            if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.includes('{{')) {
+                console.log('[CHEETAH] No access key configured - using Whisper');
+                useCheetah = false;
+                return false;
+            }
+            
+            try {
+                console.log('[CHEETAH] Initializing local speech-to-text...');
+                
+                cheetahInstance = await CheetahWeb.CheetahWorker.create(
+                    PICOVOICE_ACCESS_KEY,
+                    {
+                        publicPath: 'https://unpkg.com/@picovoice/cheetah-web@2.0.0/dist/',
+                        enableAutomaticPunctuation: true
+                    },
+                    {
+                        processCallback: (transcript) => {
+                            // Called for partial results
+                            if (transcript.transcript) {
+                                console.log('[CHEETAH] Partial:', transcript.transcript);
+                                cheetahTranscript += transcript.transcript;
+                                
+                                // Show partial in UI
+                                const transcriptEl = document.getElementById('transcript');
+                                if (transcriptEl) {
+                                    transcriptEl.textContent = cheetahTranscript;
+                                    transcriptEl.classList.add('active');
+                                }
+                                
+                                // Reset silence timer
+                                if (cheetahSilenceTimer) clearTimeout(cheetahSilenceTimer);
+                                cheetahSilenceTimer = setTimeout(() => {
+                                    // Silence detected, finalize
+                                    finalizeCheetahTranscript();
+                                }, 2000);  // 2 second silence = done
+                            }
+                        },
+                        endpointCallback: (finalTranscript) => {
+                            // Called when endpoint detected
+                            if (finalTranscript.transcript) {
+                                console.log('[CHEETAH] Final:', finalTranscript.transcript);
+                                cheetahTranscript += finalTranscript.transcript;
+                            }
+                        }
+                    }
+                );
+                
+                console.log('[CHEETAH] ✅ Initialized successfully - local STT ready!');
+                return true;
+                
+            } catch (e) {
+                console.error('[CHEETAH] Failed to initialize:', e);
+                useCheetah = false;
+                return false;
+            }
+        }
+        
+        async function startCheetahRecording() {
+            console.log('[CHEETAH] Starting local STT recording...');
+            playChime('start');
+            
+            if (!cheetahInstance) {
+                const success = await initCheetah();
+                if (!success) {
+                    console.log('[CHEETAH] Not available, falling back to Whisper');
+                    startWhisperRecording();
+                    return;
+                }
+            }
+            
+            try {
+                // Reset transcript
+                cheetahTranscript = '';
+                
+                // Get mic stream
+                cheetahStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1
+                    } 
+                });
+                
+                // Create audio context at Cheetah's required sample rate
+                cheetahAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+                
+                const source = cheetahAudioContext.createMediaStreamSource(cheetahStream);
+                
+                // Process audio through Cheetah
+                const bufferSize = 512;
+                cheetahProcessor = cheetahAudioContext.createScriptProcessor(bufferSize, 1, 1);
+                
+                cheetahProcessor.onaudioprocess = (event) => {
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    // Convert to Int16 for Cheetah
+                    const pcm = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        pcm[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+                    }
+                    
+                    if (cheetahInstance) {
+                        cheetahInstance.process(pcm);
+                    }
+                };
+                
+                source.connect(cheetahProcessor);
+                cheetahProcessor.connect(cheetahAudioContext.destination);
+                
+                // Update UI
+                isListening = true;
+                useWhisper = false;
+                document.getElementById('voice-status').textContent = 'Listening (local)...';
+                document.getElementById('transcript').textContent = 'Speak now...';
+                document.getElementById('transcript').classList.add('active');
+                updateUI();
+                
+                addActivity('🎤 Local STT active (FREE & FAST)', 'success');
+                
+                // Set silence timeout for auto-stop
+                cheetahSilenceTimer = setTimeout(() => {
+                    if (cheetahTranscript.length === 0) {
+                        console.log('[CHEETAH] No speech detected, stopping...');
+                        stopCheetahRecording();
+                    }
+                }, 5000);
+                
+            } catch (e) {
+                console.error('[CHEETAH] Failed to start:', e);
+                addActivity('⚠️ Cheetah failed, using Whisper...', 'warning');
+                startWhisperRecording();
+            }
+        }
+        
+        function stopCheetahRecording() {
+            console.log('[CHEETAH] Stopping recording...');
+            playChime('stop');
+            
+            if (cheetahSilenceTimer) {
+                clearTimeout(cheetahSilenceTimer);
+                cheetahSilenceTimer = null;
+            }
+            
+            if (cheetahProcessor) {
+                cheetahProcessor.disconnect();
+                cheetahProcessor = null;
+            }
+            
+            if (cheetahAudioContext) {
+                cheetahAudioContext.close();
+                cheetahAudioContext = null;
+            }
+            
+            if (cheetahStream) {
+                cheetahStream.getTracks().forEach(track => track.stop());
+                cheetahStream = null;
+            }
+            
+            isListening = false;
+            updateUI();
+        }
+        
+        function finalizeCheetahTranscript() {
+            console.log('[CHEETAH] Finalizing transcript:', cheetahTranscript);
+            
+            // Stop recording
+            stopCheetahRecording();
+            
+            // Process the transcript
+            if (cheetahTranscript && cheetahTranscript.trim().length > 0) {
+                processWhisperTranscript(cheetahTranscript.trim());
+            } else {
+                console.log('[CHEETAH] No transcript to process');
+                document.getElementById('transcript').textContent = 'No speech detected';
+            }
+            
+            // Clear for next time
+            cheetahTranscript = '';
+        }
+        
+        // ============================================================
+        // WHISPER SPEECH RECOGNITION (Cloud API - Fallback)
         // ============================================================
         
         // Cache for Whisper availability - checked once at startup
@@ -5448,6 +5648,16 @@ DASHBOARD_PAGE = '''
             continuousMode = false;
             document.getElementById('toggle-continuous').classList.remove('active');
             
+            // Stop Cheetah if active
+            if (cheetahAudioContext || cheetahStream) {
+                stopCheetahRecording();
+            }
+            
+            // Stop Porcupine if active
+            if (porcupineInstance) {
+                stopPorcupineListening();
+            }
+            
             // Stop Whisper if active
             if (useWhisper) {
                 stopWhisperRecording();
@@ -5455,14 +5665,16 @@ DASHBOARD_PAGE = '''
             
             // Stop Web Speech API if active
             if (recognition && isListening) {
-            recognition.stop();
+                recognition.stop();
             }
             
+            isListening = false;
+            updateUI();
             socket.emit('device_status', { deviceId, status: 'idle' });
         }
         
         async function toggleListening() {
-            console.log('toggleListening called, isListening:', isListening, 'useWhisper:', useWhisper, 'useCloudWhisper:', useCloudWhisper, 'isElectron:', isElectron);
+            console.log('toggleListening called, isListening:', isListening, 'useCheetah:', useCheetah, 'isElectron:', isElectron);
             
             if (isListening) {
                 console.log('Stopping...');
@@ -5470,13 +5682,21 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // ELECTRON or CLOUD WHISPER: Use OpenAI Whisper API
+            // Mark this as a manual mic click - bypasses wake word requirement
+            manualMicClick = true;
+            console.log('[MIC] Manual mic click - wake word not required');
+            
+            // Try Cheetah first (local, fast, free)
+            if (useCheetah && PICOVOICE_ACCESS_KEY && !PICOVOICE_ACCESS_KEY.includes('{{')) {
+                console.log('[CHEETAH] Using local Picovoice STT (fast & free)');
+                addActivity('🚀 Starting local STT (Cheetah)...', 'info');
+                startCheetahRecording();
+                return;
+            }
+            
+            // Fall back to Whisper (cloud)
             if (isElectron || useWhisper || useCloudWhisper) {
                 console.log('[WHISPER] Using', useCloudWhisper ? 'OpenAI Cloud' : 'Local', 'Whisper');
-                
-                // Mark this as a manual mic click - bypasses wake word requirement
-                manualMicClick = true;
-                console.log('[MIC] Manual mic click - wake word not required');
                 
                 const whisperAvailable = await checkWhisperService();
                 if (whisperAvailable) {
