@@ -6018,7 +6018,7 @@ def api_parse_command():
                 system=system_prompt
             )
             
-        response_text = message.content[0].text.strip()
+            response_text = message.content[0].text.strip()
             print(f"CLAUDE RAW RESPONSE: {response_text}")
             print(f"==========================================")
         
