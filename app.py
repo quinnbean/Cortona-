@@ -3706,14 +3706,23 @@ DASHBOARD_PAGE = '''
                     
                     const response = await fetch('/api/whisper', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        credentials: 'include'
                     });
                     
                     if (!response.ok) {
                         console.error('[WHISPER-CLOUD] Transcription failed:', response.status);
-                        const errorData = await response.json().catch(() => ({}));
-                        if (errorData.error) {
-                            addActivity(`❌ ${errorData.error}`, 'warning');
+                        const errorText = await response.text().catch(() => 'Unknown error');
+                        console.error('[WHISPER-CLOUD] Error details:', errorText);
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            if (errorData.error) {
+                                addActivity(`❌ ${errorData.error}`, 'warning');
+                            } else {
+                                addActivity(`❌ Transcription failed: ${response.status}`, 'warning');
+                            }
+                        } catch (e) {
+                            addActivity(`❌ Transcription failed: ${response.status}`, 'warning');
                         }
                         return;
                     }
@@ -4109,7 +4118,8 @@ DASHBOARD_PAGE = '''
                     body: JSON.stringify({
                         text: text,
                         voice: ttsVoice
-                    })
+                    }),
+                    credentials: 'include'
                 });
                 
                 if (!response.ok) {
