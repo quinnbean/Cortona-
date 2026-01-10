@@ -4776,7 +4776,7 @@ DASHBOARD_PAGE = '''
             let corrections = [];
             
             for (const [wrong, right] of Object.entries(spellCheckDict)) {
-                const regex = new RegExp('\\\\b' + wrong + '\\\\b', 'gi');
+                const regex = new RegExp('\\b' + wrong + '\\b', 'gi');
                 if (regex.test(corrected)) {
                     corrections.push({ from: wrong, to: right });
                     corrected = corrected.replace(regex, right);
@@ -4800,14 +4800,15 @@ DASHBOARD_PAGE = '''
                 'period': '.', 'comma': ',', 'question mark': '?',
                 'exclamation mark': '!', 'exclamation point': '!',
                 'colon': ':', 'semicolon': ';',
-                'new line': '\\n', 'newline': '\\n', 'new paragraph': '\\n\\n',
+                'new line': String.fromCharCode(10), 'newline': String.fromCharCode(10), 
+                'new paragraph': String.fromCharCode(10) + String.fromCharCode(10),
                 'open quote': '"', 'close quote': '"', 'quote': '"',
                 'open paren': '(', 'close paren': ')',
                 'hyphen': '-', 'dash': '—'
             };
             
             for (const [word, symbol] of Object.entries(replacements)) {
-                const regex = new RegExp('\\\\b' + word + '\\\\b', 'gi');
+                const regex = new RegExp('\\b' + word + '\\b', 'gi');
                 text = text.replace(regex, symbol);
             }
             
