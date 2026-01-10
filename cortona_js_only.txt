@@ -472,8 +472,7 @@
         
         function escapeRegex(string) {
             // Escape special regex characters
-            // Using a safer approach that avoids Python/JS escape conflicts
-            return String(string).replace(/[.*+?^${}()|\\[\\]\\\\]/g, '\\\\$&');
+            return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
         
         // Route a command to a specific device

@@ -4,6 +4,23 @@ const { exec, execSync } = require('child_process');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
 
+// Handle EPIPE errors gracefully (happens when subprocess streams close)
+process.on('uncaughtException', (err) => {
+  if (err.code === 'EPIPE') {
+    console.error('[IGNORED] EPIPE error - subprocess stream closed');
+    return; // Don't crash on EPIPE
+  }
+  console.error('Uncaught exception:', err);
+});
+
+process.stdout.on('error', (err) => {
+  if (err.code === 'EPIPE') return; // Ignore EPIPE on stdout
+});
+
+process.stderr.on('error', (err) => {
+  if (err.code === 'EPIPE') return; // Ignore EPIPE on stderr
+});
+
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
