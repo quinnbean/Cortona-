@@ -4187,7 +4187,12 @@ DASHBOARD_PAGE = '''
                 const lower = text.toLowerCase().trim();
                 
                 // Check for non-ASCII characters (likely hallucination if user expects English)
-                const nonAsciiRatio = (text.match(/[^\x00-\x7F]/g) || []).length / text.length;
+                // Using charCodeAt to avoid regex escaping issues
+                let nonAsciiCount = 0;
+                for (let i = 0; i < text.length; i++) {
+                    if (text.charCodeAt(i) > 127) nonAsciiCount++;
+                }
+                const nonAsciiRatio = nonAsciiCount / text.length;
                 if (nonAsciiRatio > 0.3) {
                     console.log('[WHISPER] Filtered non-English hallucination:', text);
                     return true;
