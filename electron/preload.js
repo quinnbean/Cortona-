@@ -40,6 +40,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Check if app control is available
   canControlApps: () => ipcRenderer.invoke('can-control-apps'),
   
+  // ========== SYSTEM PREFERENCES ==========
+  // Open Accessibility settings pane
+  openAccessibilitySettings: () => ipcRenderer.invoke('open-accessibility-settings'),
+  
+  // Check if Accessibility permission is granted
+  checkAccessibility: () => ipcRenderer.invoke('check-accessibility'),
+  
   // ========== WHISPER SPEECH-TO-TEXT ==========
   // Check if Whisper service is running
   whisperHealth: () => ipcRenderer.invoke('whisper-health'),

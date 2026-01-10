@@ -598,6 +598,35 @@ function setupIPC() {
     return true;
   });
 
+  // ========== SYSTEM PREFERENCES ==========
+  
+  // Open Accessibility settings
+  ipcMain.handle('open-accessibility-settings', async () => {
+    try {
+      if (process.platform === 'darwin') {
+        exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+        return { success: true };
+      }
+      return { success: false, error: 'Not macOS' };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Check Accessibility permission (approximate - can't directly check)
+  ipcMain.handle('check-accessibility', async () => {
+    try {
+      if (process.platform === 'darwin') {
+        // Try a harmless AppleScript to test if we have accessibility
+        const result = execSync('osascript -e "tell application \\"System Events\\" to get name of first process"', { timeout: 2000 });
+        return { granted: true };
+      }
+      return { granted: true };
+    } catch (e) {
+      return { granted: false, error: e.message };
+    }
+  });
+
   // ========== APP CONTROL ==========
   
   // Focus an app

@@ -2220,6 +2220,39 @@ DASHBOARD_PAGE = '''
                 </div>
             </div>
             
+            <!-- Permissions Section (Electron only) -->
+            <div class="settings-section electron-only" id="permissions-section" style="display: none;">
+                <h3>🔐 System Permissions</h3>
+                <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
+                    Cortona needs these permissions to control apps and type text on your behalf.
+                </p>
+                
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Microphone</h4>
+                        <p id="mic-permission-status">Checking...</p>
+                    </div>
+                    <button class="btn btn-primary" id="btn-mic-permission" onclick="requestMicPermission()" style="display: none;">
+                        Grant Access
+                    </button>
+                    <span id="mic-permission-granted" style="color: var(--success); display: none;">✅ Granted</span>
+                </div>
+                
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <h4>Accessibility</h4>
+                        <p id="accessibility-status">Required to type and control other apps</p>
+                    </div>
+                    <button class="btn btn-primary" id="btn-accessibility" onclick="openAccessibilitySettings()">
+                        Open Settings
+                    </button>
+                </div>
+                
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 16px;">
+                    💡 <strong>Tip:</strong> If commands fail with "osascript is not allowed", click "Open Settings" above and add Cortona to the Accessibility list.
+                </p>
+            </div>
+            
             <!-- Command Routing Panel -->
             <div class="settings-section" id="command-routing">
                 <h3>🎯 Command Routing</h3>
@@ -2485,7 +2518,9 @@ DASHBOARD_PAGE = '''
             console.log('[ELECTRON] Using OpenAI Cloud Whisper for speech recognition');
             useWhisper = true;  // Force Whisper mode
             useCloudWhisper = true;  // Use cloud API (faster, more accurate)
-            checkMicPermission();
+            checkMicPermission().then(() => {
+                initPermissionsUI();  // Show permissions UI after checking
+            });
             // Don't initialize Web Speech API at all in Electron
         } else if (!SpeechRecognition) {
             document.getElementById('browser-warning').style.display = 'flex';
@@ -2576,6 +2611,76 @@ DASHBOARD_PAGE = '''
                     addActivity('⚠️ Could not access microphone: ' + err.message, 'warning');
                 }
                 return false;
+            }
+        }
+        
+        // Open Accessibility settings (Electron only)
+        async function openAccessibilitySettings() {
+            if (isElectron && window.electronAPI && window.electronAPI.openAccessibilitySettings) {
+                try {
+                    const result = await window.electronAPI.openAccessibilitySettings();
+                    if (result.success) {
+                        addActivity('🔐 Opening Accessibility settings...', 'info');
+                        addChatMessage('Opening System Settings. Please add Cortona to the Accessibility list and enable it.', 'jarvis');
+                    } else {
+                        addActivity('⚠️ Could not open settings: ' + result.error, 'warning');
+                    }
+                } catch (e) {
+                    console.error('Error opening accessibility settings:', e);
+                    addActivity('⚠️ Error: ' + e.message, 'warning');
+                }
+            } else {
+                // Not in Electron, show instructions
+                addActivity('ℹ️ Open System Settings → Privacy & Security → Accessibility manually', 'info');
+            }
+        }
+        
+        // Check and show accessibility status (Electron only)
+        async function checkAccessibilityStatus() {
+            if (isElectron && window.electronAPI && window.electronAPI.checkAccessibility) {
+                try {
+                    const result = await window.electronAPI.checkAccessibility();
+                    const statusEl = document.getElementById('accessibility-status');
+                    const btnEl = document.getElementById('btn-accessibility');
+                    
+                    if (result.granted) {
+                        if (statusEl) statusEl.innerHTML = '<span style="color: var(--success);">✅ Granted - App control enabled</span>';
+                        if (btnEl) btnEl.textContent = 'Check Again';
+                    } else {
+                        if (statusEl) statusEl.innerHTML = '<span style="color: var(--warning);">⚠️ Not granted - Click to enable</span>';
+                        if (btnEl) btnEl.textContent = 'Open Settings';
+                    }
+                } catch (e) {
+                    console.log('Could not check accessibility:', e);
+                }
+            }
+        }
+        
+        // Show permissions section in Electron
+        function initPermissionsUI() {
+            if (isElectron) {
+                const permSection = document.getElementById('permissions-section');
+                if (permSection) {
+                    permSection.style.display = 'block';
+                }
+                
+                // Update mic permission status
+                const micStatus = document.getElementById('mic-permission-status');
+                const micBtn = document.getElementById('btn-mic-permission');
+                const micGranted = document.getElementById('mic-permission-granted');
+                
+                if (micPermission === 'granted') {
+                    if (micStatus) micStatus.textContent = 'Voice recognition enabled';
+                    if (micBtn) micBtn.style.display = 'none';
+                    if (micGranted) micGranted.style.display = 'inline';
+                } else {
+                    if (micStatus) micStatus.textContent = 'Required for voice commands';
+                    if (micBtn) micBtn.style.display = 'inline-block';
+                    if (micGranted) micGranted.style.display = 'none';
+                }
+                
+                // Check accessibility
+                checkAccessibilityStatus();
             }
         }
         
@@ -4703,23 +4808,21 @@ DASHBOARD_PAGE = '''
                             action: lastAction.action
                         };
                     }
-                    // Check if Claude needs clarification
+                    // If unclear, just copy to clipboard instead of asking for clarification
                     else if (claudeResult.needsClarification || claudeResult.action === 'clarify') {
-                        const clarifyMessage = claudeResult.speak || 'Could you be more specific?';
-                        
-                        // Show Jarvis response in chat
-                        addChatMessage(clarifyMessage, 'jarvis');
-                        
-                        // Speak the clarification
-                        speakText(clarifyMessage);
-                        
-                        // Keep listening for the user's response
-                        isActiveDictation = true;
-                        document.getElementById('voice-status').textContent = 'Listening...';
-                        addActivity(`🤖 ${claudeResult.response || 'Asking for clarification'}`, 'info');
-                        
-                        console.log('🧠 Claude needs clarification:', clarifyMessage);
-                        return; // Don't execute anything, wait for user response
+                        // Copy the original text to clipboard as fallback
+                        try {
+                            await navigator.clipboard.writeText(text);
+                            addChatMessage(`"${text}"`, 'user');
+                            addChatMessage("Copied to clipboard.", 'jarvis');
+                            speakText("Copied to clipboard.");
+                            addActivity('📋 Copied to clipboard (unrecognized command)', 'info');
+                            console.log('📋 Unrecognized command, copied to clipboard:', text);
+                        } catch (err) {
+                            console.error('Clipboard error:', err);
+                            addChatMessage("Sorry, couldn't copy that.", 'jarvis');
+                        }
+                        return;
                     }
                     // Claude has a response to speak (but still executing)
                     else if (claudeResult.speak && !claudeResult.needsClarification) {
@@ -4853,14 +4956,28 @@ DASHBOARD_PAGE = '''
                                 addActivity(`✅ Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
                                 document.getElementById('transcript').textContent = `✅ → ${appInfo.name}: "${parsed.command}"`;
                             } else {
-                                addActivity(`⚠️ Failed to control ${appInfo.name}: ${result.error}`, 'warning');
+                                // Check if it's an accessibility permission error
+                                if (result.error && result.error.includes('osascript is not allowed')) {
+                                    addActivity('🔐 Accessibility permission required!', 'warning');
+                                    addChatMessage('I need Accessibility permission to type in other apps. Let me open the settings for you.', 'jarvis');
+                                    speakText('I need Accessibility permission. Opening settings now.');
+                                    openAccessibilitySettings();
+                                } else {
+                                    addActivity(`⚠️ Failed to control ${appInfo.name}: ${result.error}`, 'warning');
+                                }
                                 // Copy to clipboard as fallback
                                 copyToClipboard(parsed.command);
                                 addActivity('📋 Copied to clipboard instead', 'info');
                             }
                         } catch (e) {
                             console.error('Electron command error:', e);
-                            addActivity(`⚠️ Error: ${e.message}`, 'warning');
+                            // Check for accessibility error in exception too
+                            if (e.message && e.message.includes('osascript is not allowed')) {
+                                addActivity('🔐 Accessibility permission required!', 'warning');
+                                openAccessibilitySettings();
+                            } else {
+                                addActivity(`⚠️ Error: ${e.message}`, 'warning');
+                            }
                             copyToClipboard(parsed.command);
                         }
                     })();
@@ -6439,7 +6556,7 @@ VOICE STYLE (for the "speak" field):
 - "I've got that sorted."
 - "One moment... there we are."
 - "Certainly. Writing that to Cursor now."
-- "I'm afraid I didn't quite catch that. Could you elaborate?"
+- "What would you like me to do with that?"
 - "Shall I proceed with that?"
 
 ALWAYS include a "speak" response - you're conversational! Keep it natural, 5-15 words typically.
@@ -6530,13 +6647,19 @@ IMPORTANT - BE LENIENT:
 User: "hey" or "hello" or "what's up"
 → {{"action":null,"speak":"Hello! What can I help you with?","response":"Greeting"}}
 
-User: "can you hear me" or "test" or "testing"
+User: "can you hear me" or "test" or "testing" or "is this working" or "hello"
 → {{"action":null,"speak":"Loud and clear! What would you like me to do?","response":"Confirmed"}}
 
-User: (unclear audio)
-→ {{"action":"clarify","needsClarification":true,"speak":"I'm afraid I didn't quite catch that. Could you say that again?","response":"Need clarification"}}
+User: "what can you do" or "help"
+→ {{"action":null,"speak":"I can open apps, type in Cursor, search the web, run terminal commands - just tell me what you need.","response":"Help"}}
 
-Remember: ALWAYS be conversational in "speak". You're {assistant_name}, not a robot. Be cool, be British, be helpful. TRY to help - don't just ask for clarification unless you truly have no idea what they want.
+User: (truly gibberish like "asdfgh" or random characters)
+→ {{"action":"clarify","needsClarification":true,"speak":"","response":"Unclear"}}
+
+NEVER ask for clarification for normal speech! If it's English words, respond to them.
+If unsure, just acknowledge and offer to help. ONLY use clarify for truly unrecognizable input.
+
+Remember: ALWAYS be conversational in "speak". You're {assistant_name}, not a robot. Be cool, be British, be helpful. Even simple questions deserve a response!
 
 Return ONLY valid JSON."""
 
@@ -6600,7 +6723,7 @@ def api_parse_command():
     if not text or len(text.strip()) == 0:
         return jsonify({
             'action': 'clarify',
-            'speak': "I didn't catch that. Could you say it again?",
+            'speak': '',
             'response': 'No input',
             'needsClarification': True,
             'claude': True
@@ -6972,12 +7095,13 @@ def debug_claude():
     test_error = results.get('openai', {}).get('error') or results.get('claude', {}).get('error')
     
     return jsonify({
-        'key_exists': bool(api_key),
-        'key_length': len(api_key) if api_key else 0,
-        'key_prefix': api_key[:10] + '...' if len(api_key) > 10 else 'TOO_SHORT',
+        'openai_key_exists': bool(openai_key),
+        'anthropic_key_exists': bool(anthropic_key),
+        'openai_available': OPENAI_AVAILABLE,
         'claude_available': CLAUDE_AVAILABLE,
-        'client_created': claude_client is not None,
-        'test_result': test_result,
+        'openai_client_created': openai_client is not None,
+        'claude_client_created': claude_client is not None,
+        'test_results': results,
         'test_error': test_error
     })
 
