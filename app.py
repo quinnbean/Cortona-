@@ -1714,6 +1714,50 @@ DASHBOARD_PAGE = '''
             0%, 100% { transform: scale(1); box-shadow: 0 10px 40px rgba(16, 185, 129, 0.3); }
             50% { transform: scale(1.08); box-shadow: 0 15px 60px rgba(16, 185, 129, 0.5); }
         }
+        
+        /* Audio Level Visualization */
+        .audio-level-container {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 3px;
+            height: 24px;
+            margin-top: 12px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .audio-level-container.active {
+            opacity: 1;
+        }
+        .audio-bar {
+            width: 4px;
+            border-radius: 2px;
+            background: linear-gradient(to top, var(--accent), var(--success));
+            transition: height 80ms ease-out;
+            min-height: 4px;
+        }
+        .audio-bar:nth-child(1) { opacity: 0.6; }
+        .audio-bar:nth-child(2) { opacity: 0.8; }
+        .audio-bar:nth-child(3) { opacity: 1; }
+        .audio-bar:nth-child(4) { opacity: 0.8; }
+        .audio-bar:nth-child(5) { opacity: 0.6; }
+        
+        @keyframes recording-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .recording-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+            animation: recording-pulse 1.5s ease-in-out infinite;
+            display: none;
+        }
+        .recording-dot.active {
+            display: inline-block;
+        }
+        
         .voice-status {
             font-size: 20px;
             font-weight: 600;
@@ -2064,6 +2108,15 @@ DASHBOARD_PAGE = '''
                 <button class="mic-button" id="mic-button" onclick="toggleListening()">
                     🎤
                 </button>
+                <!-- Audio Level Visualization -->
+                <div class="audio-level-container" id="audio-level-container">
+                    <div class="audio-bar" id="bar-0"></div>
+                    <div class="audio-bar" id="bar-1"></div>
+                    <div class="audio-bar" id="bar-2"></div>
+                    <div class="audio-bar" id="bar-3"></div>
+                    <div class="audio-bar" id="bar-4"></div>
+                </div>
+                <span class="recording-dot" id="recording-dot"></span>
                 <div class="voice-status" id="voice-status">Click to Start</div>
                 <div class="voice-hint" id="voice-hint">
                     Or say your wake word: <strong id="current-wake-word">"Hey Computer"</strong>
@@ -3578,6 +3631,9 @@ DASHBOARD_PAGE = '''
                 // Get microphone access
                 whisperMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
+                // Start audio level visualization
+                startAudioLevelTracking(whisperMediaStream);
+                
                 // Start continuous recording loop
                 whisperContinuousRecord();
                 
@@ -3713,17 +3769,99 @@ DASHBOARD_PAGE = '''
         }
         
         // ============================================================
-        // AUDIO FEEDBACK (Chimes)
+        // AUDIO FEEDBACK (Chimes) & LEVEL VISUALIZATION
         // ============================================================
         
         let audioContext = null;
         let audioFeedbackEnabled = true;
+        let levelAnalyser = null;
+        let levelInterval = null;
         
         function getAudioContext() {
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
             return audioContext;
+        }
+        
+        // Audio Level Visualization
+        function startAudioLevelTracking(stream) {
+            try {
+                const ctx = getAudioContext();
+                levelAnalyser = ctx.createAnalyser();
+                levelAnalyser.fftSize = 256;
+                levelAnalyser.smoothingTimeConstant = 0.4;
+                
+                const source = ctx.createMediaStreamSource(stream);
+                source.connect(levelAnalyser);
+                ctx.resume().catch(() => {});
+                
+                const sample = new Uint8Array(levelAnalyser.frequencyBinCount);
+                
+                // Show visualization
+                const container = document.getElementById('audio-level-container');
+                const recordingDot = document.getElementById('recording-dot');
+                if (container) container.classList.add('active');
+                if (recordingDot) recordingDot.classList.add('active');
+                
+                // Update bars at ~20fps
+                levelInterval = setInterval(() => {
+                    if (!levelAnalyser) {
+                        stopAudioLevelTracking();
+                        return;
+                    }
+                    
+                    levelAnalyser.getByteTimeDomainData(sample);
+                    
+                    // Calculate RMS (root mean square) for audio level
+                    let sumSquares = 0;
+                    for (let i = 0; i < sample.length; i++) {
+                        const deviation = (sample[i] - 128) / 128;
+                        sumSquares += deviation * deviation;
+                    }
+                    const rms = Math.sqrt(sumSquares / sample.length);
+                    
+                    // Normalize to 0-1 range (multiply by 4 for sensitivity)
+                    const level = Math.max(0, Math.min(1, rms * 4.0));
+                    
+                    // Update bars with different scales for visual effect
+                    const baseScales = [0.35, 0.6, 1, 0.6, 0.35];
+                    for (let i = 0; i < 5; i++) {
+                        const bar = document.getElementById('bar-' + i);
+                        if (bar) {
+                            // Height ranges from 4px to 24px based on audio level
+                            const height = Math.max(4, Math.min(24, (level * 24 + 4) * baseScales[i]));
+                            bar.style.height = height + 'px';
+                        }
+                    }
+                }, 50);
+                
+                console.log('[AUDIO] Level tracking started');
+            } catch (e) {
+                console.warn('[AUDIO] Level tracking unavailable:', e.message);
+            }
+        }
+        
+        function stopAudioLevelTracking() {
+            if (levelInterval) {
+                clearInterval(levelInterval);
+                levelInterval = null;
+            }
+            levelAnalyser = null;
+            
+            // Hide visualization
+            const container = document.getElementById('audio-level-container');
+            const recordingDot = document.getElementById('recording-dot');
+            if (container) container.classList.remove('active');
+            if (recordingDot) recordingDot.classList.remove('active');
+            
+            // Reset bars
+            for (let i = 0; i < 5; i++) {
+                const bar = document.getElementById('bar-' + i);
+                if (bar) bar.style.height = '4px';
+            }
+            
+            console.log('[AUDIO] Level tracking stopped');
         }
         
         function playChime(type = 'start') {
@@ -3782,40 +3920,143 @@ DASHBOARD_PAGE = '''
         }
         
         // ============================================================
-        // FILLER WORD REMOVAL
+        // FILLER WORD REMOVAL & CUSTOM WORD REPLACEMENTS
         // ============================================================
         
-        const fillerWords = [
-            'um', 'uh', 'uhh', 'umm', 'er', 'err', 'ah', 'ahh',
-            'like', 'you know', 'basically', 'actually', 'literally',
-            'so', 'well', 'anyway', 'i mean', 'right',
-            'kind of', 'sort of', 'kinda', 'sorta'
-        ];
+        // Filler sounds to always remove
+        const fillerSounds = ['um', 'uh', 'uhh', 'umm', 'er', 'err', 'ah', 'ahh', 'hmm'];
         
+        // Patterns to remove (bracketed content, etc.)
         const fillerPatterns = [
             /\[inaudible\]/gi,
             /\[unclear\]/gi,
             /\[music\]/gi,
             /\[applause\]/gi,
-            /\.{3,}/g,  // Multiple periods
+            /\([^)]*\)/g,  // Parenthetical content
+            /\.{3,}/g,     // Multiple periods
         ];
         
+        // User-configurable word replacements (misrecognition → correct)
+        // Users can add their own via settings
+        let wordReplacements = {
+            // Common misrecognitions
+            'coarser': 'cursor',
+            'curser': 'cursor',
+            'coursor': 'cursor',
+            'cloud': 'claude',
+            'claud': 'claude',
+            'vs code': 'vscode',
+            'chat gpt': 'chatgpt',
+            'co-pilot': 'copilot',
+            // Add your own below
+        };
+        
+        // Snippets (trigger → expansion)
+        let snippets = {
+            // Examples - users can add their own
+            // 'my email': 'user@example.com',
+            // 'my phone': '555-123-4567',
+            // 'sig': 'Best regards,\nYour Name',
+        };
+        
+        // Load saved replacements/snippets from localStorage
+        function loadUserDictionary() {
+            try {
+                const savedReplacements = localStorage.getItem('cortona_word_replacements');
+                if (savedReplacements) {
+                    wordReplacements = { ...wordReplacements, ...JSON.parse(savedReplacements) };
+                }
+                const savedSnippets = localStorage.getItem('cortona_snippets');
+                if (savedSnippets) {
+                    snippets = { ...snippets, ...JSON.parse(savedSnippets) };
+                }
+                console.log('[DICTIONARY] Loaded', Object.keys(wordReplacements).length, 'replacements,', Object.keys(snippets).length, 'snippets');
+            } catch (e) {
+                console.warn('[DICTIONARY] Failed to load:', e);
+            }
+        }
+        
+        // Save to localStorage
+        function saveUserDictionary() {
+            try {
+                localStorage.setItem('cortona_word_replacements', JSON.stringify(wordReplacements));
+                localStorage.setItem('cortona_snippets', JSON.stringify(snippets));
+            } catch (e) {
+                console.warn('[DICTIONARY] Failed to save:', e);
+            }
+        }
+        
+        // Escape regex special characters
+        function escapeRegex(str) {
+            return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        // Apply word replacements
+        function applyWordReplacements(text) {
+            if (!text) return text;
+            
+            let result = text;
+            
+            // Sort by key length (longest first) for proper replacement order
+            const entries = Object.entries(wordReplacements)
+                .sort((a, b) => b[0].length - a[0].length);
+            
+            for (const [key, replacement] of entries) {
+                if (!key) continue;
+                const regex = new RegExp(`\\b${escapeRegex(key)}\\b`, 'gi');
+                result = result.replace(regex, replacement);
+            }
+            
+            return result;
+        }
+        
+        // Apply snippet expansions
+        function applySnippetExpansions(text) {
+            if (!text || Object.keys(snippets).length === 0) return { text, expansions: [] };
+            
+            let result = text;
+            const expansions = [];
+            
+            // Sort by trigger length (longest first)
+            const entries = Object.entries(snippets)
+                .sort((a, b) => b[0].length - a[0].length);
+            
+            for (const [trigger, content] of entries) {
+                if (!trigger) continue;
+                const regex = new RegExp(`\\b${escapeRegex(trigger)}\\b`, 'gi');
+                if (regex.test(result)) {
+                    result = result.replace(regex, content);
+                    expansions.push({ trigger, content });
+                    console.log('[SNIPPET] Expanded:', trigger, '→', content);
+                }
+            }
+            
+            return { text: result, expansions };
+        }
+        
+        // Remove filler words
         function removeFillerWords(text) {
             if (!text) return text;
             
             let cleaned = text;
             
-            // Remove bracketed content
+            // Remove bracketed/parenthetical content
             fillerPatterns.forEach(pattern => {
                 cleaned = cleaned.replace(pattern, '');
             });
             
-            // Remove filler words (only when standalone, not part of other words)
-            fillerWords.forEach(filler => {
-                // Match filler word with word boundaries, case insensitive
-                const regex = new RegExp(`\\b${filler}\\b[,]?\\s*`, 'gi');
+            // Remove filler sounds (only obvious ones)
+            fillerSounds.forEach(filler => {
+                const regex = new RegExp(`\\b${escapeRegex(filler)}\\b[,]?\\s*`, 'gi');
                 cleaned = cleaned.replace(regex, '');
             });
+            
+            // Apply word replacements (misrecognition fixes)
+            cleaned = applyWordReplacements(cleaned);
+            
+            // Apply snippet expansions
+            const { text: expanded } = applySnippetExpansions(cleaned);
+            cleaned = expanded;
             
             // Clean up extra spaces and punctuation
             cleaned = cleaned.replace(/\s+/g, ' ').trim();
@@ -3828,6 +4069,23 @@ DASHBOARD_PAGE = '''
             
             return cleaned;
         }
+        
+        // Add a word replacement
+        function addWordReplacement(from, to) {
+            wordReplacements[from.toLowerCase()] = to;
+            saveUserDictionary();
+            addActivity(`📝 Added replacement: "${from}" → "${to}"`, 'success');
+        }
+        
+        // Add a snippet
+        function addSnippet(trigger, content) {
+            snippets[trigger.toLowerCase()] = content;
+            saveUserDictionary();
+            addActivity(`📝 Added snippet: "${trigger}"`, 'success');
+        }
+        
+        // Load dictionary on startup
+        loadUserDictionary();
         
         // ============================================================
         // TEXT-TO-SPEECH (OpenAI TTS)
@@ -3971,6 +4229,7 @@ DASHBOARD_PAGE = '''
         
         function stopWhisperRecording() {
             playChime('stop');  // Audio feedback
+            stopAudioLevelTracking();  // Stop visualization
             useWhisper = false;
             
             if (whisperRecorder && whisperRecorder.state === 'recording') {
