@@ -6992,6 +6992,19 @@ DASHBOARD_PAGE = '''
             if (e.key === 'Escape') closeAddDeviceModal();
         });
         
+        // Press Space to stop recording (when actively recording)
+        document.addEventListener('keydown', (e) => {
+            // Only trigger if Space is pressed without modifiers and we're recording
+            if (e.code === 'Space' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                // Check if we're actively recording (not just in wake word standby)
+                if (isActiveDictation || (isListening && !alwaysListen)) {
+                    e.preventDefault();
+                    console.log('[KEYBOARD] Space pressed - stopping recording');
+                    stopWhisperRecording();
+                }
+            }
+        });
+        
         // Close modal on overlay click
         document.getElementById('add-device-modal').addEventListener('click', (e) => {
             if (e.target.id === 'add-device-modal') closeAddDeviceModal();
