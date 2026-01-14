@@ -2205,6 +2205,28 @@ DASHBOARD_PAGE = '''
                 </div>
                 <div class="setting-row">
                     <div class="setting-label">
+                        <h4>Push-to-Talk Shortcut</h4>
+                        <p>Press this keybind to start recording (instead of wake word)</p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <kbd id="ptt-keybind-display" style="
+                            background: var(--bg-primary);
+                            border: 1px solid var(--border);
+                            border-radius: 6px;
+                            padding: 6px 12px;
+                            font-family: monospace;
+                            font-size: 13px;
+                            color: var(--accent);
+                            min-width: 140px;
+                            text-align: center;
+                        ">Cmd+Shift+Space</kbd>
+                        <button class="btn btn-secondary" onclick="changeKeybind()" style="padding: 6px 12px; font-size: 12px;">
+                            Change
+                        </button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">
                         <h4>Continuous Dictation</h4>
                         <p>Keep dictating after each phrase (no wake word needed)</p>
                     </div>
@@ -2481,12 +2503,18 @@ DASHBOARD_PAGE = '''
         const WHISPER_LOCAL_URL = 'http://localhost:5051';  // Fallback local
         
         // Pre-warm the microphone so it starts instantly
+        // Skip in Electron since native Porcupine uses sox, not browser mic
         async function preWarmMicrophone() {
+            // In Electron with native Porcupine, don't pre-warm browser mic (conflicts with sox)
+            if (isElectron && window.electronAPI?.porcupineStart) {
+                console.log('[MIC] Skipping pre-warm (Electron uses native audio)');
+                return;
+            }
             if (preWarmedMicStream) return; // Already warmed
             try {
                 console.log('[MIC] Pre-warming microphone...');
                 preWarmedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log('[MIC]  Microphone pre-warmed and ready!');
+                console.log('[MIC] Microphone pre-warmed and ready!');
             } catch (e) {
                 console.log('[MIC] Pre-warm failed:', e.message);
             }
@@ -3790,6 +3818,16 @@ DASHBOARD_PAGE = '''
             // Try native Porcupine first (Electron only - runs in main process, no IPC overhead)
             if (isElectron && window.electronAPI?.porcupineStart) {
                 console.log('[WAKE] Using native Porcupine (audio captured in main process)');
+                
+                // Stop any browser-based mic usage FIRST to avoid conflicts
+                stopWhisperWakeWordMode();
+                
+                // Release pre-warmed mic stream (native Porcupine uses sox, not browser)
+                if (preWarmedMicStream) {
+                    preWarmedMicStream.getTracks().forEach(t => t.stop());
+                    preWarmedMicStream = null;
+                    console.log('[WAKE] Released pre-warmed mic stream');
+                }
                 
                 const accessKey = PICOVOICE_ACCESS_KEY;
                 if (!accessKey || accessKey.indexOf(String.fromCharCode(123, 123)) === 0) {
@@ -6535,6 +6573,9 @@ DASHBOARD_PAGE = '''
                 document.getElementById('toggle-autotype').classList.toggle('active', autoType);
                 document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
                 
+                // Load keybind setting
+                loadKeybindSetting();
+                
                 updateUI();
                 renderDeviceList();
                 
@@ -6646,6 +6687,100 @@ DASHBOARD_PAGE = '''
             currentDevice.spellCheck = spellCheckEnabled;
             saveDevices();
             addActivity(spellCheckEnabled ? ' Spell check enabled' : 'Spell check disabled', 'info');
+        }
+        
+        // ============================================================
+        // KEYBIND SETTINGS
+        // ============================================================
+        
+        let currentPTTKeybind = 'CommandOrControl+Shift+Space';
+        let isRecordingKeybind = false;
+        
+        function changeKeybind() {
+            const display = document.getElementById('ptt-keybind-display');
+            
+            if (isRecordingKeybind) {
+                // Cancel
+                isRecordingKeybind = false;
+                display.textContent = formatKeybindDisplay(currentPTTKeybind);
+                display.style.background = 'var(--bg-primary)';
+                document.removeEventListener('keydown', captureKeybind);
+                return;
+            }
+            
+            isRecordingKeybind = true;
+            display.textContent = 'Press keys...';
+            display.style.background = 'var(--accent)';
+            display.style.color = '#000';
+            
+            document.addEventListener('keydown', captureKeybind);
+        }
+        
+        function captureKeybind(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Ignore modifier-only presses
+            if (['Control', 'Shift', 'Alt', 'Meta', 'Command'].includes(e.key)) {
+                return;
+            }
+            
+            // Build the keybind string
+            let parts = [];
+            if (e.metaKey || e.ctrlKey) parts.push('CommandOrControl');
+            if (e.shiftKey) parts.push('Shift');
+            if (e.altKey) parts.push('Alt');
+            
+            // Add the main key
+            let key = e.key.toUpperCase();
+            if (key === ' ') key = 'Space';
+            parts.push(key);
+            
+            const keybind = parts.join('+');
+            
+            // Validate - need at least one modifier
+            if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                addActivity('Please use a modifier key (Cmd/Ctrl/Shift/Alt)', 'error');
+                return;
+            }
+            
+            currentPTTKeybind = keybind;
+            isRecordingKeybind = false;
+            
+            const display = document.getElementById('ptt-keybind-display');
+            display.textContent = formatKeybindDisplay(keybind);
+            display.style.background = 'var(--bg-primary)';
+            display.style.color = 'var(--accent)';
+            
+            document.removeEventListener('keydown', captureKeybind);
+            
+            // Save to device settings
+            currentDevice.pttKeybind = keybind;
+            saveDevices();
+            
+            // Tell Electron to update the shortcut
+            if (isElectron && window.electronAPI?.updatePTTShortcut) {
+                window.electronAPI.updatePTTShortcut(keybind);
+                addActivity('Push-to-talk shortcut updated: ' + formatKeybindDisplay(keybind), 'success');
+            } else {
+                addActivity('Keybind saved (restart app to apply)', 'info');
+            }
+        }
+        
+        function formatKeybindDisplay(keybind) {
+            return keybind
+                .replace('CommandOrControl', navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl')
+                .replace('+', ' + ');
+        }
+        
+        function loadKeybindSetting() {
+            if (currentDevice?.pttKeybind) {
+                currentPTTKeybind = currentDevice.pttKeybind;
+            }
+            const display = document.getElementById('ptt-keybind-display');
+            if (display) {
+                display.textContent = formatKeybindDisplay(currentPTTKeybind);
+            }
         }
         
         // ============================================================

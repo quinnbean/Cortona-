@@ -25,11 +25,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "hardenedRuntime": true,
@@ -45,8 +51,16 @@
       "title": "Cortona",
       "icon": "assets/icon.icns",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "files": [
@@ -62,14 +76,14 @@
     }
   },
   "dependencies": {
-    "electron-store": "^8.1.0",
-    "auto-launch": "^5.0.6",
     "@picovoice/porcupine-node": "^3.0.0",
-    "naudiodon": "^2.3.4"
+    "auto-launch": "^5.0.6",
+    "electron-store": "^8.1.0",
+    "naudiodon": "^2.3.4",
+    "node-record-lpcm16": "^1.0.1"
   },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   }
 }
-
