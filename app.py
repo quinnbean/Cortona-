@@ -1414,7 +1414,7 @@ DASHBOARD_PAGE = '''
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
     <!-- Picovoice for local wake word + speech-to-text (FREE & FAST) -->
-    <script src="https://unpkg.com/@picovoice/porcupine-web@2.2.0/dist/iife/index.js"></script>
+    <script src="https://unpkg.com/@picovoice/porcupine-web@2.1.6/dist/iife/index.js"></script>
     <script src="https://unpkg.com/@picovoice/cheetah-web@3.0.0/dist/iife/index.js"></script>
     <style>
         :root {
