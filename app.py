@@ -3906,7 +3906,7 @@ DASHBOARD_PAGE = '''
                 const formData = new FormData();
                 formData.append('audio', blob, 'audio.webm');
                 
-                const response = await fetch('/api/transcribe', {
+                const response = await fetch('/api/whisper', {
                     method: 'POST',
                     body: formData
                 });
