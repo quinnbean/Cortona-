@@ -2446,6 +2446,9 @@ DASHBOARD_PAGE = '''
         // INITIALIZATION
         // ============================================================
         
+        // Electron API detection (MUST be first)
+        const isElectron = window.electronAPI?.isElectron || false;
+        
         // Only connect Socket.IO in browser (not needed in Electron)
         const socket = isElectron ? null : (typeof io !== 'undefined' ? io() : null);
         
@@ -2516,9 +2519,6 @@ DASHBOARD_PAGE = '''
         // Check browser support
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let micPermission = 'prompt'; // 'granted', 'denied', or 'prompt'
-        
-        // Electron API detection
-        const isElectron = window.electronAPI?.isElectron || false;
         
         if (isElectron) {
             console.log(' Running in Electron app');
