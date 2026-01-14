@@ -3760,82 +3760,132 @@ DASHBOARD_PAGE = '''
         }
         
         async function initPorcupine() {
-            // In Electron, use native Porcupine via IPC
-            if (isElectron && window.electronAPI?.porcupineInit) {
-                console.log('[PORCUPINE] Using native Electron Porcupine');
-                
-                // Check if available
-                const availCheck = await window.electronAPI.porcupineAvailable();
-                if (!availCheck.available) {
-                    console.log('[PORCUPINE] Native module not available');
-                    usePorcupine = false;
-                    return false;
-                }
-                
-                if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.indexOf(String.fromCharCode(123, 123)) >= 0) {
-                    console.log('[PORCUPINE] No access key configured');
-                    usePorcupine = false;
-                    return false;
-                }
-                
-                const wakeWord = (currentDevice?.wakeWord || 'jarvis').toLowerCase().trim();
-                console.log('[PORCUPINE] Initializing with keyword:', wakeWord);
-                
-                const result = await window.electronAPI.porcupineInit(PICOVOICE_ACCESS_KEY, wakeWord);
-                
-                if (result.success) {
-                    console.log('[PORCUPINE] Native init success! Sample rate:', result.sampleRate);
-                    usePorcupine = true;
-                    porcupineSampleRate = result.sampleRate;
-                    porcupineFrameLength = result.frameLength;
-                    
-                    // Listen for wake word detection from main process
-                    window.electronAPI.onWakeWordDetected((data) => {
-                        console.log('[PORCUPINE] Wake word detected via IPC!');
-                        onWakeWordDetected();
-                    });
-                    
-                    addActivity('Porcupine ready - say "' + wakeWord + '" to activate', 'success');
-                    return true;
-                } else {
-                    console.error('[PORCUPINE] Native init failed:', result.error);
-                    addActivity('Porcupine init failed: ' + result.error, 'warning');
-                    usePorcupine = false;
-                    return false;
-                }
-            }
-            
-            // Web fallback (won't work well but kept for reference)
-            console.log('[PORCUPINE] Not in Electron or native API not available');
+            // Native Porcupine audio streaming via IPC is too heavy and causes crashes
+            // For now, we'll use Whisper for wake word detection instead
+            console.log('[PORCUPINE] Disabled - using Whisper for wake word detection instead');
+            console.log('[PORCUPINE] (Native audio IPC was causing renderer crashes)');
             usePorcupine = false;
             return false;
         }
         
         // Start PASSIVE wake word listening (doesn't record, just listens for keyword)
         async function startWakeWordListening() {
-            console.log('[WAKE] Starting passive wake word listening...');
+            console.log('[WAKE] Starting wake word listening (using Whisper)...');
             
-            // Try Porcupine first (FREE, local, no API calls)
-            if (usePorcupine || PICOVOICE_ACCESS_KEY) {
-                const success = await startPorcupineListening();
-                if (success) {
-                    console.log('[WAKE] Porcupine listening - waiting for wake word');
-                    // Update UI to show yellow (wake word listening)
-                    isListening = true;
-                    isActiveDictation = false;
-                    updateUI();
-                    return;
-                }
+            // Use Whisper for wake word detection
+            // It will listen, transcribe, and check for the wake word
+            addActivity('Listening for "' + (currentDevice?.wakeWord || 'computer') + '" (using Whisper)', 'info');
+            
+            // Start continuous Whisper listening for wake word
+            isListening = true;
+            isActiveDictation = false;
+            hasInitialized = true;
+            updateUI();
+            
+            // Start Whisper in wake word mode
+            startWhisperWakeWordMode();
+        }
+        
+        // Whisper-based wake word detection
+        let whisperWakeWordActive = false;
+        
+        async function startWhisperWakeWordMode() {
+            if (whisperWakeWordActive) return;
+            whisperWakeWordActive = true;
+            
+            console.log('[WAKE-WHISPER] Starting wake word detection mode');
+            
+            // Continuously listen and check for wake word
+            whisperWakeWordLoop();
+        }
+        
+        async function whisperWakeWordLoop() {
+            if (!whisperWakeWordActive || !alwaysListen) {
+                console.log('[WAKE-WHISPER] Loop stopped');
+                return;
             }
             
-            // If Porcupine failed, show message but DON'T start recording
-            console.log('[WAKE] Porcupine unavailable - wake word detection limited');
-            addActivity('Wake word detection requires Porcupine. Click mic to record manually.', 'warning');
-            
-            // Still update UI to show we're in always-listen mode (yellow), even if not actively listening
-            isListening = false;  // Not actually listening yet
-            hasInitialized = true;  // But mark as initialized so UI shows yellow
-            updateUI();
+            try {
+                // Record a short audio clip
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                const chunks = [];
+                
+                recorder.ondataavailable = (e) => chunks.push(e.data);
+                
+                recorder.onstop = async () => {
+                    // Stop the stream
+                    stream.getTracks().forEach(t => t.stop());
+                    
+                    if (!whisperWakeWordActive || !alwaysListen) return;
+                    
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    
+                    // Only transcribe if there's meaningful audio
+                    if (blob.size > 1000) {
+                        const transcript = await transcribeWithWhisperForWakeWord(blob);
+                        
+                        if (transcript) {
+                            const wakeWord = (currentDevice?.wakeWord || 'computer').toLowerCase();
+                            const heard = transcript.toLowerCase();
+                            
+                            console.log('[WAKE-WHISPER] Heard:', heard);
+                            
+                            if (heard.includes(wakeWord)) {
+                                console.log('[WAKE-WHISPER] Wake word detected!');
+                                whisperWakeWordActive = false;
+                                onWakeWordDetected();
+                                return;
+                            }
+                        }
+                    }
+                    
+                    // Continue loop after a short pause
+                    if (whisperWakeWordActive && alwaysListen) {
+                        setTimeout(whisperWakeWordLoop, 500);
+                    }
+                };
+                
+                // Record for 2 seconds
+                recorder.start();
+                setTimeout(() => {
+                    if (recorder.state === 'recording') {
+                        recorder.stop();
+                    }
+                }, 2000);
+                
+            } catch (e) {
+                console.error('[WAKE-WHISPER] Error:', e);
+                // Retry after delay
+                if (whisperWakeWordActive && alwaysListen) {
+                    setTimeout(whisperWakeWordLoop, 1000);
+                }
+            }
+        }
+        
+        async function transcribeWithWhisperForWakeWord(blob) {
+            try {
+                const formData = new FormData();
+                formData.append('audio', blob, 'audio.webm');
+                
+                const response = await fetch('/api/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.text || '';
+                }
+            } catch (e) {
+                console.error('[WAKE-WHISPER] Transcribe error:', e);
+            }
+            return '';
+        }
+        
+        function stopWhisperWakeWordMode() {
+            whisperWakeWordActive = false;
+            console.log('[WAKE-WHISPER] Stopped');
         }
         
         // Audio processing state for Porcupine
@@ -6496,7 +6546,8 @@ DASHBOARD_PAGE = '''
                 await startWakeWordListening();
             } else {
                 addActivity('Wake word listening disabled', 'info');
-                // Stop Porcupine wake word listening
+                // Stop wake word listening
+                stopWhisperWakeWordMode();
                 await stopPorcupineListening();
                 isListening = false;
             }
