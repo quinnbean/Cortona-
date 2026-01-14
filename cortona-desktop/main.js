@@ -166,11 +166,13 @@ function startNativeWakeWordListening(accessKey, keyword) {
     
     console.log('[WAKE-WORD] Initializing Porcupine with keyword:', keyword);
     
-    // Get path to keyword file (must use unpacked path for ASAR)
+    // Get path to porcupine-node module root (not dist/)
     const porcupineModule = require.resolve('@picovoice/porcupine-node');
-    const porcupineDir = path.dirname(porcupineModule);
-    let keywordPath = path.join(porcupineDir, 'resources', 'keyword_files', 'mac', `${keyword.toLowerCase()}_mac.ppn`);
-    let modelPath = path.join(porcupineDir, 'lib', 'common', 'porcupine_params.pv');
+    // require.resolve gives us .../dist/index.js, go up to module root
+    const porcupineRoot = path.join(path.dirname(porcupineModule), '..');
+    
+    let keywordPath = path.join(porcupineRoot, 'resources', 'keyword_files', 'mac', `${keyword.toLowerCase()}_mac.ppn`);
+    let modelPath = path.join(porcupineRoot, 'lib', 'common', 'porcupine_params.pv');
     
     // Replace app.asar with app.asar.unpacked for native file access
     keywordPath = keywordPath.replace('app.asar', 'app.asar.unpacked');
@@ -178,6 +180,17 @@ function startNativeWakeWordListening(accessKey, keyword) {
     
     console.log('[WAKE-WORD] Keyword path:', keywordPath);
     console.log('[WAKE-WORD] Model path:', modelPath);
+    
+    // Verify files exist
+    const fs = require('fs');
+    if (!fs.existsSync(keywordPath)) {
+      console.error('[WAKE-WORD] Keyword file not found:', keywordPath);
+      return { success: false, error: `Keyword file not found: ${keywordPath}` };
+    }
+    if (!fs.existsSync(modelPath)) {
+      console.error('[WAKE-WORD] Model file not found:', modelPath);
+      return { success: false, error: `Model file not found: ${modelPath}` };
+    }
     
     // Initialize Porcupine with explicit paths
     porcupineHandle = new Porcupine(
