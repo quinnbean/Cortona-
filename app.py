@@ -1414,7 +1414,7 @@ DASHBOARD_PAGE = '''
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
     <!-- Picovoice for local wake word + speech-to-text (FREE & FAST) -->
-    <script src="https://unpkg.com/@picovoice/porcupine-web@3.0.0/dist/iife/index.js"></script>
+    <script src="https://unpkg.com/@picovoice/porcupine-web@2.2.0/dist/iife/index.js"></script>
     <script src="https://unpkg.com/@picovoice/cheetah-web@3.0.0/dist/iife/index.js"></script>
     <style>
         :root {
@@ -3802,22 +3802,31 @@ DASHBOARD_PAGE = '''
                 }
                 
                 console.log('[PORCUPINE] Using built-in keyword:', keyword);
+                console.log('[PORCUPINE] Library methods:', Object.keys(PorcupineLib).join(', '));
                 
-                // Try different API formats for different versions
-                const PorcupineWorker = PorcupineLib.PorcupineWorker || PorcupineLib;
+                // v2.x API: PorcupineWorker.create(accessKey, keywords, keywordCallback, errorCallback)
+                const PorcupineWorker = PorcupineLib.PorcupineWorker;
                 
-                if (PorcupineWorker && PorcupineWorker.create) {
-                    console.log('[PORCUPINE] Using PorcupineWorker.create API');
+                if (PorcupineWorker && typeof PorcupineWorker.create === 'function') {
+                    console.log('[PORCUPINE] Using PorcupineWorker.create API v2.x');
+                    
+                    // v2.x format: keywords is array of {builtin: string, sensitivity?: number}
                     porcupineInstance = await PorcupineWorker.create(
                         PICOVOICE_ACCESS_KEY,
-                        [{ builtin: keyword, sensitivity: 0.7 }],
+                        [{ 
+                            builtin: keyword,
+                            sensitivity: 0.7 
+                        }],
                         (keywordIndex) => {
                             console.log('[PORCUPINE] WAKE WORD DETECTED! Index:', keywordIndex);
                             onWakeWordDetected();
+                        },
+                        (error) => {
+                            console.error('[PORCUPINE] Runtime error:', error);
                         }
                     );
                 } else {
-                    console.error('[PORCUPINE] No valid API found. Available methods:', Object.keys(PorcupineLib));
+                    console.error('[PORCUPINE] PorcupineWorker.create not found. Available:', PorcupineLib ? Object.keys(PorcupineLib) : 'null');
                     usePorcupine = false;
                     return false;
                 }
