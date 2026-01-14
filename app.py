@@ -3962,23 +3962,52 @@ DASHBOARD_PAGE = '''
         }
         
         async function stopPorcupineListening() {
+            console.log('[PORCUPINE] Stopping...');
             porcupineActive = false;
             
+            // Stop the processor first
             if (porcupineProcessor) {
-                porcupineProcessor.disconnect();
+                try {
+                    porcupineProcessor.disconnect();
+                } catch (e) {
+                    console.log('[PORCUPINE] Processor disconnect error (ok):', e.message);
+                }
                 porcupineProcessor = null;
             }
             
+            // Close audio context
             if (porcupineAudioContext) {
-                porcupineAudioContext.close();
+                try {
+                    await porcupineAudioContext.close();
+                } catch (e) {
+                    console.log('[PORCUPINE] AudioContext close error (ok):', e.message);
+                }
                 porcupineAudioContext = null;
             }
             
-            if (window.electronAPI?.porcupineStop) {
-                await window.electronAPI.porcupineStop();
+            // Stop mic stream
+            if (porcupineStream) {
+                try {
+                    porcupineStream.getTracks().forEach(track => track.stop());
+                } catch (e) {
+                    console.log('[PORCUPINE] Stream stop error (ok):', e.message);
+                }
+                porcupineStream = null;
             }
             
-            console.log('[PORCUPINE] Stopped listening');
+            // Tell main process to release Porcupine
+            if (window.electronAPI?.porcupineStop) {
+                try {
+                    await window.electronAPI.porcupineStop();
+                } catch (e) {
+                    console.log('[PORCUPINE] IPC stop error (ok):', e.message);
+                }
+            }
+            
+            // Reset state so it can be re-initialized
+            usePorcupine = false;
+            
+            console.log('[PORCUPINE] Stopped and cleaned up');
         }
         
         function onWakeWordDetected() {
@@ -6467,9 +6496,9 @@ DASHBOARD_PAGE = '''
                 await startWakeWordListening();
             } else {
                 addActivity('Wake word listening disabled', 'info');
-                if (isListening && !continuousMode) {
-                    stopListening();
-                }
+                // Stop Porcupine wake word listening
+                await stopPorcupineListening();
+                isListening = false;
             }
             updateUI();
         }
