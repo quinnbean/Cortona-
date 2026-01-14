@@ -3881,7 +3881,11 @@ DASHBOARD_PAGE = '''
                 
                 let audioBuffer = new Int16Array(0);
                 
-                porcupineProcessor.onaudioprocess = async (e) => {
+                // Track processing state to avoid overwhelming IPC
+                let isProcessingAudio = false;
+                let pendingFrames = [];
+                
+                porcupineProcessor.onaudioprocess = (e) => {
                     if (!porcupineActive) return;
                     
                     // Convert Float32 to Int16
@@ -3897,21 +3901,49 @@ DASHBOARD_PAGE = '''
                     newBuffer.set(samples, audioBuffer.length);
                     audioBuffer = newBuffer;
                     
-                    // Process when we have enough frames
+                    // Extract frames when we have enough
                     while (audioBuffer.length >= porcupineFrameLength) {
                         const frame = audioBuffer.slice(0, porcupineFrameLength);
                         audioBuffer = audioBuffer.slice(porcupineFrameLength);
-                        
-                        // Send to native Porcupine
-                        if (window.electronAPI?.porcupineProcess) {
-                            const result = await window.electronAPI.porcupineProcess(Array.from(frame));
-                            if (result.detected) {
-                                console.log('[PORCUPINE] Wake word detected in audio processing!');
-                                // onWakeWordDetected will be called via IPC listener
-                            }
-                        }
+                        pendingFrames.push(Array.from(frame));
+                    }
+                    
+                    // Process frames asynchronously (non-blocking)
+                    if (!isProcessingAudio && pendingFrames.length > 0) {
+                        isProcessingAudio = true;
+                        processNextFrame();
                     }
                 };
+                
+                // Process frames one at a time to avoid overwhelming IPC
+                async function processNextFrame() {
+                    if (!porcupineActive || pendingFrames.length === 0) {
+                        isProcessingAudio = false;
+                        return;
+                    }
+                    
+                    const frame = pendingFrames.shift();
+                    
+                    try {
+                        if (window.electronAPI?.porcupineProcess) {
+                            const result = await window.electronAPI.porcupineProcess(frame);
+                            if (result.detected) {
+                                console.log('[PORCUPINE] Wake word detected!');
+                                // Clear pending frames after detection
+                                pendingFrames = [];
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[PORCUPINE] Process error:', err);
+                    }
+                    
+                    // Process next frame after a small delay
+                    if (porcupineActive && pendingFrames.length > 0) {
+                        setTimeout(processNextFrame, 10);
+                    } else {
+                        isProcessingAudio = false;
+                    }
+                }
                 
                 source.connect(porcupineProcessor);
                 porcupineProcessor.connect(porcupineAudioContext.destination);
