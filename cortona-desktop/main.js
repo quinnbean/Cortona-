@@ -17,14 +17,14 @@ try {
   Porcupine = null;
 }
 
-// Naudiodon for native audio capture (no IPC overhead)
-let portAudio;
+// node-record-lpcm16 for audio capture (uses sox, more stable than naudiodon)
+let record;
 try {
-  portAudio = require('naudiodon');
-  console.log('[NAUDIODON] Native audio module loaded successfully');
+  record = require('node-record-lpcm16');
+  console.log('[AUDIO] node-record-lpcm16 loaded successfully');
 } catch (e) {
-  console.log('[NAUDIODON] Native audio not available:', e.message);
-  portAudio = null;
+  console.log('[AUDIO] node-record-lpcm16 not available:', e.message);
+  record = null;
 }
 
 // ============================================================================
@@ -137,13 +137,13 @@ function stopWhisperService() {
   }
 }
 // ============================================================================
-// NATIVE WAKE WORD DETECTION (using naudiodon + porcupine)
+// NATIVE WAKE WORD DETECTION (using node-record-lpcm16 + porcupine)
 // ============================================================================
 
 function startNativeWakeWordListening(accessKey, keyword) {
-  if (!portAudio || !Porcupine) {
-    console.error('[WAKE-WORD] naudiodon or Porcupine not available');
-    return { success: false, error: 'Native audio or Porcupine not available' };
+  if (!record || !Porcupine) {
+    console.error('[WAKE-WORD] node-record-lpcm16 or Porcupine not available');
+    return { success: false, error: 'Audio recording or Porcupine not available' };
   }
   
   if (porcupineListening) {
@@ -205,22 +205,23 @@ function startNativeWakeWordListening(accessKey, keyword) {
     
     console.log('[WAKE-WORD] Porcupine initialized. Sample rate:', sampleRate, 'Frame length:', frameLength);
     
-    // Create audio input stream
-    audioInputStream = portAudio.AudioIO({
-      inOptions: {
-        channelCount: 1,
-        sampleFormat: portAudio.SampleFormat16Bit,
-        sampleRate: sampleRate,
-        deviceId: -1, // Default device
-        closeOnError: false
-      }
+    // Create audio input stream using sox (via node-record-lpcm16)
+    audioInputStream = record.record({
+      sampleRate: sampleRate,
+      channels: 1,
+      audioType: 'raw',
+      recorder: 'sox',
+      endOnSilence: false,
+      threshold: 0
     });
     
     // Buffer to accumulate audio data
     let audioBuffer = Buffer.alloc(0);
     const bytesPerFrame = frameLength * 2; // 16-bit = 2 bytes per sample
     
-    audioInputStream.on('data', (data) => {
+    const audioStream = audioInputStream.stream();
+    
+    audioStream.on('data', (data) => {
       if (!porcupineListening || !porcupineHandle) return;
       
       // Accumulate audio data
@@ -252,12 +253,10 @@ function startNativeWakeWordListening(accessKey, keyword) {
       }
     });
     
-    audioInputStream.on('error', (err) => {
+    audioStream.on('error', (err) => {
       console.error('[WAKE-WORD] Audio stream error:', err.message);
     });
     
-    // Start listening
-    audioInputStream.start();
     porcupineListening = true;
     wakeWordAccessKey = accessKey;
     
@@ -283,7 +282,7 @@ function stopNativeWakeWordListening() {
   
   if (audioInputStream) {
     try {
-      audioInputStream.quit();
+      audioInputStream.stop();
     } catch (e) {
       console.log('[WAKE-WORD] Error stopping audio stream:', e.message);
     }
@@ -537,10 +536,13 @@ function registerGlobalShortcuts() {
     }
   });
 
-  // Push-to-Talk shortcut (Cmd+Shift+Space)
+  // Push-to-Talk shortcut (customizable, defaults to Cmd+Shift+Space)
   // Tracks state to toggle recording on/off
   let pttRecording = false;
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+  const pttShortcut = store.get('pttShortcut') || 'CommandOrControl+Shift+Space';
+  console.log('[PTT] Registering shortcut:', pttShortcut);
+  
+  globalShortcut.register(pttShortcut, () => {
     if (mainWindow) {
       mainWindow.show();
       mainWindow.focus();
@@ -986,6 +988,50 @@ function setupIPC() {
   // Check if currently listening
   ipcMain.handle('porcupine-status', () => {
     return { listening: porcupineListening };
+  });
+  
+  // ========== KEYBIND SETTINGS ==========
+  
+  // Update the push-to-talk shortcut
+  ipcMain.handle('update-ptt-shortcut', (event, keybind) => {
+    console.log('[IPC] Updating PTT shortcut to:', keybind);
+    
+    try {
+      // Unregister old PTT shortcut
+      globalShortcut.unregister('CommandOrControl+Shift+Space');
+      
+      // Get current custom PTT shortcut from store and unregister it too
+      const oldPTT = store.get('pttShortcut');
+      if (oldPTT && oldPTT !== keybind) {
+        try { globalShortcut.unregister(oldPTT); } catch (e) {}
+      }
+      
+      // Register new shortcut
+      const registered = globalShortcut.register(keybind, () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.send('start-recording');
+        }
+      });
+      
+      if (registered) {
+        store.set('pttShortcut', keybind);
+        console.log('[PTT] Shortcut registered:', keybind);
+        return { success: true };
+      } else {
+        console.error('[PTT] Failed to register shortcut:', keybind);
+        return { success: false, error: 'Shortcut already in use' };
+      }
+    } catch (e) {
+      console.error('[PTT] Error updating shortcut:', e.message);
+      return { success: false, error: e.message };
+    }
+  });
+  
+  // Get current PTT shortcut
+  ipcMain.handle('get-ptt-shortcut', () => {
+    return store.get('pttShortcut') || 'CommandOrControl+Shift+Space';
   });
 }
 

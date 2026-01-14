@@ -77,6 +77,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('wake-word-detected', (event, data) => callback(data));
   },
   
+  // ========== KEYBIND SETTINGS ==========
+  // Update the push-to-talk shortcut
+  updatePTTShortcut: (keybind) => ipcRenderer.invoke('update-ptt-shortcut', keybind),
+  
+  // Get current PTT shortcut
+  getPTTShortcut: () => ipcRenderer.invoke('get-ptt-shortcut'),
+  
   // Listen for events from main process
   onActivateVoice: (callback) => {
     ipcRenderer.on('activate-voice', callback);
