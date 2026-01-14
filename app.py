@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                        🎛️ VOICE HUB - CLOUD SERVER                           ║
+║                         VOICE HUB - CLOUD SERVER                           ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  Browser-based voice recognition - no terminal needed!                       ║
 ║  Deploy on Render, login, and start dictating                                ║
@@ -38,14 +38,14 @@ try:
     CLAUDE_AVAILABLE = bool(os.environ.get('ANTHROPIC_API_KEY'))
     if CLAUDE_AVAILABLE:
         claude_client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-        print("🧠 Claude AI enabled for intelligent command parsing")
+        print(" Claude AI enabled for intelligent command parsing")
     else:
         claude_client = None
         print("[WARNING] ANTHROPIC_API_KEY not set - using regex parsing")
 except ImportError:
     CLAUDE_AVAILABLE = False
     claude_client = None
-    print("⚠️ anthropic package not installed - using regex parsing")
+    print(" anthropic package not installed - using regex parsing")
 
 # OpenAI for Whisper (STT) and TTS
 try:
@@ -53,14 +53,14 @@ try:
     OPENAI_AVAILABLE = bool(os.environ.get('OPENAI_API_KEY'))
     if OPENAI_AVAILABLE:
         openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
-        print("🎤 OpenAI Whisper (STT) and TTS enabled")
+        print(" OpenAI Whisper (STT) and TTS enabled")
     else:
         openai_client = None
         print("[WARNING] OPENAI_API_KEY not set - cloud speech features unavailable")
 except ImportError:
     OPENAI_AVAILABLE = False
     openai_client = None
-    print("⚠️ openai package not installed - cloud speech features unavailable")
+    print(" openai package not installed - cloud speech features unavailable")
 
 # ============================================================================
 # SETUP
@@ -176,14 +176,14 @@ INSTALL_PAGE = '''
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-card: #1a1a24;
-            --border: rgba(255,255,255,0.08);
-            --accent: #00f5d4;
-            --accent-2: #7b2cbf;
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-card: #141414;
+            --border: rgba(255,255,255,0.12);
+            --accent: #ffffff;
+            --accent-2: #888888;
             --text: #ffffff;
-            --text-muted: #6b7280;
+            --text-muted: #666666;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -356,25 +356,25 @@ INSTALL_PAGE = '''
 </head>
 <body>
     <div class="container">
-        <a href="/" class="back-link">← Back to Dashboard</a>
+        <a href="/" class="back-link">< Back to Dashboard</a>
         
         <div class="header">
-            <div class="logo">🎛️</div>
+            <div class="logo"></div>
             <h1><span>Voice Hub</span> Desktop Client</h1>
             <p class="subtitle">Control any app on your computer with voice commands</p>
         </div>
         
         <!-- Big Download Buttons -->
         <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 40px;">
-            <a href="/download/mac" class="download-btn" style="padding: 20px 32px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--bg-primary); border-radius: 16px; text-decoration: none; font-weight: 600; font-size: 18px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
-                <span style="font-size: 28px;">🍎</span>
+            <a href="/download/mac" class="download-btn" style="padding: 20px 32px; background: #ffffff; color: #000000; border-radius: 16px; text-decoration: none; font-weight: 600; font-size: 18px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+                <span style="font-size: 28px;"></span>
                 <div style="text-align: left;">
                     <div>Download for Mac</div>
                     <div style="font-size: 12px; opacity: 0.8;">Double-click to install</div>
                 </div>
             </a>
-            <a href="/download/windows" class="download-btn" style="padding: 20px 32px; background: linear-gradient(135deg, #0078d4, #00bcf2); color: white; border-radius: 16px; text-decoration: none; font-weight: 600; font-size: 18px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
-                <span style="font-size: 28px;">🪟</span>
+            <a href="/download/windows" class="download-btn" style="padding: 20px 32px; background: #333333; color: white; border-radius: 16px; text-decoration: none; font-weight: 600; font-size: 18px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+                <span style="font-size: 28px;"></span>
                 <div style="text-align: left;">
                     <div>Download for Windows</div>
                     <div style="font-size: 12px; opacity: 0.8;">Double-click to install</div>
@@ -388,13 +388,13 @@ INSTALL_PAGE = '''
         
         <div class="os-tabs">
             <button class="os-tab active" onclick="showOS('mac')" id="tab-mac">
-                <span class="icon">🍎</span> Mac
+                <span class="icon"></span> Mac
             </button>
             <button class="os-tab" onclick="showOS('windows')" id="tab-windows">
-                <span class="icon">🪟</span> Windows
+                <span class="icon"></span> Windows
             </button>
             <button class="os-tab" onclick="showOS('linux')" id="tab-linux">
-                <span class="icon">🐧</span> Linux
+                <span class="icon"></span> Linux
             </button>
         </div>
         
@@ -413,7 +413,7 @@ INSTALL_PAGE = '''
                     <div class="step-number">2</div>
                     <h3>First Time Only: Allow to Run</h3>
                 </div>
-                <p>Right-click the file → <strong>Open</strong> → Click <strong>"Open"</strong> in the popup. (Mac blocks unsigned apps by default)</p>
+                <p>Right-click the file > <strong>Open</strong> > Click <strong>"Open"</strong> in the popup. (Mac blocks unsigned apps by default)</p>
             </div>
             
             <div class="step">
@@ -421,21 +421,21 @@ INSTALL_PAGE = '''
                     <div class="step-number">3</div>
                     <h3>Grant Permissions</h3>
                 </div>
-                <p>Mac will ask for Accessibility permissions. Go to <strong>System Settings → Privacy & Security → Accessibility</strong> and enable Terminal.</p>
+                <p>Mac will ask for Accessibility permissions. Go to <strong>System Settings > Privacy & Security > Accessibility</strong> and enable Terminal.</p>
             </div>
             
             <div style="background: var(--bg-primary); border-radius: 12px; padding: 16px; margin-top: 20px;">
                 <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px;">Alternative: Terminal command</p>
                 <div class="code-box" style="margin: 0;">
                     <code id="mac-command">curl -sL {{ server }}/install.sh | bash</code>
-                    <button class="copy-btn" onclick="copyCommand('mac-command', this)">📋 Copy</button>
+                    <button class="copy-btn" onclick="copyCommand('mac-command', this)"> Copy</button>
                 </div>
             </div>
             
             <div class="features">
-                <div class="feature"><span class="icon">✅</span><span>No Terminal knowledge needed</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Auto-installs everything</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Double-click to run anytime</span></div>
+                <div class="feature"><span class="icon"></span><span>No Terminal knowledge needed</span></div>
+                <div class="feature"><span class="icon"></span><span>Auto-installs everything</span></div>
+                <div class="feature"><span class="icon"></span><span>Double-click to run anytime</span></div>
             </div>
         </div>
         
@@ -454,7 +454,7 @@ INSTALL_PAGE = '''
                     <div class="step-number">2</div>
                     <h3>Allow to Run</h3>
                 </div>
-                <p>If Windows shows a security warning, click <strong>"More info"</strong> → <strong>"Run anyway"</strong>.</p>
+                <p>If Windows shows a security warning, click <strong>"More info"</strong> > <strong>"Run anyway"</strong>.</p>
             </div>
             
             <div class="step">
@@ -469,14 +469,14 @@ INSTALL_PAGE = '''
                 <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px;">Alternative: PowerShell command</p>
                 <div class="code-box" style="margin: 0;">
                     <code id="windows-command">irm {{ server }}/install.ps1 | iex</code>
-                    <button class="copy-btn" onclick="copyCommand('windows-command', this)">📋 Copy</button>
+                    <button class="copy-btn" onclick="copyCommand('windows-command', this)"> Copy</button>
                 </div>
             </div>
             
             <div class="features">
-                <div class="feature"><span class="icon">✅</span><span>No command line needed</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Auto-installs everything</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Double-click to run anytime</span></div>
+                <div class="feature"><span class="icon"></span><span>No command line needed</span></div>
+                <div class="feature"><span class="icon"></span><span>Auto-installs everything</span></div>
+                <div class="feature"><span class="icon"></span><span>Double-click to run anytime</span></div>
             </div>
         </div>
         
@@ -498,7 +498,7 @@ INSTALL_PAGE = '''
                 <p>Copy and paste this single command:</p>
                 <div class="code-box">
                     <code id="linux-command">curl -sL {{ server }}/install.sh | bash</code>
-                    <button class="copy-btn" onclick="copyCommand('linux-command', this)">📋 Copy</button>
+                    <button class="copy-btn" onclick="copyCommand('linux-command', this)"> Copy</button>
                 </div>
             </div>
             
@@ -511,9 +511,9 @@ INSTALL_PAGE = '''
             </div>
             
             <div class="features">
-                <div class="feature"><span class="icon">✅</span><span>Works with bash/zsh</span></div>
-                <div class="feature"><span class="icon">✅</span><span>X11 and Wayland support</span></div>
-                <div class="feature"><span class="icon">✅</span><span>Debian/Ubuntu/Fedora</span></div>
+                <div class="feature"><span class="icon"></span><span>Works with bash/zsh</span></div>
+                <div class="feature"><span class="icon"></span><span>X11 and Wayland support</span></div>
+                <div class="feature"><span class="icon"></span><span>Debian/Ubuntu/Fedora</span></div>
             </div>
         </div>
     </div>
@@ -529,10 +529,10 @@ INSTALL_PAGE = '''
         function copyCommand(id, btn) {
             const code = document.getElementById(id).textContent;
             navigator.clipboard.writeText(code).then(() => {
-                btn.innerHTML = '✅ Copied!';
+                btn.innerHTML = ' Copied!';
                 btn.classList.add('copied');
                 setTimeout(() => {
-                    btn.innerHTML = '📋 Copy';
+                    btn.innerHTML = ' Copy';
                     btn.classList.remove('copied');
                 }, 2000);
             });
@@ -748,7 +748,7 @@ def focus_app(app_name):
             # macOS
             script = f'tell application "{app_id}" to activate'
             subprocess.run(['osascript', '-e', script], capture_output=True)
-            print(f"✅ Focused: {app_id}")
+            print(f" Focused: {app_id}")
             
             # If it's a web app, open the URL
             if 'url' in app_info:
@@ -764,7 +764,7 @@ def focus_app(app_name):
                 subprocess.run(['powershell', '-Command', 
                     f'(New-Object -ComObject WScript.Shell).AppActivate("{app_id}")'], 
                     capture_output=True)
-            print(f"✅ Focused: {app_id}")
+            print(f" Focused: {app_id}")
             
         elif PLATFORM == 'Linux':
             # Linux - use wmctrl or xdotool
@@ -772,13 +772,13 @@ def focus_app(app_name):
                 subprocess.run(['xdg-open', app_info['url']], capture_output=True)
             else:
                 subprocess.run(['wmctrl', '-a', app_id], capture_output=True)
-            print(f"✅ Focused: {app_id}")
+            print(f" Focused: {app_id}")
             
         time.sleep(0.3)  # Wait for app to focus
         return True
         
     except Exception as e:
-        print(f"⚠️ Could not focus {app_name}: {e}")
+        print(f" Could not focus {app_name}: {e}")
         return False
 
 def type_text(text):
@@ -798,11 +798,11 @@ def type_text(text):
             print("[DEBUG] Pressing Ctrl+V...")
             pyautogui.hotkey('ctrl', 'v')
             
-        print(f"✅ Typed: {text[:50]}...")
+        print(f" Typed: {text[:50]}...")
         return True
     except Exception as e:
         import traceback
-        print(f"⚠️ Could not type: {e}")
+        print(f" Could not type: {e}")
         print(f"[DEBUG] Full error: {traceback.format_exc()}")
         return False
 
@@ -826,27 +826,27 @@ def open_url_native(url):
         if PLATFORM == 'Darwin':
             # macOS - use 'open' command
             subprocess.run(['open', url], check=True)
-            print(f"✅ Opened URL (macOS): {url}")
+            print(f" Opened URL (macOS): {url}")
         elif PLATFORM == 'Windows':
             # Windows - use os.startfile or start command
             # os.startfile is most reliable on Windows
             os.startfile(url)
-            print(f"✅ Opened URL (Windows): {url}")
+            print(f" Opened URL (Windows): {url}")
         else:
             # Linux - use xdg-open
             subprocess.run(['xdg-open', url], check=True)
-            print(f"✅ Opened URL (Linux): {url}")
+            print(f" Opened URL (Linux): {url}")
         return True
     except Exception as e:
-        print(f"⚠️ Native open failed: {e}, trying webbrowser...")
+        print(f" Native open failed: {e}, trying webbrowser...")
         # Fallback to webbrowser module
         try:
             import webbrowser
             webbrowser.open(url)
-            print(f"✅ Opened URL (webbrowser fallback): {url}")
+            print(f" Opened URL (webbrowser fallback): {url}")
             return True
         except Exception as e2:
-            print(f"❌ Could not open URL: {e2}")
+            print(f"X Could not open URL: {e2}")
             return False
 
 # ============================================================================
@@ -911,8 +911,8 @@ class VoiceHubClient:
         @self.sio.on('command_received')
         def on_command_received(data):
             print(f"\\n{'='*50}")
-            print(f"📥 COMMAND RECEIVED!")
-            print(f"📥 DATA: {data}")
+            print(f" COMMAND RECEIVED!")
+            print(f" DATA: {data}")
             print(f"{'='*50}")
             self._execute_command(data)
         
@@ -1058,15 +1058,15 @@ LOGIN_PAGE = '''
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-card: #1a1a24;
-            --border: rgba(255,255,255,0.08);
-            --accent: #00f5d4;
-            --accent-2: #7b2cbf;
-            --accent-3: #f72585;
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-card: #141414;
+            --border: rgba(255,255,255,0.12);
+            --accent: #ffffff;
+            --accent-2: #888888;
+            --accent-3: #666666;
             --text: #ffffff;
-            --text-muted: #6b7280;
+            --text-muted: #666666;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1089,12 +1089,12 @@ LOGIN_PAGE = '''
             position: absolute;
             border-radius: 50%;
             filter: blur(80px);
-            opacity: 0.4;
+            opacity: 0.15;
             animation: float 20s ease-in-out infinite;
         }
-        .orb-1 { width: 400px; height: 400px; background: var(--accent); top: -100px; left: -100px; }
-        .orb-2 { width: 300px; height: 300px; background: var(--accent-2); bottom: -50px; right: -50px; animation-delay: -10s; }
-        .orb-3 { width: 200px; height: 200px; background: var(--accent-3); top: 50%; left: 50%; animation-delay: -5s; }
+        .orb-1 { width: 400px; height: 400px; background: #333333; top: -100px; left: -100px; }
+        .orb-2 { width: 300px; height: 300px; background: #222222; bottom: -50px; right: -50px; animation-delay: -10s; }
+        .orb-3 { width: 200px; height: 200px; background: #444444; top: 50%; left: 50%; animation-delay: -5s; }
         @keyframes float {
             0%, 100% { transform: translate(0, 0) scale(1); }
             33% { transform: translate(30px, -30px) scale(1.1); }
@@ -1225,12 +1225,12 @@ LOGIN_PAGE = '''
     <div class="container">
         <div class="card">
             <div class="logo">
-                <div class="logo-icon">🎛️</div>
+                <div class="logo-icon"></div>
                 <h1><span>Voice Hub</span></h1>
                 <p class="subtitle">Browser-based voice-to-text</p>
             </div>
-            {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
-            {% if success %}<div class="error" style="background: rgba(0, 245, 212, 0.1); border-color: rgba(0, 245, 212, 0.3); color: var(--accent);">✓ {{ success }}</div>{% endif %}
+            {% if error %}<div class="error"> {{ error }}</div>{% endif %}
+            {% if success %}<div class="error" style="background: rgba(0, 245, 212, 0.1); border-color: rgba(0, 245, 212, 0.3); color: var(--accent);"> {{ success }}</div>{% endif %}
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
@@ -1245,7 +1245,7 @@ LOGIN_PAGE = '''
                     <input type="checkbox" name="remember" id="remember" checked>
                     <label for="remember">Remember me for 30 days</label>
                 </div>
-                <button type="submit" class="btn">Sign In →</button>
+                <button type="submit" class="btn">Sign In ></button>
             </form>
         </div>
     </div>
@@ -1267,15 +1267,15 @@ SIGNUP_PAGE = '''
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-card: #1a1a24;
-            --border: rgba(255,255,255,0.08);
-            --accent: #00f5d4;
-            --accent-2: #7b2cbf;
-            --accent-3: #f72585;
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-card: #141414;
+            --border: rgba(255,255,255,0.12);
+            --accent: #ffffff;
+            --accent-2: #888888;
+            --accent-3: #666666;
             --text: #ffffff;
-            --text-muted: #6b7280;
+            --text-muted: #666666;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1289,9 +1289,9 @@ SIGNUP_PAGE = '''
             overflow: hidden;
         }
         .bg-effects { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
-        .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; animation: float 20s ease-in-out infinite; }
-        .orb-1 { width: 400px; height: 400px; background: var(--accent-2); top: -100px; right: -100px; }
-        .orb-2 { width: 300px; height: 300px; background: var(--accent); bottom: -50px; left: -50px; animation-delay: -10s; }
+        .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15; animation: float 20s ease-in-out infinite; }
+        .orb-1 { width: 400px; height: 400px; background: #333333; top: -100px; right: -100px; }
+        .orb-2 { width: 300px; height: 300px; background: #222222; bottom: -50px; left: -50px; animation-delay: -10s; }
         @keyframes float { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(30px, -30px) scale(1.1); } }
         .container { position: relative; z-index: 1; width: 100%; max-width: 420px; padding: 20px; }
         .card {
@@ -1364,11 +1364,11 @@ SIGNUP_PAGE = '''
     <div class="container">
         <div class="card">
             <div class="logo">
-                <div class="logo-icon">✨</div>
+                <div class="logo-icon"></div>
                 <h1><span>Create Account</span></h1>
                 <p class="subtitle">Join Voice Hub today</p>
             </div>
-            {% if error %}<div class="error">⚠️ {{ error }}</div>{% endif %}
+            {% if error %}<div class="error"> {{ error }}</div>{% endif %}
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
@@ -1387,11 +1387,11 @@ SIGNUP_PAGE = '''
                     <label>Confirm Password</label>
                     <input type="password" name="password2" placeholder="Confirm your password" required>
                 </div>
-                <button type="submit" class="btn">Create Account →</button>
+                <button type="submit" class="btn">Create Account ></button>
             </form>
             <div class="link-row">
                 <p style="color: var(--text-muted); font-size: 14px;">
-                    Already have an account? <a href="/login">Sign in →</a>
+                    Already have an account? <a href="/login">Sign in ></a>
                 </p>
             </div>
         </div>
@@ -1418,20 +1418,20 @@ DASHBOARD_PAGE = '''
     <script src="https://unpkg.com/@picovoice/cheetah-web@3.0.0/dist/iife/index.js"></script>
     <style>
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-card: #1a1a24;
-            --bg-elevated: #22222e;
-            --border: rgba(255,255,255,0.08);
-            --border-hover: rgba(255,255,255,0.15);
-            --accent: #00f5d4;
-            --accent-2: #7b2cbf;
-            --accent-3: #f72585;
-            --success: #10b981;
-            --warning: #f59e0b;
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-card: #141414;
+            --bg-elevated: #1a1a1a;
+            --border: rgba(255,255,255,0.12);
+            --border-hover: rgba(255,255,255,0.25);
+            --accent: #ffffff;
+            --accent-2: #888888;
+            --accent-3: #666666;
+            --success: #888888;
+            --warning: #aaaaaa;
             --text: #ffffff;
-            --text-secondary: #a1a1aa;
-            --text-muted: #6b7280;
+            --text-secondary: #aaaaaa;
+            --text-muted: #666666;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1589,7 +1589,7 @@ DASHBOARD_PAGE = '''
             box-shadow: 0 0 20px rgba(0, 245, 212, 0.15);
         }
         .device-item.active::before {
-            content: '✓ EDITING';
+            content: ' EDITING';
             position: absolute;
             top: -10px;
             right: 12px;
@@ -1677,7 +1677,7 @@ DASHBOARD_PAGE = '''
         
         /* Voice Control Card */
         .voice-control {
-            background: linear-gradient(135deg, rgba(0, 245, 212, 0.1), rgba(123, 44, 191, 0.1));
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(128, 128, 128, 0.05));
             border: 1px solid var(--border);
             border-radius: 24px;
             padding: 40px;
@@ -1706,12 +1706,26 @@ DASHBOARD_PAGE = '''
             box-shadow: 0 6px 16px rgba(0, 245, 212, 0.3);
         }
         .mic-button.listening {
-            background: var(--success);
-            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+            background: #ef4444;
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+            animation: mic-pulse-red 1.5s ease-in-out infinite;
+        }
+        .mic-button.wake-listening {
+            background: #eab308;
+            box-shadow: 0 4px 16px rgba(234, 179, 8, 0.4);
+            animation: mic-pulse-yellow 2s ease-in-out infinite;
         }
         .mic-button.disabled {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+        @keyframes mic-pulse-red {
+            0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 8px 24px rgba(239, 68, 68, 0.6); }
+        }
+        @keyframes mic-pulse-yellow {
+            0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(234, 179, 8, 0.3); }
+            50% { transform: scale(1.03); box-shadow: 0 6px 20px rgba(234, 179, 8, 0.5); }
         }
         @keyframes mic-pulse {
             0%, 100% { transform: scale(1); box-shadow: 0 10px 40px rgba(16, 185, 129, 0.3); }
@@ -2078,12 +2092,12 @@ DASHBOARD_PAGE = '''
 <body>
     <header>
         <div class="logo">
-            <div class="logo-icon">🎛️</div>
+            <div class="logo-icon"></div>
             <span>Voice</span> Hub
         </div>
         <div class="header-actions">
-            <a href="/install" class="btn btn-primary">🖥️ Install Desktop Client</a>
-            <span style="color: var(--text-muted); font-size: 14px;">👤 {{ user.name }}</span>
+            <a href="/install" class="btn btn-primary"> Install Desktop Client</a>
+            <span style="color: var(--text-muted); font-size: 14px;"> {{ user.name }}</span>
             <a href="/logout" class="btn btn-ghost">Logout</a>
         </div>
     </header>
@@ -2091,25 +2105,24 @@ DASHBOARD_PAGE = '''
     <div class="main-layout">
         <!-- Sidebar: Device Manager -->
         <aside class="sidebar">
-            <h2>📱 My Devices</h2>
+            <h2> My Devices</h2>
             <div class="device-list" id="device-list">
                 <!-- Devices will be rendered here -->
             </div>
             <button class="add-device-btn" onclick="openAddDeviceModal()" style="margin-top: 16px;">
-                <span>➕</span> Add Device
+                <span>+</span> Add Device
             </button>
         </aside>
         
         <!-- Main Content -->
         <main class="main-content">
             <div id="browser-warning" class="browser-warning" style="display: none;">
-                ⚠️ Your browser doesn't support speech recognition. Please use Chrome, Edge, or Safari.
+ Your browser doesn't support speech recognition. Please use Chrome, Edge, or Safari.
             </div>
             
             <!-- Voice Control -->
             <div class="voice-control">
                 <button class="mic-button" id="mic-button" onclick="toggleListening()">
-                    🎤
                 </button>
                 <!-- Audio Level Visualization -->
                 <div class="audio-level-container" id="audio-level-container">
@@ -2129,12 +2142,12 @@ DASHBOARD_PAGE = '''
                         Ready for Wake Word
                     </span>
                     <span id="badge-continuous" class="mode-badge" style="display: none; background: rgba(123, 44, 191, 0.2); color: #a855f7; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 500;">
-                        🔄 Continuous Mode
+ Continuous Mode
                     </span>
                 </div>
                 <div class="transcript-box" id="chat-box">
                     <h4 id="transcript-header" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                        💬 Chat with Jarvis
+ Chat with Jarvis
                         <span id="transcript-count" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; display: none;">0</span>
                         <span style="font-size: 10px; color: var(--text-muted); margin-left: auto;">Click for history</span>
                     </h4>
@@ -2146,7 +2159,7 @@ DASHBOARD_PAGE = '''
             
             <!-- Device Settings -->
             <div class="settings-section" id="device-settings">
-                <h3>⚙️ Settings for: <span id="editing-device-name" style="color: var(--accent);">This Device</span></h3>
+                <h3> Settings for: <span id="editing-device-name" style="color: var(--accent);">This Device</span></h3>
                 <div class="setting-row">
                     <div class="setting-label">
                         <h4>Device Name</h4>
@@ -2225,7 +2238,7 @@ DASHBOARD_PAGE = '''
             
             <!-- Permissions Section (Electron only) -->
             <div class="settings-section electron-only" id="permissions-section" style="display: none;">
-                <h3>🔐 System Permissions</h3>
+                <h3> System Permissions</h3>
                 <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
                     Cortona needs these permissions to control apps and type text on your behalf.
                 </p>
@@ -2238,7 +2251,7 @@ DASHBOARD_PAGE = '''
                     <button class="btn btn-primary" id="btn-mic-permission" onclick="requestMicPermission()" style="display: none;">
                         Grant Access
                     </button>
-                    <span id="mic-permission-granted" style="color: var(--success); display: none;">✅ Granted</span>
+                    <span id="mic-permission-granted" style="color: var(--success); display: none;"> Granted</span>
                 </div>
                 
                 <div class="setting-row">
@@ -2252,13 +2265,13 @@ DASHBOARD_PAGE = '''
                 </div>
                 
                 <p style="color: var(--text-muted); font-size: 12px; margin-top: 16px;">
-                    💡 <strong>Tip:</strong> If commands fail with "osascript is not allowed", click "Open Settings" above and add Cortona to the Accessibility list.
+ <strong>Tip:</strong> If commands fail with "osascript is not allowed", click "Open Settings" above and add Cortona to the Accessibility list.
                 </p>
             </div>
             
             <!-- Command Routing Panel -->
             <div class="settings-section" id="command-routing">
-                <h3>🎯 Command Routing</h3>
+                <h3> Command Routing</h3>
                 <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
                     Say a device name or app to route your command. Example: <strong>"Jarvis, type hello world"</strong> or <strong>"Cursor, write a function"</strong>
                 </p>
@@ -2267,7 +2280,7 @@ DASHBOARD_PAGE = '''
                     <!-- Available Devices -->
                     <div class="routing-section">
                         <h4 style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
-                            📱 Available Devices
+ Available Devices
                         </h4>
                         <div id="available-devices" class="routing-list" style="display: flex; flex-direction: column; gap: 8px;">
                             <!-- Devices will be rendered here -->
@@ -2277,32 +2290,32 @@ DASHBOARD_PAGE = '''
                     <!-- Target Apps -->
                     <div class="routing-section">
                         <h4 style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
-                            🤖 AI Apps & Targets
+ AI Apps & Targets
                         </h4>
                         <div class="routing-list" style="display: flex; flex-direction: column; gap: 8px;">
                             <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
-                                <span style="font-size: 20px;">🖱️</span>
+                                <span style="font-size: 20px;"></span>
                                 <div>
                                     <div style="font-weight: 500;">Cursor</div>
                                     <div style="font-size: 12px; color: var(--text-muted);">"Cursor, write..."</div>
                                 </div>
                             </div>
                             <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
-                                <span style="font-size: 20px;">🧠</span>
+                                <span style="font-size: 20px;"></span>
                                 <div>
                                     <div style="font-weight: 500;">Claude</div>
                                     <div style="font-size: 12px; color: var(--text-muted);">"Claude, explain..."</div>
                                 </div>
                             </div>
                             <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
-                                <span style="font-size: 20px;">💬</span>
+                                <span style="font-size: 20px;"></span>
                                 <div>
                                     <div style="font-weight: 500;">ChatGPT</div>
                                     <div style="font-size: 12px; color: var(--text-muted);">"ChatGPT, help..."</div>
                                 </div>
                             </div>
                             <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px;">
-                                <span style="font-size: 20px;">✨</span>
+                                <span style="font-size: 20px;"></span>
                                 <div>
                                     <div style="font-weight: 500;">Copilot</div>
                                     <div style="font-size: 12px; color: var(--text-muted);">"Copilot, suggest..."</div>
@@ -2316,18 +2329,18 @@ DASHBOARD_PAGE = '''
                 <div style="margin-top: 20px; display: flex; gap: 10px;">
                     <button onclick="testDesktopConnection()" 
                             style="flex: 1; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; color: var(--text-secondary); cursor: pointer; font-size: 14px;">
-                        🔌 Test Desktop Connection
+ Test Desktop Connection
                     </button>
                     <button onclick="testTypeToCursor()" 
                             style="flex: 1; padding: 12px; background: var(--accent); border: none; border-radius: 10px; color: var(--bg-primary); cursor: pointer; font-size: 14px; font-weight: 600;">
-                        ⌨️ Test Type to Cursor
+ Test Type to Cursor
                     </button>
                 </div>
                 
                 <!-- Manual Command Input -->
                 <div style="margin-top: 15px; padding: 16px; background: var(--bg-primary); border-radius: 12px; border: 1px solid var(--border);">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 13px;">
-                        ⌨️ Type a Command (or paste to test execution)
+ Type a Command (or paste to test execution)
                     </label>
                     <div style="display: flex; gap: 10px;">
                         <input type="text" id="manual-command-input" 
@@ -2335,8 +2348,8 @@ DASHBOARD_PAGE = '''
                                style="flex: 1; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
                                onkeypress="if(event.key==='Enter') executeManualCommand()">
                         <button onclick="executeManualCommand()" 
-                                style="padding: 12px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
-                            🚀 Execute
+                                style="padding: 12px 20px; background: #ffffff; border: none; border-radius: 8px; color: #000000; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
+ Execute
                         </button>
                     </div>
                     <p style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
@@ -2348,7 +2361,7 @@ DASHBOARD_PAGE = '''
                 <div id="last-command-box" style="margin-top: 20px; padding: 16px; background: var(--bg-primary); border-radius: 12px; display: none;">
                     <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Last Routed Command</div>
                     <div id="last-command-content" style="display: flex; align-items: center; gap: 12px;">
-                        <span id="last-command-icon" style="font-size: 24px;">🎯</span>
+                        <span id="last-command-icon" style="font-size: 24px;"></span>
                         <div>
                             <div id="last-command-target" style="font-weight: 600; color: var(--accent);"></div>
                             <div id="last-command-text" style="font-size: 14px; color: var(--text-secondary);"></div>
@@ -2359,10 +2372,10 @@ DASHBOARD_PAGE = '''
             
             <!-- Activity Log -->
             <div class="activity-section">
-                <h3>📊 Activity Log</h3>
+                <h3> Activity Log</h3>
                 <div class="activity-list" id="activity-list">
                     <div class="empty-state">
-                        <div class="icon">📝</div>
+                        <div class="icon"></div>
                         <h3>No activity yet</h3>
                         <p>Start speaking to see your transcripts here</p>
                     </div>
@@ -2375,8 +2388,8 @@ DASHBOARD_PAGE = '''
     <div class="modal-overlay" id="add-device-modal">
         <div class="modal">
             <div class="modal-header">
-                <h2>➕ Add New Device</h2>
-                <button class="modal-close" onclick="closeAddDeviceModal()">✕</button>
+                <h2>+ Add New Device</h2>
+                <button class="modal-close" onclick="closeAddDeviceModal()">X</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -2390,12 +2403,12 @@ DASHBOARD_PAGE = '''
                 <div class="form-group">
                     <label>Icon</label>
                     <select id="new-device-icon">
-                        <option value="💻">💻 Laptop</option>
-                        <option value="🖥️">🖥️ Desktop</option>
-                        <option value="📱">📱 Phone</option>
-                        <option value="⌨️">⌨️ Workstation</option>
+                        <option value=""> Laptop</option>
+                        <option value=""> Desktop</option>
+                        <option value=""> Phone</option>
+                        <option value=""> Workstation</option>
                         <option value="🎮">🎮 Gaming PC</option>
-                        <option value="🏠">🏠 Home</option>
+                        <option value=""> Home</option>
                         <option value="🏢">🏢 Office</option>
                     </select>
                 </div>
@@ -2411,8 +2424,8 @@ DASHBOARD_PAGE = '''
     <div id="transcript-history-modal" class="modal-overlay" onclick="if(event.target === this) closeTranscriptHistory()">
         <div class="modal" style="max-width: 600px;">
             <div class="modal-header">
-                <h2>📜 Session Transcripts</h2>
-                <button class="modal-close" onclick="closeTranscriptHistory()">✕</button>
+                <h2> Session Transcripts</h2>
+                <button class="modal-close" onclick="closeTranscriptHistory()">X</button>
             </div>
             <div class="modal-body" style="padding: 20px; max-height: 60vh; overflow-y: auto;">
                 <div id="transcript-history-list" style="display: flex; flex-direction: column; gap: 12px;">
@@ -2421,7 +2434,7 @@ DASHBOARD_PAGE = '''
             </div>
             <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
                 <span id="transcript-session-info" style="font-size: 13px; color: var(--text-muted);">Session started just now</span>
-                <button class="btn btn-ghost" onclick="clearTranscriptHistory()" style="color: #ef4444;">🗑️ Clear Session</button>
+                <button class="btn btn-ghost" onclick="clearTranscriptHistory()" style="color: #ef4444;"> Clear Session</button>
             </div>
         </div>
     </div>
@@ -2459,7 +2472,7 @@ DASHBOARD_PAGE = '''
             try {
                 console.log('[MIC] Pre-warming microphone...');
                 preWarmedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log('[MIC] ✅ Microphone pre-warmed and ready!');
+                console.log('[MIC]  Microphone pre-warmed and ready!');
             } catch (e) {
                 console.log('[MIC] Pre-warm failed:', e.message);
             }
@@ -2497,22 +2510,22 @@ DASHBOARD_PAGE = '''
         const isElectron = window.electronAPI?.isElectron || false;
         
         if (isElectron) {
-            console.log('🖥️ Running in Electron app');
+            console.log(' Running in Electron app');
             
             // Listen for global shortcut activation
             window.electronAPI.onActivateVoice(() => {
-                console.log('🎤 Activated via global shortcut');
+                console.log(' Activated via global shortcut');
                 if (!isListening) {
                     toggleListening();
                 }
                 // Focus the mic and show we're ready
                 document.getElementById('mic-button').focus();
-                addActivity('🎤 Activated via ⌘+Shift+J', 'success');
+                addActivity(' Activated via ⌘+Shift+J', 'success');
             });
             
             // Listen for quick recording
             window.electronAPI.onStartRecording(() => {
-                console.log('🎤 Quick recording started');
+                console.log(' Quick recording started');
                 if (!isListening) {
                     toggleListening();
                 }
@@ -2521,7 +2534,7 @@ DASHBOARD_PAGE = '''
             // Push-to-Talk: stop recording when key released
             if (window.electronAPI.onStopRecording) {
                 window.electronAPI.onStopRecording(() => {
-                    console.log('🎤 Push-to-talk released');
+                    console.log(' Push-to-talk released');
                     if (isListening) {
                         stopListening();
                     }
@@ -2561,7 +2574,7 @@ DASHBOARD_PAGE = '''
                         console.log('[MIC] Permission request result:', granted);
                     } else if (status === 'denied') {
                         micPermission = 'denied';
-                        addActivity('❌ Microphone blocked. Open System Preferences > Security & Privacy > Privacy > Microphone and enable Cortona.', 'warning');
+                        addActivity('X Microphone blocked. Open System Preferences > Security & Privacy > Privacy > Microphone and enable Cortona.', 'warning');
                     } else {
                         micPermission = status;
                     }
@@ -2583,7 +2596,7 @@ DASHBOARD_PAGE = '''
                     micPermission = result.state;
                     updateMicPermissionUI();
                     if (result.state === 'granted') {
-                        addActivity('🎤 Microphone access granted!', 'success');
+                        addActivity(' Microphone access granted!', 'success');
                     }
                 };
             } catch (e) {
@@ -2597,7 +2610,7 @@ DASHBOARD_PAGE = '''
             const warning = document.getElementById('browser-warning');
             
             if (micPermission === 'denied') {
-                warning.innerHTML = '⚠️ Microphone access blocked. <a href="#" onclick="showPermissionHelp()" style="color: var(--accent); text-decoration: underline;">Click here to fix</a>';
+                warning.innerHTML = ' Microphone access blocked. <a href="#" onclick="showPermissionHelp()" style="color: var(--accent); text-decoration: underline;">Click here to fix</a>';
                 warning.style.display = 'flex';
             } else if (micPermission === 'granted') {
                 warning.style.display = 'none';
@@ -2616,15 +2629,15 @@ DASHBOARD_PAGE = '''
                 stream.getTracks().forEach(track => track.stop());
                 micPermission = 'granted';
                 updateMicPermissionUI();
-                addActivity('🎤 Microphone access granted!', 'success');
+                addActivity(' Microphone access granted!', 'success');
                 return true;
             } catch (err) {
                 if (err.name === 'NotAllowedError') {
                     micPermission = 'denied';
                     updateMicPermissionUI();
-                    addActivity('⚠️ Microphone access denied. Click the lock icon in the address bar to allow.', 'warning');
+                    addActivity(' Microphone access denied. Click the lock icon in the address bar to allow.', 'warning');
                 } else {
-                    addActivity('⚠️ Could not access microphone: ' + err.message, 'warning');
+                    addActivity(' Could not access microphone: ' + err.message, 'warning');
                 }
                 return false;
             }
@@ -2636,18 +2649,18 @@ DASHBOARD_PAGE = '''
                 try {
                     const result = await window.electronAPI.openAccessibilitySettings();
                     if (result.success) {
-                        addActivity('🔐 Opening Accessibility settings...', 'info');
+                        addActivity(' Opening Accessibility settings...', 'info');
                         addChatMessage('Opening System Settings. Please add Cortona to the Accessibility list and enable it.', 'jarvis');
                     } else {
-                        addActivity('⚠️ Could not open settings: ' + result.error, 'warning');
+                        addActivity(' Could not open settings: ' + result.error, 'warning');
                     }
                 } catch (e) {
                     console.error('Error opening accessibility settings:', e);
-                    addActivity('⚠️ Error: ' + e.message, 'warning');
+                    addActivity(' Error: ' + e.message, 'warning');
                 }
             } else {
                 // Not in Electron, show instructions
-                addActivity('ℹ️ Open System Settings → Privacy & Security → Accessibility manually', 'info');
+                addActivity('ℹ️ Open System Settings > Privacy & Security > Accessibility manually', 'info');
             }
         }
         
@@ -2660,10 +2673,10 @@ DASHBOARD_PAGE = '''
                     const btnEl = document.getElementById('btn-accessibility');
                     
                     if (result.granted) {
-                        if (statusEl) statusEl.innerHTML = '<span style="color: var(--success);">✅ Granted - App control enabled</span>';
+                        if (statusEl) statusEl.innerHTML = '<span style="color: var(--success);"> Granted - App control enabled</span>';
                         if (btnEl) btnEl.textContent = 'Check Again';
                     } else {
-                        if (statusEl) statusEl.innerHTML = '<span style="color: var(--warning);">⚠️ Not granted - Click to enable</span>';
+                        if (statusEl) statusEl.innerHTML = '<span style="color: var(--warning);"> Not granted - Click to enable</span>';
                         if (btnEl) btnEl.textContent = 'Open Settings';
                     }
                 } catch (e) {
@@ -2709,31 +2722,31 @@ DASHBOARD_PAGE = '''
             
             if (platform.includes('Mac') || ua.includes('Macintosh')) {
                 name = 'MacBook';
-                icon = '💻';
+                icon = '';
                 wakeWord = 'mac';
             } else if (platform.includes('Win') || ua.includes('Windows')) {
                 name = 'Windows PC';
-                icon = '🖥️';
+                icon = '';
                 wakeWord = 'windows';
             } else if (ua.includes('iPhone')) {
                 name = 'iPhone';
-                icon = '📱';
+                icon = '';
                 wakeWord = 'phone';
             } else if (ua.includes('iPad')) {
                 name = 'iPad';
-                icon = '📱';
+                icon = '';
                 wakeWord = 'ipad';
             } else if (ua.includes('Android')) {
                 name = 'Android';
-                icon = '📱';
+                icon = '';
                 wakeWord = 'android';
             } else if (platform.includes('Linux')) {
                 name = 'Linux PC';
-                icon = '🐧';
+                icon = '';
                 wakeWord = 'linux';
             } else {
                 name = 'My Device';
-                icon = '💻';
+                icon = '';
                 wakeWord = 'computer';
             }
             
@@ -2809,14 +2822,14 @@ DASHBOARD_PAGE = '''
         
         // Known AI apps and targets
         const knownApps = {
-            'cursor': { name: 'Cursor', icon: '🖱️', keywords: ['cursor', 'code editor'] },
-            'claude': { name: 'Claude', icon: '🧠', keywords: ['claude', 'anthropic'] },
-            'chatgpt': { name: 'ChatGPT', icon: '💬', keywords: ['chatgpt', 'chat gpt', 'openai', 'gpt'] },
-            'copilot': { name: 'Copilot', icon: '✨', keywords: ['copilot', 'github copilot'] },
+            'cursor': { name: 'Cursor', icon: '', keywords: ['cursor', 'code editor'] },
+            'claude': { name: 'Claude', icon: '', keywords: ['claude', 'anthropic'] },
+            'chatgpt': { name: 'ChatGPT', icon: '', keywords: ['chatgpt', 'chat gpt', 'openai', 'gpt'] },
+            'copilot': { name: 'Copilot', icon: '', keywords: ['copilot', 'github copilot'] },
             'gemini': { name: 'Gemini', icon: '🌟', keywords: ['gemini', 'google ai', 'bard'] },
             'terminal': { name: 'Terminal', icon: '⬛', keywords: ['terminal', 'command line', 'shell', 'console'] },
-            'browser': { name: 'Browser', icon: '🌐', keywords: ['browser', 'chrome', 'firefox', 'safari', 'edge'] },
-            'notes': { name: 'Notes', icon: '📝', keywords: ['notes', 'notepad', 'text editor'] },
+            'browser': { name: 'Browser', icon: '', keywords: ['browser', 'chrome', 'firefox', 'safari', 'edge'] },
+            'notes': { name: 'Notes', icon: '', keywords: ['notes', 'notepad', 'text editor'] },
             'slack': { name: 'Slack', icon: '💼', keywords: ['slack'] },
             'discord': { name: 'Discord', icon: '🎮', keywords: ['discord'] },
         };
@@ -2831,7 +2844,7 @@ DASHBOARD_PAGE = '''
             if (/^right\\s/i.test(text)) {
                 text = text.replace(/^right\\s/i, 'write ');
             }
-            // Handle "cursor right" → "cursor write" 
+            // Handle "cursor right" > "cursor write" 
             text = text.replace(/\\b(cursor|claude|chatgpt|terminal)\\s+right\\s/gi, '$1 write ');
             
             const lowerText = text.toLowerCase();
@@ -2921,7 +2934,7 @@ DASHBOARD_PAGE = '''
             };
             
             // If we have a target app but no action keyword match, default to typing the rest
-            // e.g., "cursor hello world" → type "hello world" in cursor
+            // e.g., "cursor hello world" > type "hello world" in cursor
             if (result.targetApp && result.command && !Object.values(actionPatterns).some(p => p.test(result.command))) {
                 // No action keyword found - just type the content
                 result.action = 'type';
@@ -3004,7 +3017,7 @@ DASHBOARD_PAGE = '''
                 timestamp: new Date().toISOString()
             });
             
-            showLastCommand(targetDevice.icon || '💻', `→ ${targetDevice.name}`, command);
+            showLastCommand(targetDevice.icon || '', `> ${targetDevice.name}`, command);
             addActivity(`📤 Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
         }
         
@@ -3017,7 +3030,7 @@ DASHBOARD_PAGE = '''
                 try {
                     const canControl = await window.electronAPI.canControlApps();
                     if (canControl) {
-                        addActivity('✅ Electron app control available! No separate client needed.', 'success');
+                        addActivity(' Electron app control available! No separate client needed.', 'success');
                         return;
                     }
                 } catch (e) {
@@ -3030,7 +3043,7 @@ DASHBOARD_PAGE = '''
             const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
             
             if (desktopClient) {
-                addActivity(`✅ Desktop client found: ${desktopClient.name} (${desktopClient.id})`, 'success');
+                addActivity(` Desktop client found: ${desktopClient.name} (${desktopClient.id})`, 'success');
                 console.log('Desktop client:', desktopClient);
                 
                 // Send a test ping
@@ -3054,11 +3067,11 @@ DASHBOARD_PAGE = '''
             const command = input.value.trim();
             
             if (!command) {
-                addActivity('⚠️ Please enter a command first', 'warning');
+                addActivity(' Please enter a command first', 'warning');
                 return;
             }
             
-            addActivity(`⌨️ Executing: "${command}"`, 'info');
+            addActivity(` Executing: "${command}"`, 'info');
             console.log('[MANUAL] Executing command:', command);
             
             // Process it just like a voice command
@@ -3066,14 +3079,14 @@ DASHBOARD_PAGE = '''
                 const result = await handleTranscript(command);
                 
                 if (result && result.success !== false) {
-                    addActivity('✅ Command executed!', 'success');
+                    addActivity(' Command executed!', 'success');
                     input.value = ''; // Clear input on success
                 } else if (result && result.error) {
-                    addActivity('❌ ' + result.error, 'warning');
+                    addActivity('X ' + result.error, 'warning');
                 }
             } catch (e) {
                 console.error('[MANUAL] Error:', e);
-                addActivity('❌ Error: ' + e.message, 'warning');
+                addActivity('X Error: ' + e.message, 'warning');
             }
         }
         
@@ -3084,19 +3097,19 @@ DASHBOARD_PAGE = '''
             // ELECTRON: Use built-in app control
             if (isElectron && window.electronAPI?.executeCommand) {
                 try {
-                    addActivity('🖥️ Using Electron to type to Cursor...', 'info');
+                    addActivity(' Using Electron to type to Cursor...', 'info');
                     const result = await window.electronAPI.executeCommand(
                         'type',
                         'Hello from Cortona! This is a test.',
                         'cursor'
                     );
                     if (result.success) {
-                        addActivity('✅ Typed to Cursor successfully!', 'success');
+                        addActivity(' Typed to Cursor successfully!', 'success');
                     } else {
-                        addActivity('❌ Failed: ' + (result.error || 'Unknown error'), 'warning');
+                        addActivity('X Failed: ' + (result.error || 'Unknown error'), 'warning');
                     }
                 } catch (e) {
-                    addActivity('❌ Electron error: ' + e.message, 'warning');
+                    addActivity('X Electron error: ' + e.message, 'warning');
                 }
                 return;
             }
@@ -3115,7 +3128,7 @@ DASHBOARD_PAGE = '''
                 });
                 addActivity('📤 Sent test text to Cursor', 'success');
             } else {
-                addActivity('❌ No desktop client! Use the Electron app for app control.', 'warning');
+                addActivity('X No desktop client! Use the Electron app for app control.', 'warning');
             }
         }
         
@@ -3125,7 +3138,7 @@ DASHBOARD_PAGE = '''
             const fromDevice = devices[fromDeviceId];
             const fromName = fromDevice?.name || 'Unknown Device';
             
-            addActivity(`📥 Received from ${fromName}: "${command.substring(0, 40)}..."`, 'info');
+            addActivity(` Received from ${fromName}: "${command.substring(0, 40)}..."`, 'info');
             playSound('activate');
             
             // Execute the command
@@ -3133,7 +3146,7 @@ DASHBOARD_PAGE = '''
                 handleTranscript(command);
             }
             
-            showLastCommand('📥', `← From ${fromName}`, command);
+            showLastCommand('', `< From ${fromName}`, command);
         }
         
         // Show the last command in the UI
@@ -3166,7 +3179,7 @@ DASHBOARD_PAGE = '''
             
             container.innerHTML = deviceList.map(d => `
                 <div class="route-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 10px; font-size: 14px; ${d.id === deviceId ? 'border: 1px solid var(--accent);' : ''}">
-                    <span style="font-size: 20px;">${d.icon || '💻'}</span>
+                    <span style="font-size: 20px;">${d.icon || ''}</span>
                     <div style="flex: 1;">
                         <div style="font-weight: 500;">${d.name || 'Unnamed'}</div>
                         <div style="font-size: 12px; color: var(--text-muted);">"${d.wakeWord || 'hey computer'}"</div>
@@ -3296,9 +3309,9 @@ DASHBOARD_PAGE = '''
                 timestamp: new Date().toISOString()
             });
             
-            showLastCommand(targetDevice.icon || '💻', '→ ' + targetDevice.name, command);
+            showLastCommand(targetDevice.icon || '', '> ' + targetDevice.name, command);
             addActivity('📤 Sent to ' + targetDevice.name + ': "' + command.substring(0, 40) + '..."', 'success');
-            document.getElementById('transcript').textContent = '📡 → ' + targetDevice.name + ': "' + command + '"';
+            document.getElementById('transcript').textContent = ' > ' + targetDevice.name + ': "' + command + '"';
         }
         
         // Check if the user said "stop" as a command (not as part of a sentence)
@@ -3507,7 +3520,7 @@ DASHBOARD_PAGE = '''
                         const interimDetection = detectWakeWord(interimTranscript, wakeWord);
                         if (interimDetection.detected) {
                             // Only show that wake word was detected, nothing else
-                            transcriptEl.textContent = '🎯 Wake word detected...';
+                            transcriptEl.textContent = ' Wake word detected...';
                             transcriptEl.classList.add('active');
                         }
                         // NEVER show what user said if wake word not detected - just keep showing ready message
@@ -3524,7 +3537,7 @@ DASHBOARD_PAGE = '''
                 }
                 
                 if (finalTranscript) {
-                    console.log('🎤 HEARD:', finalTranscript);
+                    console.log(' HEARD:', finalTranscript);
                     
                     // Quick check for obvious STOP commands (fast path, no API call needed)
                     const lowerTranscript = finalTranscript.toLowerCase().trim();
@@ -3559,8 +3572,8 @@ DASHBOARD_PAGE = '''
                     if (otherDeviceMatch) {
                         // Command is for another device - route it there!
                         playSound('activate');
-                        addActivity('📡 Routing to ' + otherDeviceMatch.device.name + '...', 'info');
-                        addToTranscriptHistory('→ ' + otherDeviceMatch.device.name + ': ' + otherDeviceMatch.command, 'routed');
+                        addActivity(' Routing to ' + otherDeviceMatch.device.name + '...', 'info');
+                        addToTranscriptHistory('> ' + otherDeviceMatch.device.name + ': ' + otherDeviceMatch.command, 'routed');
                         
                         // Route the command to the other device
                         routeToOtherDevice(otherDeviceMatch.device, otherDeviceMatch.command);
@@ -3586,7 +3599,7 @@ DASHBOARD_PAGE = '''
                         playSound('activate');
                         
                         const matchInfo = detection.similarity ? ' (' + Math.round(detection.similarity * 100) + '% match)' : '';
-                        addActivity('🎯 Wake word detected' + matchInfo + '!', 'success');
+                        addActivity(' Wake word detected' + matchInfo + '!', 'success');
                         addToTranscriptHistory(wakeWord + (afterWakeWord ? ' ' + afterWakeWord : ''), 'wake');
                         currentDevice.sessions++;
                         saveDevices();
@@ -3648,14 +3661,14 @@ DASHBOARD_PAGE = '''
                                 document.getElementById('voice-status').textContent = 'Standby';
                                 document.getElementById('voice-hint').innerHTML = `Say "<strong>${wakeWord}</strong>" to activate`;
                             }, 1500);
-                            addActivity('💬 Command processed - waiting for wake word', 'info');
+                            addActivity(' Command processed - waiting for wake word', 'info');
                         } else if (!alwaysListen && !continuousMode) {
                             // Manual mode without continuous - stop after command
                             setTimeout(() => {
                                 if (!isActiveDictation && !continuousMode) {
                                     stopListening();
                                     transcriptEl.textContent = 'Click mic to start again';
-                                    addActivity('🎤 Dictation ended', 'info');
+                                    addActivity(' Dictation ended', 'info');
                                 }
                             }, 2000);
                         }
@@ -3685,27 +3698,27 @@ DASHBOARD_PAGE = '''
                 console.error('[MIC] Speech recognition error:', event.error, event);
                 
                 if (event.error === 'not-allowed') {
-                    addActivity('❌ Microphone access denied. Click mic button to grant permission.', 'warning');
+                    addActivity('X Microphone access denied. Click mic button to grant permission.', 'warning');
                     alwaysListen = false;
                     isRestarting = false;
                     document.getElementById('toggle-always-listen').classList.remove('active');
                     updateUI();
                 } else if (event.error === 'audio-capture') {
-                    addActivity('❌ No microphone detected. Check System Preferences > Security > Microphone.', 'warning');
+                    addActivity('X No microphone detected. Check System Preferences > Security > Microphone.', 'warning');
                     isRestarting = false;
                     updateUI();
                 } else if (event.error === 'network') {
                     // In Electron, switch to local Whisper
                     if (isElectron && !useWhisper) {
                         console.log('[MIC] Network error in Electron - switching to local Whisper');
-                        addActivity('🔄 Switching to local Whisper for speech recognition...', 'info');
+                        addActivity(' Switching to local Whisper for speech recognition...', 'info');
                         useWhisper = true;
                         startWhisperRecording();
                         return;
                     }
-                    addActivity('⚠️ Network error. Speech recognition requires internet.', 'warning');
+                    addActivity(' Network error. Speech recognition requires internet.', 'warning');
                 } else if (event.error === 'service-not-allowed') {
-                    addActivity('❌ Speech service blocked. Try: System Preferences > Security > Privacy > Microphone', 'warning');
+                    addActivity('X Speech service blocked. Try: System Preferences > Security > Privacy > Microphone', 'warning');
                     isRestarting = false;
                     updateUI();
                 } else {
@@ -3782,12 +3795,12 @@ DASHBOARD_PAGE = '''
                         sensitivity: 0.7
                     },
                     (detection) => {
-                        console.log('[PORCUPINE] 🎯 WAKE WORD DETECTED!', detection);
+                        console.log('[PORCUPINE]  WAKE WORD DETECTED!', detection);
                         onWakeWordDetected();
                     }
                 );
                 
-                console.log('[PORCUPINE] ✅ Initialized successfully');
+                console.log('[PORCUPINE]  Initialized successfully');
                 return true;
                 
             } catch (e) {
@@ -3847,7 +3860,7 @@ DASHBOARD_PAGE = '''
                 
                 isListening = true;
                 document.getElementById('voice-status').textContent = 'Listening for wake word...';
-                addActivity('🎤 Local wake word detection active (FREE)', 'success');
+                addActivity(' Local wake word detection active (FREE)', 'success');
                 updateUI();
                 
                 return true;
@@ -3861,7 +3874,7 @@ DASHBOARD_PAGE = '''
         function onWakeWordDetected() {
             console.log('[PORCUPINE] Wake word triggered!');
             playSound('activate');
-            addActivity('🎯 Wake word detected! Listening for command...', 'success');
+            addActivity(' Wake word detected! Listening for command...', 'success');
             
             // Start recording for the actual command
             isActiveDictation = true;
@@ -3962,7 +3975,7 @@ DASHBOARD_PAGE = '''
                     }
                 );
                 
-                console.log('[CHEETAH] ✅ Initialized successfully - local STT ready!');
+                console.log('[CHEETAH]  Initialized successfully - local STT ready!');
                 return true;
                 
             } catch (e) {
@@ -4032,7 +4045,7 @@ DASHBOARD_PAGE = '''
                 document.getElementById('transcript').classList.add('active');
                 updateUI();
                 
-                addActivity('🎤 Local STT active (FREE & FAST)', 'success');
+                addActivity(' Local STT active (FREE & FAST)', 'success');
                 
                 // Set silence timeout for auto-stop
                 cheetahSilenceTimer = setTimeout(() => {
@@ -4044,7 +4057,7 @@ DASHBOARD_PAGE = '''
                 
             } catch (e) {
                 console.error('[CHEETAH] Failed to start:', e);
-                addActivity('⚠️ Cheetah failed, using Whisper...', 'warning');
+                addActivity(' Cheetah failed, using Whisper...', 'warning');
                 startWhisperRecording();
             }
         }
@@ -4191,15 +4204,15 @@ DASHBOARD_PAGE = '''
             const whisperAvailable = await checkWhisperService();
             if (!whisperAvailable) {
                 if (useCloudWhisper) {
-                    addActivity('⚠️ OpenAI API not configured. Add OPENAI_API_KEY in Render settings.', 'warning');
+                    addActivity(' OpenAI API not configured. Add OPENAI_API_KEY in Render settings.', 'warning');
                 } else {
-                    addActivity('⚠️ Local Whisper service not running. Restart the app.', 'warning');
+                    addActivity(' Local Whisper service not running. Restart the app.', 'warning');
                 }
                 useWhisper = false;
                 return;
             }
             
-            addActivity(useCloudWhisper ? '☁️ Using OpenAI Whisper (cloud)' : '✅ Connected to local Whisper', 'success');
+            addActivity(useCloudWhisper ? '☁️ Using OpenAI Whisper (cloud)' : ' Connected to local Whisper', 'success');
             
             try {
                 // Use pre-warmed stream if available (INSTANT!), otherwise get new one
@@ -4223,7 +4236,7 @@ DASHBOARD_PAGE = '''
                 
             } catch (e) {
                 console.error('[WHISPER] Failed to get microphone:', e);
-                addActivity('❌ Microphone access denied', 'warning');
+                addActivity('X Microphone access denied', 'warning');
                 useWhisper = false;
             }
         }
@@ -4301,12 +4314,12 @@ DASHBOARD_PAGE = '''
                         try {
                             const errorData = JSON.parse(errorText);
                             if (errorData.error) {
-                                addActivity(`❌ ${errorData.error}`, 'warning');
+                                addActivity(`X ${errorData.error}`, 'warning');
                             } else {
-                                addActivity(`❌ Transcription failed: ${response.status}`, 'warning');
+                                addActivity(`X Transcription failed: ${response.status}`, 'warning');
                             }
                         } catch (e) {
-                            addActivity(`❌ Transcription failed: ${response.status}`, 'warning');
+                            addActivity(`X Transcription failed: ${response.status}`, 'warning');
                         }
                         return;
                     }
@@ -4573,7 +4586,7 @@ DASHBOARD_PAGE = '''
             /\\.{3,}/g,     // Multiple periods
         ];
         
-        // User-configurable word replacements (misrecognition → correct)
+        // User-configurable word replacements (misrecognition > correct)
         // Users can add their own via settings
         let wordReplacements = {
             // Common misrecognitions
@@ -4588,7 +4601,7 @@ DASHBOARD_PAGE = '''
             // Add your own below
         };
         
-        // Snippets (trigger → expansion)
+        // Snippets (trigger > expansion)
         let snippets = {
             // Examples - users can add their own
             // 'my email': 'user@example.com',
@@ -4659,7 +4672,7 @@ DASHBOARD_PAGE = '''
                 if (regex.test(result)) {
                     result = result.replace(regex, content);
                     expansions.push({ trigger, content });
-                    console.log('[SNIPPET] Expanded:', trigger, '→', content);
+                    console.log('[SNIPPET] Expanded:', trigger, '>', content);
                 }
             }
             
@@ -4707,7 +4720,7 @@ DASHBOARD_PAGE = '''
             cleaned = cleaned.split(' ,').join(',').split(' .').join('.');
             
             if (cleaned !== text) {
-                console.log('[FILLER] Cleaned:', text, '→', cleaned);
+                console.log('[FILLER] Cleaned:', text, '>', cleaned);
             }
             
             return cleaned;
@@ -4717,14 +4730,14 @@ DASHBOARD_PAGE = '''
         function addWordReplacement(from, to) {
             wordReplacements[from.toLowerCase()] = to;
             saveUserDictionary();
-            addActivity(`📝 Added replacement: "${from}" → "${to}"`, 'success');
+            addActivity(` Added replacement: "${from}" > "${to}"`, 'success');
         }
         
         // Add a snippet
         function addSnippet(trigger, content) {
             snippets[trigger.toLowerCase()] = content;
             saveUserDictionary();
-            addActivity(`📝 Added snippet: "${trigger}"`, 'success');
+            addActivity(` Added snippet: "${trigger}"`, 'success');
         }
         
         // Load dictionary on startup
@@ -4745,7 +4758,7 @@ DASHBOARD_PAGE = '''
             
             try {
                 console.log('[TTS] Speaking:', text.substring(0, 50) + '...');
-                addActivity(`🔊 Speaking...`, 'info');
+                addActivity(` Speaking...`, 'info');
                 
                 const response = await fetch('/api/tts', {
                     method: 'POST',
@@ -4869,7 +4882,7 @@ DASHBOARD_PAGE = '''
             const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
             const lowerText = text.toLowerCase().trim();
             
-            console.log('🎤 WHISPER HEARD:', text);
+            console.log(' WHISPER HEARD:', text);
             
             // Check for stop command
             if (checkForStopCommand(lowerText)) {
@@ -4906,7 +4919,7 @@ DASHBOARD_PAGE = '''
                 if (detection.detected) {
                     commandText = text.substring(detection.index + detection.length).trim();
                     playSound('activate');
-                    addActivity('🎯 Wake word detected!', 'success');
+                    addActivity(' Wake word detected!', 'success');
                     
                     if (!commandText) {
                         isActiveDictation = true;
@@ -5084,7 +5097,7 @@ DASHBOARD_PAGE = '''
                 }
                 
                 window.speechSynthesis.speak(utterance);
-                console.log('🔊 Speaking:', text);
+                console.log(' Speaking:', text);
             } else {
                 console.log('Speech synthesis not available');
             }
@@ -5110,7 +5123,7 @@ DASHBOARD_PAGE = '''
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message ${sender}`;
             messageDiv.innerHTML = `
-                <div class="sender">${sender === 'jarvis' ? '🤖 Jarvis' : '🎤 You'}</div>
+                <div class="sender">${sender === 'jarvis' ? ' Jarvis' : ' You'}</div>
                 <div>${text}</div>
             `;
             
@@ -5176,8 +5189,8 @@ DASHBOARD_PAGE = '''
                     aiModel = data.model;
                     if (claudeAvailable) {
                         const providerName = aiProvider === 'openai' ? 'GPT-4o' : 'Claude';
-                        console.log(`🧠 ${providerName} AI ready`);
-                        addActivity(`🧠 ${providerName} enabled (fast mode)`, 'success');
+                        console.log(` ${providerName} AI ready`);
+                        addActivity(` ${providerName} enabled (fast mode)`, 'success');
                     }
                 })
                 .catch(() => { claudeAvailable = false; });
@@ -5185,7 +5198,7 @@ DASHBOARD_PAGE = '''
         
         async function parseWithClaude(text) {
             try {
-                // Extract assistant name from wake word (e.g., "Hey Jarvis" → "Jarvis")
+                // Extract assistant name from wake word (e.g., "Hey Jarvis" > "Jarvis")
                 const wakeWord = currentDevice?.wakeWord || 'hey jarvis';
                 const assistantName = wakeWord.replace(/^(hey|ok|hi|hello)\\s+/i, '').trim() || 'Jarvis';
                 
@@ -5199,9 +5212,9 @@ DASHBOARD_PAGE = '''
                     assistantName: assistantName.charAt(0).toUpperCase() + assistantName.slice(1).toLowerCase()
                 };
                 
-                console.log('🔍 SENDING TO AI:', JSON.stringify(contextData, null, 2));
-                console.log('🔍 Text being sent:', text);
-                console.log('🔍 Text length:', text.length);
+                console.log(' SENDING TO AI:', JSON.stringify(contextData, null, 2));
+                console.log(' Text being sent:', text);
+                console.log(' Text length:', text.length);
                 
                 const response = await fetch('/api/parse-command', {
                     method: 'POST',
@@ -5209,13 +5222,13 @@ DASHBOARD_PAGE = '''
                     body: JSON.stringify(contextData)
                 });
                 const data = await response.json();
-                console.log('🧠 AI RESPONSE:', JSON.stringify(data, null, 2));
+                console.log(' AI RESPONSE:', JSON.stringify(data, null, 2));
                 
                 // Claude ALWAYS returns a valid response now (no fallback)
                 // Log if Claude corrected the transcription
                 if (data.correctedText && data.correctedText !== text) {
-                    console.log('🔧 Speech corrected:', text, '→', data.correctedText);
-                    addActivity(`🔧 Heard "${text}" → corrected to "${data.correctedText}"`, 'info');
+                    console.log(' Speech corrected:', text, '>', data.correctedText);
+                    addActivity(` Heard "${text}" > corrected to "${data.correctedText}"`, 'info');
                 }
                 
                 return data;
@@ -5249,7 +5262,7 @@ DASHBOARD_PAGE = '''
                 text = text.replace(/^right\\s/i, 'write ');
                 console.log('Corrected "right" to "write":', text);
             }
-            // "cursor right something" → "cursor write something"
+            // "cursor right something" > "cursor write something"
             text = text.replace(/\\b(cursor|claude|chatgpt|terminal)\\s+right\\s/gi, '$1 write ');
             
             console.log('Voice:', text);
@@ -5270,13 +5283,13 @@ DASHBOARD_PAGE = '''
                     
                     // Check if Claude detected a stop command
                     if (claudeResult.isStopCommand) {
-                        console.log('🧠 Claude detected stop command');
+                        console.log(' Claude detected stop command');
                         return { isStop: true };  // Return to let caller handle stop
                     }
                     
                     // Handle "repeat" action
                     if (claudeResult.action === 'repeat' && lastAction) {
-                        console.log('🔄 Repeating last action:', lastAction);
+                        console.log(' Repeating last action:', lastAction);
                         addChatMessage('Repeating last action...', 'jarvis');
                         // Re-execute last action
                         parsed = {
@@ -5295,8 +5308,8 @@ DASHBOARD_PAGE = '''
                             addChatMessage(`"${text}"`, 'user');
                             addChatMessage("Copied to clipboard.", 'jarvis');
                             speakText("Copied to clipboard.");
-                            addActivity('📋 Copied to clipboard (unrecognized command)', 'info');
-                            console.log('📋 Unrecognized command, copied to clipboard:', text);
+                            addActivity(' Copied to clipboard (unrecognized command)', 'info');
+                            console.log(' Unrecognized command, copied to clipboard:', text);
                         } catch (err) {
                             console.error('Clipboard error:', err);
                             addChatMessage("Sorry, couldn't copy that.", 'jarvis');
@@ -5317,7 +5330,7 @@ DASHBOARD_PAGE = '''
                         parsed = {
                             originalText: text,
                             targetDevice: null,
-                            targetApp: knownApp ? { id: appId, ...knownApp } : (appId ? { id: appId, name: claudeResult.targetApp, icon: '🤖' } : null),
+                            targetApp: knownApp ? { id: appId, ...knownApp } : (appId ? { id: appId, name: claudeResult.targetApp, icon: '' } : null),
                             command: claudeResult.content || text,
                             action: claudeResult.action || 'type'
                         };
@@ -5332,12 +5345,12 @@ DASHBOARD_PAGE = '''
                         };
                         lastTargetApp = appId || lastTargetApp;
                         
-                        console.log('🧠 Claude:', claudeResult.response || `${parsed.action} → ${appId || 'local'}`);
+                        console.log(' Claude:', claudeResult.response || `${parsed.action} > ${appId || 'local'}`);
                         if (claudeResult.response) {
-                            addActivity(`🧠 ${claudeResult.response}`, 'info');
+                            addActivity(` ${claudeResult.response}`, 'info');
                             // Show brief confirmation in chat (but don't speak for normal commands)
                             if (!claudeResult.speak) {
-                                addChatMessage(`✓ ${claudeResult.response}`, 'jarvis');
+                                addChatMessage(` ${claudeResult.response}`, 'jarvis');
                             }
                         }
                     }
@@ -5351,7 +5364,7 @@ DASHBOARD_PAGE = '''
             // Claude is the SOLE decision maker - no regex fallback
             // If parsed is still null (shouldn't happen), create minimal action
             if (!parsed) {
-                console.log('⚠️ No Claude result - using text as-is');
+                console.log(' No Claude result - using text as-is');
                 parsed = {
                     originalText: text,
                     targetDevice: null,
@@ -5380,9 +5393,9 @@ DASHBOARD_PAGE = '''
                     (async () => {
                         try {
                             await window.electronAPI.executeCommand(parsed.action, parsed.command, null);
-                            showLastCommand('🌐', actionLabel, parsed.command || 'new tab');
-                            addActivity('🌐 ' + actionLabel, 'success');
-                            document.getElementById('transcript').textContent = '🌐 ' + actionLabel;
+                            showLastCommand('', actionLabel, parsed.command || 'new tab');
+                            addActivity(' ' + actionLabel, 'success');
+                            document.getElementById('transcript').textContent = ' ' + actionLabel;
                         } catch (e) {
                             console.error('Browser action error:', e);
                         }
@@ -5405,12 +5418,12 @@ DASHBOARD_PAGE = '''
                         timestamp: new Date().toISOString()
                     });
                     
-                    showLastCommand('🌐', actionLabel, parsed.command || 'new tab');
-                    addActivity('🌐 ' + actionLabel, 'success');
-                    document.getElementById('transcript').textContent = '🌐 ' + actionLabel;
+                    showLastCommand('', actionLabel, parsed.command || 'new tab');
+                    addActivity(' ' + actionLabel, 'success');
+                    document.getElementById('transcript').textContent = ' ' + actionLabel;
                     return;
                 } else {
-                    addActivity('⚠️ No desktop client connected for browser control', 'warning');
+                    addActivity(' No desktop client connected for browser control', 'warning');
                 }
             }
             
@@ -5420,7 +5433,7 @@ DASHBOARD_PAGE = '''
                 
                 // ELECTRON: Use built-in app control if running in Electron
                 if (isElectron && window.electronAPI?.executeCommand) {
-                    console.log('🖥️ Using Electron to control:', appInfo.id);
+                    console.log(' Using Electron to control:', appInfo.id);
                     
                     (async () => {
                         try {
@@ -5431,31 +5444,31 @@ DASHBOARD_PAGE = '''
                             );
                             
                             if (result.success) {
-                                showLastCommand(appInfo.icon, `→ ${appInfo.name}`, parsed.command);
-                                addActivity(`✅ Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
-                                document.getElementById('transcript').textContent = `✅ → ${appInfo.name}: "${parsed.command}"`;
+                                showLastCommand(appInfo.icon, `> ${appInfo.name}`, parsed.command);
+                                addActivity(` Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                                document.getElementById('transcript').textContent = ` > ${appInfo.name}: "${parsed.command}"`;
                             } else {
                                 // Check if it's an accessibility permission error
                                 if (result.error && result.error.includes('osascript is not allowed')) {
-                                    addActivity('🔐 Accessibility permission required!', 'warning');
+                                    addActivity(' Accessibility permission required!', 'warning');
                                     addChatMessage('I need Accessibility permission to type in other apps. Let me open the settings for you.', 'jarvis');
                                     speakText('I need Accessibility permission. Opening settings now.');
                                     openAccessibilitySettings();
                                 } else {
-                                    addActivity(`⚠️ Failed to control ${appInfo.name}: ${result.error}`, 'warning');
+                                    addActivity(` Failed to control ${appInfo.name}: ${result.error}`, 'warning');
                                 }
                                 // Copy to clipboard as fallback
                                 copyToClipboard(parsed.command);
-                                addActivity('📋 Copied to clipboard instead', 'info');
+                                addActivity(' Copied to clipboard instead', 'info');
                             }
                         } catch (e) {
                             console.error('Electron command error:', e);
                             // Check for accessibility error in exception too
                             if (e.message && e.message.includes('osascript is not allowed')) {
-                                addActivity('🔐 Accessibility permission required!', 'warning');
+                                addActivity(' Accessibility permission required!', 'warning');
                                 openAccessibilitySettings();
                             } else {
-                                addActivity(`⚠️ Error: ${e.message}`, 'warning');
+                                addActivity(` Error: ${e.message}`, 'warning');
                             }
                             copyToClipboard(parsed.command);
                         }
@@ -5483,16 +5496,16 @@ DASHBOARD_PAGE = '''
                     });
                     
                     copyToClipboard(parsed.command);
-                    showLastCommand(appInfo.icon, `→ ${appInfo.name} on ${desktopClient.name}`, parsed.command);
+                    showLastCommand(appInfo.icon, `> ${appInfo.name} on ${desktopClient.name}`, parsed.command);
                     addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
-                    document.getElementById('transcript').textContent = `📤 → ${appInfo.name}: "${parsed.command}"`;
+                    document.getElementById('transcript').textContent = `📤 > ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
                     // No desktop client and not in Electron - copy to clipboard
-                    addActivity(`⚠️ No way to control ${appInfo.name}. Use Electron app or run desktop client.`, 'warning');
+                    addActivity(` No way to control ${appInfo.name}. Use Electron app or run desktop client.`, 'warning');
                     copyToClipboard(parsed.command);
-                    addActivity('📋 Copied to clipboard - paste manually', 'info');
-                    document.getElementById('transcript').textContent = `📋 Copied: "${parsed.command}"`;
+                    addActivity(' Copied to clipboard - paste manually', 'info');
+                    document.getElementById('transcript').textContent = ` Copied: "${parsed.command}"`;
                 }
                 
                 text = parsed.command;
@@ -5514,7 +5527,7 @@ DASHBOARD_PAGE = '''
             
             // Log activity
             if (autoType) {
-                const targetInfo = parsed.targetApp ? ` → ${parsed.targetApp.name}` : '';
+                const targetInfo = parsed.targetApp ? ` > ${parsed.targetApp.name}` : '';
                 addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (copied)`, 'success', wordCount);
             } else {
                 addActivity(`Copied: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
@@ -5580,7 +5593,7 @@ DASHBOARD_PAGE = '''
             
             if (corrections.length > 0) {
                 console.log('Spell corrections:', corrections);
-                addActivity(`📝 Auto-corrected: ${corrections.map(c => c.from + ' → ' + c.to).join(', ')}`, 'info');
+                addActivity(` Auto-corrected: ${corrections.map(c => c.from + ' > ' + c.to).join(', ')}`, 'info');
             }
             
             return corrected;
@@ -5660,7 +5673,7 @@ DASHBOARD_PAGE = '''
             } catch (e) {
                 console.log('Recognition start error:', e.name, e.message);
                 if (e.name !== 'InvalidStateError') {
-                    addActivity('⚠️ ' + e.message, 'warning');
+                    addActivity(' ' + e.message, 'warning');
                 }
             }
         }
@@ -5710,7 +5723,7 @@ DASHBOARD_PAGE = '''
             // Try Cheetah first (local, fast, free)
             if (useCheetah && PICOVOICE_ACCESS_KEY && PICOVOICE_ACCESS_KEY.indexOf(String.fromCharCode(123, 123)) < 0) {
                 console.log('[CHEETAH] Using local Picovoice STT (fast & free)');
-                addActivity('🚀 Starting local STT (Cheetah)...', 'info');
+                addActivity(' Starting local STT (Cheetah)...', 'info');
                 startCheetahRecording();
                 return;
             }
@@ -5722,13 +5735,13 @@ DASHBOARD_PAGE = '''
                 const whisperAvailable = await checkWhisperService();
                 if (whisperAvailable) {
                     useWhisper = true;
-                    addActivity(useCloudWhisper ? '☁️ Starting OpenAI Whisper...' : '🎤 Starting Whisper...', 'info');
+                    addActivity(useCloudWhisper ? '☁️ Starting OpenAI Whisper...' : ' Starting Whisper...', 'info');
                     startWhisperRecording();
-                } else {
+            } else {
                     if (useCloudWhisper) {
-                        addActivity('⚠️ OpenAI API not configured. Add OPENAI_API_KEY in Render.', 'warning');
+                        addActivity(' OpenAI API not configured. Add OPENAI_API_KEY in Render.', 'warning');
                     } else {
-                        addActivity('⚠️ Whisper service not running. Restart the Cortona app.', 'warning');
+                        addActivity(' Whisper service not running. Restart the Cortona app.', 'warning');
                     }
                 }
                 return;
@@ -5737,7 +5750,7 @@ DASHBOARD_PAGE = '''
             // BROWSER: Use Web Speech API
             if (!recognition) {
                 console.error('No recognition object!');
-                addActivity('⚠️ Speech recognition not available in this browser', 'warning');
+                addActivity(' Speech recognition not available in this browser', 'warning');
                 return;
             }
             
@@ -5745,7 +5758,7 @@ DASHBOARD_PAGE = '''
                 console.log('Starting Web Speech API...');
                     recognition.lang = currentDevice?.language || 'en-US';
                     recognition.start();
-                    addActivity('🎤 Starting microphone...', 'info');
+                    addActivity(' Starting microphone...', 'info');
                 } catch (e) {
                     if (e.name === 'InvalidStateError') {
                         console.log('Recognition in invalid state, reinitializing...');
@@ -5754,13 +5767,13 @@ DASHBOARD_PAGE = '''
                             try {
                                 recognition.lang = currentDevice?.language || 'en-US';
                                 recognition.start();
-                                addActivity('🎤 Starting microphone...', 'info');
+                                addActivity(' Starting microphone...', 'info');
                             } catch (e2) {
-                                addActivity('⚠️ Could not start microphone: ' + e2.message, 'warning');
+                                addActivity(' Could not start microphone: ' + e2.message, 'warning');
                             }
                         }, 100);
                     } else {
-                        addActivity('⚠️ Could not start microphone: ' + e.message, 'warning');
+                        addActivity(' Could not start microphone: ' + e.message, 'warning');
                 }
             }
         }
@@ -5788,28 +5801,35 @@ DASHBOARD_PAGE = '''
             // During restart, keep UI stable - don't flicker between states
             if (isRestarting && alwaysListen && hasInitialized) {
                 // Keep showing stable "Standby" state during restart
-                micButton.classList.add('listening');
-                micButton.innerHTML = 'ON';
-                voiceStatus.textContent = 'Standby';
+                micButton.classList.remove('listening');
+                micButton.classList.add('wake-listening');
+                micButton.innerHTML = 'WAKE';
+                voiceStatus.textContent = 'Listening for wake word...';
                 // Don't update other elements - prevent flicker
                 return;
             }
             
+            // Clear all mic button states first
+            micButton.classList.remove('listening', 'wake-listening');
+            
             if (isListening) {
                 hasInitialized = true; // Mark as initialized once we're listening
-                micButton.classList.add('listening');
+                
                 if (alwaysListen && !isActiveDictation) {
-                    // In always-listen mode, waiting for wake word
-                    micButton.innerHTML = 'ON';
-                    voiceStatus.textContent = 'Standby';
+                    // YELLOW: In always-listen mode, waiting for wake word
+                    micButton.classList.add('wake-listening');
+                    micButton.innerHTML = 'WAKE';
+                    voiceStatus.textContent = 'Listening for wake word...';
                     voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
                 } else if (isActiveDictation) {
-                    // Active dictation after wake word
+                    // RED: Active dictation after wake word
+                    micButton.classList.add('listening');
                     micButton.innerHTML = 'REC';
-                    voiceStatus.textContent = 'Listening...';
+                    voiceStatus.textContent = 'Recording...';
                     voiceHint.innerHTML = 'Speak your command. Say "<strong>stop</strong>" when done.';
                 } else {
-                    // Manual recording mode
+                    // RED: Manual recording mode
+                    micButton.classList.add('listening');
                     micButton.innerHTML = 'REC';
                     voiceStatus.textContent = 'Recording';
                     voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
@@ -5817,24 +5837,21 @@ DASHBOARD_PAGE = '''
             } else {
                 // When not listening...
                 if (alwaysListen && hasInitialized) {
-                    // In always-listen mode after initialization - keep showing Standby (mic is just restarting)
-                    // Don't change the UI - it will update when recognition restarts
-                    micButton.classList.add('listening');
-                    micButton.innerHTML = 'ON';
-                    voiceStatus.textContent = 'Standby';
+                    // YELLOW: In always-listen mode after initialization - waiting for wake word
+                    micButton.classList.add('wake-listening');
+                    micButton.innerHTML = 'WAKE';
+                    voiceStatus.textContent = 'Listening for wake word...';
                     voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
                 } else if (alwaysListen && !hasInitialized) {
                     // First time starting always-listen mode
-                micButton.classList.remove('listening');
                 micButton.innerHTML = 'MIC';
-                    voiceStatus.textContent = 'Starting';
+                    voiceStatus.textContent = 'Starting...';
                     voiceHint.innerHTML = 'Initializing microphone...';
                 } else {
-                    // Not in always-listen mode
-                    micButton.classList.remove('listening');
+                    // GREY: Not in always-listen mode - off
                     micButton.innerHTML = 'MIC';
-                    voiceStatus.textContent = 'Off';
-                    voiceHint.innerHTML = 'Click to start listening';
+                    voiceStatus.textContent = 'Click to Start';
+                    voiceHint.innerHTML = 'Click mic or say your wake word';
                     hasInitialized = false; // Reset when fully stopped
                 }
             }
@@ -5910,7 +5927,7 @@ DASHBOARD_PAGE = '''
                     <div class="device-item" onclick="openDeviceEditor('${thisDevice.id}')" style="cursor: pointer; padding: 12px; background: rgba(0,245,212,0.15); border-radius: 10px; border: 2px solid var(--accent); margin-bottom: 8px; transition: transform 0.1s;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 20px;">${thisDevice.icon || '💻'}</span>
+                                <span style="font-size: 20px;">${thisDevice.icon || ''}</span>
                                 <strong>${thisDevice.name || 'This Device'}</strong>
                             </div>
                             <span style="font-size: 9px; background: var(--success); color: white; padding: 2px 8px; border-radius: 10px;">THIS DEVICE</span>
@@ -5933,7 +5950,7 @@ DASHBOARD_PAGE = '''
                     <div class="device-item" onclick="openDeviceEditor('${d.id}')" style="cursor: pointer; padding: 10px; background: var(--bg-secondary); border-radius: 8px; margin-bottom: 6px; opacity: ${isOnline ? 1 : 0.5}; transition: transform 0.1s;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 18px;">${d.icon || '💻'}</span>
+                                <span style="font-size: 18px;">${d.icon || ''}</span>
                                 <span>${d.name || 'Unknown'}</span>
                             </div>
                             <span style="font-size: 8px; background: ${isOnline ? 'var(--success)' : 'var(--text-muted)'}; color: white; padding: 2px 6px; border-radius: 8px;">
@@ -5975,16 +5992,16 @@ DASHBOARD_PAGE = '''
             let modalHTML = '<div id="device-editor-content" style="background: var(--bg-secondary); border-radius: 16px; padding: 24px; width: 90%; max-width: 400px; border: 1px solid var(--border);">';
             modalHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">';
             modalHTML += '<h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">';
-            modalHTML += '<span id="editor-header-icon" style="font-size: 24px;">' + (device.icon || '💻') + '</span> Edit Device</h3>';
+            modalHTML += '<span id="editor-header-icon" style="font-size: 24px;">' + (device.icon || '') + '</span> Edit Device</h3>';
             modalHTML += '<button id="close-editor-btn" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; padding: 4px 8px;">&times;</button></div>';
             
             // Clear status indicator
             if (isThisDevice) {
                 modalHTML += '<div style="background: rgba(0,245,212,0.15); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; margin-bottom: 16px; font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 8px;">';
-                modalHTML += '<span style="font-size: 16px;">✓</span> <strong>This is YOUR current device</strong></div>';
+                modalHTML += '<span style="font-size: 16px;"></span> <strong>This is YOUR current device</strong></div>';
             } else {
                 modalHTML += '<div style="background: rgba(255,165,0,0.15); border: 1px solid orange; border-radius: 8px; padding: 10px; margin-bottom: 16px; font-size: 13px; color: orange; display: flex; align-items: center; gap: 8px;">';
-                modalHTML += '<span style="font-size: 16px;">📡</span> <strong>Editing REMOTE device:</strong> ' + (device.name || 'Unknown') + '</div>';
+                modalHTML += '<span style="font-size: 16px;"></span> <strong>Editing REMOTE device:</strong> ' + (device.name || 'Unknown') + '</div>';
             }
             
             modalHTML += '<div style="margin-bottom: 16px;">';
@@ -6001,7 +6018,7 @@ DASHBOARD_PAGE = '''
             modalHTML += '<div style="margin-bottom: 20px;">';
             modalHTML += '<label style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Icon</label>';
             modalHTML += '<div style="display: flex; gap: 8px; flex-wrap: wrap;">';
-            var icons = ['💻', '🖥️', '📱', '⌨️', '🎧', '🎤', '🖱️', '📺'];
+            var icons = ['', '', '', '', '🎧', '', '', '📺'];
             for (var i = 0; i < icons.length; i++) {
                 var icon = icons[i];
                 var isSelected = device.icon === icon;
@@ -6130,7 +6147,7 @@ DASHBOARD_PAGE = '''
             if (activityLog.length === 0) {
                 listEl.innerHTML = `
                     <div class="empty-state">
-                        <div class="icon">📝</div>
+                        <div class="icon"></div>
                         <h3>No activity yet</h3>
                         <p>Start speaking to see your transcripts here</p>
                     </div>
@@ -6138,7 +6155,7 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            const icons = { success: '✅', info: 'ℹ️', warning: '⚠️' };
+            const icons = { success: '', info: 'ℹ️', warning: '' };
             
             listEl.innerHTML = activityLog.map(a => `
                 <div class="activity-item">
@@ -6209,8 +6226,8 @@ DASHBOARD_PAGE = '''
             
             // Render in reverse chronological order (newest first)
             const typeIcons = {
-                command: '💬',
-                wake: '🎯',
+                command: '',
+                wake: '',
                 routed: '📤',
                 stop: '🛑'
             };
@@ -6224,7 +6241,7 @@ DASHBOARD_PAGE = '''
             
             listEl.innerHTML = transcriptHistory.slice().reverse().map(function(entry) {
                 const timeStr = entry.time.toLocaleTimeString();
-                var icon = typeIcons[entry.type] || '💬';
+                var icon = typeIcons[entry.type] || '';
                 var label = typeLabels[entry.type] || 'Transcript';
                 
                 return '<div style="background: var(--bg-secondary); border-radius: 12px; padding: 14px 16px; border-left: 3px solid ' + (entry.type === 'wake' ? 'var(--accent)' : entry.type === 'routed' ? '#a855f7' : 'var(--border)') + ';">' +
@@ -6354,7 +6371,7 @@ DASHBOARD_PAGE = '''
             saveDevices();
             
             if (alwaysListen) {
-                addActivity('🎤 Wake word listening enabled - say "' + (currentDevice?.wakeWord || 'jarvis') + '" to activate', 'success');
+                addActivity(' Wake word listening enabled - say "' + (currentDevice?.wakeWord || 'jarvis') + '" to activate', 'success');
                 // Start listening for wake word (both browser and Electron)
                 startListening();
             } else {
@@ -6406,7 +6423,7 @@ DASHBOARD_PAGE = '''
             document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
             currentDevice.spellCheck = spellCheckEnabled;
             saveDevices();
-            addActivity(spellCheckEnabled ? '✓ Spell check enabled' : 'Spell check disabled', 'info');
+            addActivity(spellCheckEnabled ? ' Spell check enabled' : 'Spell check disabled', 'info');
         }
         
         // ============================================================
@@ -6593,7 +6610,7 @@ DASHBOARD_PAGE = '''
         // Skip in Electron - use mic button instead (Whisper doesn't support continuous listening)
         if ((alwaysListen || continuousMode) && !isElectron) {
             setTimeout(() => {
-                addActivity('🚀 Auto-starting voice recognition...', 'info');
+                addActivity(' Auto-starting voice recognition...', 'info');
                 startListening();
             }, 1000);
         } else if (isElectron) {
@@ -7080,7 +7097,7 @@ ALWAYS include a "speak" response - you're conversational! Keep it natural, 5-15
 CORE ABILITIES:
 1. CONTEXT AWARENESS - Remember conversation, infer meaning from "this", "that", "again"
 2. SPEECH CORRECTION - Fix transcription errors naturally:
-   - "right" → "write", "coarser" → "cursor", "cloud" → "claude"
+   - "right" > "write", "coarser" > "cursor", "cloud" > "claude"
 3. SMART ROUTING - Know which app to target based on the request
 4. ANTICIPATION - If user is coding, assume code context
 
@@ -7097,13 +7114,13 @@ Return JSON:
 }}
 
 STOP COMMANDS:
-- "stop" / "stop listening" / "cancel" / "that's enough" → isStopCommand: true
-- "stop sign" / "bus stop" / "don't stop" → isStopCommand: false (content, not command)
+- "stop" / "stop listening" / "cancel" / "that's enough" > isStopCommand: true
+- "stop sign" / "bus stop" / "don't stop" > isStopCommand: false (content, not command)
 - CONTEXT MATTERS: If user was actively dictating text, "stop" ends dictation. If idle/conversational, "stop" might be content they want typed.
 
 MEMORY & CONTEXT:
-- "do that again" / "same thing" / "repeat" → Look at lastAction in context, repeat it
-- "undo" / "never mind" → If possible, reverse the last action
+- "do that again" / "same thing" / "repeat" > Look at lastAction in context, repeat it
+- "undo" / "never mind" > If possible, reverse the last action
 - Remember what app was targeted last - if user says "write more", continue in same app
 - Use conversation history to understand "this", "that", "it" references
 
@@ -7118,23 +7135,23 @@ When user says "ask [app]", "tell [app]", "[app] [question]" - ALWAYS route to t
 You are a ROUTER, not the target. Don't answer questions meant for other apps!
 
 ROUTING PATTERNS (ALWAYS route these):
-- "ask cursor..." / "cursor, ..." / "tell cursor..." → targetApp: "cursor", action: "type_and_send"
-- "ask claude..." / "claude, ..." / "tell claude..." → targetApp: "claude", action: "type_and_send"  
-- "ask chatgpt..." / "chatgpt, ..." → targetApp: "chatgpt", action: "type_and_send"
-- "ask copilot..." / "copilot, ..." → targetApp: "copilot", action: "type_and_send"
-- "ask gemini..." / "gemini, ..." → targetApp: "gemini", action: "type_and_send"
+- "ask cursor..." / "cursor, ..." / "tell cursor..." > targetApp: "cursor", action: "type_and_send"
+- "ask claude..." / "claude, ..." / "tell claude..." > targetApp: "claude", action: "type_and_send"  
+- "ask chatgpt..." / "chatgpt, ..." > targetApp: "chatgpt", action: "type_and_send"
+- "ask copilot..." / "copilot, ..." > targetApp: "copilot", action: "type_and_send"
+- "ask gemini..." / "gemini, ..." > targetApp: "gemini", action: "type_and_send"
 
 Code Editors (cursor, vscode):
-- "write a function" → "type" (no enter, just types code)
-- "type this in cursor" → "type"
+- "write a function" > "type" (no enter, just types code)
+- "type this in cursor" > "type"
 
 Terminal:
-- "run npm install" → "run" (types + enter)
-- "terminal..." → "run"
+- "run npm install" > "run" (types + enter)
+- "terminal..." > "run"
 
 Browser:
-- "open youtube" → "open_url" with https://youtube.com
-- "search for..." → "search"
+- "open youtube" > "open_url" with https://youtube.com
+- "search for..." > "search"
 
 APP RECOGNITION (flexible - match these even if misspoken):
 - cursor/curser/coarser/cursive = "cursor"
@@ -7148,31 +7165,31 @@ APP RECOGNITION (flexible - match these even if misspoken):
 EXAMPLE RESPONSES:
 
 User: "open YouTube"
-→ {{"action":"open_url","content":"https://youtube.com","response":"Opening YouTube","speak":"Pulling up YouTube for you now."}}
+> {{"action":"open_url","content":"https://youtube.com","response":"Opening YouTube","speak":"Pulling up YouTube for you now."}}
 
 User: "cursor write a function that adds two numbers"
-→ {{"correctedText":"cursor write a function that adds two numbers","targetApp":"cursor","action":"type","content":"function add(a, b) {{ return a + b; }}","response":"Writing to Cursor","speak":"Certainly. Writing that function to Cursor."}}
+> {{"correctedText":"cursor write a function that adds two numbers","targetApp":"cursor","action":"type","content":"function add(a, b) {{ return a + b; }}","response":"Writing to Cursor","speak":"Certainly. Writing that function to Cursor."}}
 
 User: "ask cursor how do I fix this bug"
-→ {{"targetApp":"cursor","action":"type_and_send","content":"how do I fix this bug","response":"Asking Cursor","speak":"Sending that to Cursor now."}}
+> {{"targetApp":"cursor","action":"type_and_send","content":"how do I fix this bug","response":"Asking Cursor","speak":"Sending that to Cursor now."}}
 
 User: "ask claude what is the capital of France"
-→ {{"targetApp":"claude","action":"type_and_send","content":"what is the capital of France","response":"Asking Claude","speak":"Sending that question to Claude."}}
+> {{"targetApp":"claude","action":"type_and_send","content":"what is the capital of France","response":"Asking Claude","speak":"Sending that question to Claude."}}
 
 User: "tell chatgpt to explain recursion"
-→ {{"targetApp":"chatgpt","action":"type_and_send","content":"explain recursion","response":"Asking ChatGPT","speak":"Sending that to ChatGPT."}}
+> {{"targetApp":"chatgpt","action":"type_and_send","content":"explain recursion","response":"Asking ChatGPT","speak":"Sending that to ChatGPT."}}
 
 User: "claude help me write a poem"
-→ {{"targetApp":"claude","action":"type_and_send","content":"help me write a poem","response":"Asking Claude","speak":"Passing that to Claude for you."}}
+> {{"targetApp":"claude","action":"type_and_send","content":"help me write a poem","response":"Asking Claude","speak":"Passing that to Claude for you."}}
 
 User: "what's the weather like"
-→ {{"action":"search","content":"weather forecast","response":"Searching weather","speak":"Let me check that for you. Searching now."}}
+> {{"action":"search","content":"weather forecast","response":"Searching weather","speak":"Let me check that for you. Searching now."}}
 
 User: "do that again"
-→ {{"action":"repeat","response":"Repeating","speak":"Of course. Running that again."}}
+> {{"action":"repeat","response":"Repeating","speak":"Of course. Running that again."}}
 
 User: "terminal run npm install"
-→ {{"targetApp":"terminal","action":"run","content":"npm install","response":"Running npm install","speak":"Running npm install in the terminal."}}
+> {{"targetApp":"terminal","action":"run","content":"npm install","response":"Running npm install","speak":"Running npm install in the terminal."}}
 
 IMPORTANT - BE LENIENT:
 - ONLY use "clarify" if the text is truly gibberish or empty
@@ -7183,16 +7200,16 @@ IMPORTANT - BE LENIENT:
 - When in doubt, respond conversationally and offer to help
 
 User: "hey" or "hello" or "what's up"
-→ {{"action":null,"speak":"Hello! What can I help you with?","response":"Greeting"}}
+> {{"action":null,"speak":"Hello! What can I help you with?","response":"Greeting"}}
 
 User: "can you hear me" or "test" or "testing" or "is this working" or "hello"
-→ {{"action":null,"speak":"Loud and clear! What would you like me to do?","response":"Confirmed"}}
+> {{"action":null,"speak":"Loud and clear! What would you like me to do?","response":"Confirmed"}}
 
 User: "what can you do" or "help"
-→ {{"action":null,"speak":"I can open apps, type in Cursor, search the web, run terminal commands - just tell me what you need.","response":"Help"}}
+> {{"action":null,"speak":"I can open apps, type in Cursor, search the web, run terminal commands - just tell me what you need.","response":"Help"}}
 
 User: (truly gibberish like "asdfgh" or random characters)
-→ {{"action":"clarify","needsClarification":true,"speak":"","response":"Unclear"}}
+> {{"action":"clarify","needsClarification":true,"speak":"","response":"Unclear"}}
 
 NEVER ask for clarification for normal speech! If it's English words, respond to them.
 If unsure, just acknowledge and offer to help. ONLY use clarify for truly unrecognizable input.
@@ -7320,7 +7337,6 @@ def api_parse_command():
                     messages=all_messages,
                     system=system_prompt
                 )
-                
                 response_text = message.content[0].text.strip()
                 used_provider = 'claude'
                 print(f"CLAUDE RAW RESPONSE: {response_text}")
@@ -7818,7 +7834,7 @@ def require_socket_auth(f):
             return f(*args, **kwargs)
         
         # Log unauthenticated access attempt (but don't block to avoid breaking things)
-        print(f"⚠️ Unauthenticated WebSocket event from {sid}")
+        print(f" Unauthenticated WebSocket event from {sid}")
         return f(*args, **kwargs)
     
     return decorated
@@ -7830,10 +7846,10 @@ def on_connect():
     # Check if user is authenticated via browser session
     if current_user.is_authenticated:
         authenticated_sockets[sid] = {'type': 'browser', 'user': current_user.id}
-        print(f"🔐 Authenticated browser connected: {current_user.id} (sid: {sid})")
+        print(f" Authenticated browser connected: {current_user.id} (sid: {sid})")
     else:
         # Could be a desktop client - will be validated on first event
-        print(f"🔌 New WebSocket connection: {sid} (awaiting authentication)")
+        print(f" New WebSocket connection: {sid} (awaiting authentication)")
 
 @socketio.on('desktop_register')
 def on_desktop_register(data):
@@ -7841,7 +7857,7 @@ def on_desktop_register(data):
     device_id = data.get('deviceId')
     device_info = data.get('device', {})
     
-    print(f"\n🖥️ [DESKTOP CLIENT REGISTER]")
+    print(f"\n [DESKTOP CLIENT REGISTER]")
     print(f"   Name: {device_info.get('name', device_id)}")
     print(f"   ID: {device_id}")
     print(f"   Platform: {device_info.get('platform', 'unknown')}")
@@ -7872,7 +7888,7 @@ def on_desktop_register(data):
         
         # Notify others
         socketio.emit('device_online', {'deviceId': device_id, 'device': devices[device_id]}, room='dashboard')
-        print(f"   ✅ Desktop client registered and joined room: {device_id}")
+        print(f"    Desktop client registered and joined room: {device_id}")
     
     # Send confirmation
     emit('registration_confirmed', {'deviceId': device_id, 'status': 'ok'})
@@ -7901,7 +7917,7 @@ def on_dashboard_join(data):
             'id': device_id,
             'name': device_info.get('name', 'Unknown Device'),
             'wakeWord': device_info.get('wakeWord', 'computer'),
-            'icon': device_info.get('icon', '💻'),
+            'icon': device_info.get('icon', ''),
             'type': device_info.get('type', 'browser'),
             'sid': request.sid,
             'online': True,
@@ -7932,7 +7948,7 @@ def on_device_update(data):
         else:
             # Add new device (like desktop clients)
             devices[device_id] = settings
-            print(f"📱 New device registered: {settings.get('name', device_id)}")
+            print(f" New device registered: {settings.get('name', device_id)}")
         
         # Mark as online and track socket session
         devices[device_id]['online'] = True
@@ -7950,7 +7966,7 @@ def on_device_delete(data):
     if device_id and device_id in devices:
         name = devices[device_id].get('name', device_id)
         del devices[device_id]
-        print(f"🗑️ Device deleted: {name}")
+        print(f" Device deleted: {name}")
         socketio.emit('devices_update', {'devices': devices}, room='dashboard')
 
 @socketio.on('device_add')
@@ -8004,7 +8020,7 @@ def on_route_command(data):
         'timestamp': data.get('timestamp')
     }, room=to_device_id)
     
-    print(f"   ✅ command_received emitted!")
+    print(f"    command_received emitted!")
     
     # Also notify the dashboard
     socketio.emit('command_routed', data, room='dashboard')
@@ -8029,7 +8045,7 @@ def on_disconnect():
     # Clean up authenticated socket tracking
     if sid in authenticated_sockets:
         auth_info = authenticated_sockets.pop(sid)
-        print(f"🔌 Socket disconnected: {auth_info.get('user') or auth_info.get('device', 'unknown')}")
+        print(f" Socket disconnected: {auth_info.get('user') or auth_info.get('device', 'unknown')}")
     
     # Notify other devices this one went offline
     for device_id, device in devices.items():
@@ -8057,13 +8073,13 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"""
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║                       🎛️  VOICE HUB SERVER v3.0  🎛️                          ║
+║                         VOICE HUB SERVER v3.0                            ║
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║  URL: http://localhost:{port:<52} ║
 ║  Login: admin / {ADMIN_PASSWORD:<51} ║
 ║  Client Version: {CLIENT_VERSION:<50} ║
 ║                                                                               ║
-║  ✨ NEW: Browser-based voice recognition - no terminal needed!               ║
+║   NEW: Browser-based voice recognition - no terminal needed!               ║
 ║  • Click the mic button or say your wake word                                 ║
 ║  • Add multiple devices with custom wake words                                ║
 ║  • Edit device settings directly in the web app                               ║
