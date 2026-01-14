@@ -2551,6 +2551,14 @@ DASHBOARD_PAGE = '''
                     }
                 });
             }
+            
+            // Listen for native wake word detection (from main process)
+            if (window.electronAPI.onWakeWordDetected) {
+                window.electronAPI.onWakeWordDetected((data) => {
+                    console.log('[NATIVE-WAKE] Wake word detected from main process!', data);
+                    onWakeWordDetected();
+                });
+            }
         }
         
         // ELECTRON: Always use Whisper, skip Web Speech API entirely
@@ -3770,19 +3778,49 @@ DASHBOARD_PAGE = '''
         
         // Start PASSIVE wake word listening (doesn't record, just listens for keyword)
         async function startWakeWordListening() {
-            console.log('[WAKE] Starting wake word listening (using Whisper)...');
+            const wakeWord = currentDevice?.wakeWord || 'computer';
+            console.log('[WAKE] Starting wake word listening for:', wakeWord);
             
-            // Use Whisper for wake word detection
-            // It will listen, transcribe, and check for the wake word
-            addActivity('Listening for "' + (currentDevice?.wakeWord || 'computer') + '" (using Whisper)', 'info');
+            // Try native Porcupine first (Electron only - runs in main process, no IPC overhead)
+            if (isElectron && window.electronAPI?.porcupineStart) {
+                console.log('[WAKE] Using native Porcupine (audio captured in main process)');
+                
+                const accessKey = PICOVOICE_ACCESS_KEY;
+                if (!accessKey || accessKey.startsWith('{{')) {
+                    console.log('[WAKE] No Picovoice key, falling back to Whisper');
+                    startWhisperWakeWordMode();
+                    return;
+                }
+                
+                try {
+                    const result = await window.electronAPI.porcupineStart(accessKey, wakeWord);
+                    console.log('[WAKE] Porcupine start result:', result);
+                    
+                    if (result.success) {
+                        addActivity('Listening for "' + wakeWord + '" (native, free)', 'success');
+                        isListening = true;
+                        isActiveDictation = false;
+                        hasInitialized = true;
+                        updateUI();
+                        return;
+                    } else {
+                        console.log('[WAKE] Native Porcupine failed:', result.error);
+                        addActivity('Native wake word failed: ' + result.error, 'error');
+                    }
+                } catch (e) {
+                    console.error('[WAKE] Native Porcupine error:', e);
+                }
+            }
             
-            // Start continuous Whisper listening for wake word
+            // Fallback to Whisper-based wake word detection
+            console.log('[WAKE] Using Whisper for wake word detection');
+            addActivity('Listening for "' + wakeWord + '" (using Whisper)', 'info');
+            
             isListening = true;
             isActiveDictation = false;
             hasInitialized = true;
             updateUI();
             
-            // Start Whisper in wake word mode
             startWhisperWakeWordMode();
         }
         
@@ -4060,33 +4098,47 @@ DASHBOARD_PAGE = '''
             console.log('[PORCUPINE] Stopped and cleaned up');
         }
         
-        function onWakeWordDetected() {
-            console.log('[PORCUPINE] Wake word triggered!');
+        async function onWakeWordDetected() {
+            console.log('[WAKE] Wake word triggered!');
             playSound('activate');
             addActivity('Wake word detected! Recording...', 'success');
             
-            // Stop Porcupine temporarily
+            // Stop Porcupine temporarily (both native and web-based)
+            if (isElectron && window.electronAPI?.porcupineStop) {
+                await window.electronAPI.porcupineStop();
+            }
             if (porcupineInstance) {
                 porcupineInstance.stop();
             }
+            // Stop Whisper wake word mode if active
+            stopWhisperWakeWordMode();
             
             // Immediately go to GREEN (recording)
             isActiveDictation = true;
+            wakeWordHeard = true;
             document.getElementById('transcript').textContent = 'Listening...';
             document.getElementById('transcript').classList.add('active');
             updateUI();
             
-            // Use Cheetah (local, fast) or fall back to Whisper
-            if (useCheetah) {
-                console.log('[WAKE] Using Cheetah for command (local, fast)');
-                startCheetahRecording();
-            } else {
-                console.log('[WAKE] Using Whisper for command (cloud)');
-                startWhisperRecording();
-            }
+            // Use Whisper for command recording (most reliable)
+            console.log('[WAKE] Using Whisper for command recording');
+            startWhisperRecording();
         }
         
-        function stopPorcupineListening() {
+        async function stopPorcupineListening() {
+            console.log('[PORCUPINE] Stopping...');
+            
+            // Stop native Porcupine (Electron - runs in main process)
+            if (isElectron && window.electronAPI?.porcupineStop) {
+                try {
+                    await window.electronAPI.porcupineStop();
+                    console.log('[PORCUPINE] Native Porcupine stopped');
+                } catch (e) {
+                    console.log('[PORCUPINE] Native stop error:', e.message);
+                }
+            }
+            
+            // Stop web-based Porcupine (if any)
             if (porcupineInstance) {
                 porcupineInstance.stop();
             }
@@ -5136,22 +5188,19 @@ DASHBOARD_PAGE = '''
                         }
                         
                         isActiveDictation = false;
+                        wakeWordHeard = false;
                         if (alwaysListen && !continuousMode) {
                             setTimeout(() => {
                                 transcriptEl.textContent = `Ready for "${wakeWord}"`;
                                 transcriptEl.classList.remove('active');
                                 document.getElementById('voice-status').textContent = 'Listening for wake word...';
                                 
-                                // Restart listening - Porcupine (free) or Whisper
-                                console.log('[ALWAYS-LISTEN] Restarting to listen for wake word...');
-                                if (usePorcupine && porcupineInstance) {
-                                    console.log('[ALWAYS-LISTEN] Using Porcupine (FREE)');
-                                    startPorcupineListening();
-                                } else {
-                                    startListening();
-                                }
+                                // Restart wake word listening (native Porcupine or Whisper)
+                                console.log('[ALWAYS-LISTEN] Restarting wake word listening...');
+                                startWakeWordListening();
                             }, 1500);
                         }
+                        updateUI();
                     })();
                 }
             } else {
@@ -5160,11 +5209,7 @@ DASHBOARD_PAGE = '''
                     console.log('[ALWAYS-LISTEN] Wake word not detected, continuing to listen...');
                     setTimeout(() => {
                         if (alwaysListen && !isListening) {
-                            if (usePorcupine && porcupineInstance) {
-                                startPorcupineListening();
-                            } else {
-                                startListening();
-                            }
+                            startWakeWordListening();
                         }
                     }, 500);
                 }
