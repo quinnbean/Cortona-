@@ -166,11 +166,25 @@ function startNativeWakeWordListening(accessKey, keyword) {
     
     console.log('[WAKE-WORD] Initializing Porcupine with keyword:', keyword);
     
-    // Initialize Porcupine
+    // Get path to keyword file (must use unpacked path for ASAR)
+    const porcupineModule = require.resolve('@picovoice/porcupine-node');
+    const porcupineDir = path.dirname(porcupineModule);
+    let keywordPath = path.join(porcupineDir, 'resources', 'keyword_files', 'mac', `${keyword.toLowerCase()}_mac.ppn`);
+    let modelPath = path.join(porcupineDir, 'lib', 'common', 'porcupine_params.pv');
+    
+    // Replace app.asar with app.asar.unpacked for native file access
+    keywordPath = keywordPath.replace('app.asar', 'app.asar.unpacked');
+    modelPath = modelPath.replace('app.asar', 'app.asar.unpacked');
+    
+    console.log('[WAKE-WORD] Keyword path:', keywordPath);
+    console.log('[WAKE-WORD] Model path:', modelPath);
+    
+    // Initialize Porcupine with explicit paths
     porcupineHandle = new Porcupine(
       accessKey,
-      [builtinKeyword],
-      [0.7] // sensitivity
+      [keywordPath],
+      [0.7], // sensitivity
+      modelPath
     );
     
     const frameLength = porcupineHandle.frameLength;
