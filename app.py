@@ -6122,18 +6122,40 @@ DASHBOARD_PAGE = '''
             // - alwaysListen enabled → YELLOW (standby, waiting for wake word)
             // - Everything else → RED (off)
             
+            // Get audio visualization elements
+            const audioLevelContainer = document.getElementById('audio-level-container');
+            const recordingDot = document.getElementById('recording-dot');
+            
+            // Determine if we're actively recording (should show audio bars)
+            const isActivelyRecording = isActiveDictation || (isListening && !alwaysListen);
+            
+            // Show/hide audio bars based on recording state
+            if (audioLevelContainer) {
+                audioLevelContainer.classList.toggle('active', isActivelyRecording);
+                // Reset bars to minimum height when not recording
+                if (!isActivelyRecording) {
+                    for (let i = 0; i < 5; i++) {
+                        const bar = document.getElementById('bar-' + i);
+                        if (bar) bar.style.height = '4px';
+                    }
+                }
+            }
+            if (recordingDot) {
+                recordingDot.classList.toggle('active', isActivelyRecording);
+            }
+            
             if (isActiveDictation) {
                 // GREEN: Actively recording after wake word
                 micButton.classList.add('listening');
                     micButton.innerHTML = 'REC';
                 voiceStatus.textContent = 'Recording...';
-                    voiceHint.innerHTML = 'Speak your command. Say "<strong>stop</strong>" when done.';
+                voiceHint.innerHTML = 'Speak your command. Press <strong>Space</strong> or say "stop" when done.';
             } else if (isListening && !alwaysListen) {
                 // GREEN: Manual recording mode (clicked mic button)
                 micButton.classList.add('listening');
                     micButton.innerHTML = 'REC';
                     voiceStatus.textContent = 'Recording';
-                    voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
+                voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Press <strong>Space</strong> or say "stop" to end.';
             } else if (alwaysListen) {
                 // YELLOW: Always Listen is ON - standby, waiting for wake word
                 micButton.classList.add('wake-listening');
