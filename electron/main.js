@@ -5,12 +5,13 @@ const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
 
 // Porcupine for wake word detection
-let Porcupine, BuiltinKeywords;
+let Porcupine, BuiltinKeyword;
 try {
   const porcupineModule = require('@picovoice/porcupine-node');
   Porcupine = porcupineModule.Porcupine;
-  BuiltinKeywords = porcupineModule.BuiltinKeywords;
+  BuiltinKeyword = porcupineModule.BuiltinKeyword;
   console.log('[PORCUPINE] Node module loaded successfully');
+  console.log('[PORCUPINE] Available keywords:', Object.keys(BuiltinKeyword || {}));
 } catch (e) {
   console.log('[PORCUPINE] Node module not available:', e.message);
   Porcupine = null;
@@ -156,7 +157,7 @@ function startNativeWakeWordListening(accessKey, keyword) {
     
     // Map keyword string to built-in keyword
     const keywordUpper = keyword.toUpperCase();
-    const builtinKeyword = BuiltinKeywords[keywordUpper];
+    const builtinKeyword = BuiltinKeyword[keywordUpper];
     
     if (!builtinKeyword) {
       console.error('[WAKE-WORD] Unknown keyword:', keyword);
@@ -937,10 +938,10 @@ function setupIPC() {
   
   // Get available keywords
   ipcMain.handle('porcupine-keywords', () => {
-    if (!BuiltinKeywords) {
+    if (!BuiltinKeyword) {
       return { keywords: [] };
     }
-    return { keywords: Object.keys(BuiltinKeywords) };
+    return { keywords: Object.keys(BuiltinKeyword) };
   });
   
   // Start native wake word listening (captures audio in main process)
