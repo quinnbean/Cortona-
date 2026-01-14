@@ -830,7 +830,18 @@ function setupIPC() {
   });
   
   // Process audio frame for wake word detection
+  // Throttle to prevent overwhelming the process
+  let lastProcessTime = 0;
+  const MIN_PROCESS_INTERVAL = 20; // ms
+  
   ipcMain.handle('porcupine-process', async (event, audioFrame) => {
+    // Throttle processing
+    const now = Date.now();
+    if (now - lastProcessTime < MIN_PROCESS_INTERVAL) {
+      return { detected: false, throttled: true };
+    }
+    lastProcessTime = now;
+    
     if (!porcupineHandle) {
       return { detected: false, error: 'Not initialized' };
     }
@@ -843,7 +854,7 @@ function setupIPC() {
       if (keywordIndex >= 0) {
         console.log('[PORCUPINE] Wake word detected! Index:', keywordIndex);
         // Notify the renderer
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('wake-word-detected', { keywordIndex });
         }
         return { detected: true, keywordIndex };
@@ -851,6 +862,7 @@ function setupIPC() {
       
       return { detected: false };
     } catch (e) {
+      console.error('[PORCUPINE] Process error:', e.message);
       return { detected: false, error: e.message };
     }
   });
