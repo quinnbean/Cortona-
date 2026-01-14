@@ -3747,12 +3747,17 @@ DASHBOARD_PAGE = '''
         }
         
         async function initPorcupine() {
-            // Check if library loaded
-            if (typeof PorcupineWeb === 'undefined') {
-                console.log('[PORCUPINE] Library not loaded');
+            // Check which Porcupine library is available
+            const PorcupineLib = window.PorcupineWeb || window.Porcupine;
+            
+            if (!PorcupineLib) {
+                console.log('[PORCUPINE] Library not loaded - window.PorcupineWeb and window.Porcupine both undefined');
+                console.log('[PORCUPINE] Available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('porcupine') || k.toLowerCase().includes('picovoice')));
                 usePorcupine = false;
                 return false;
             }
+            
+            console.log('[PORCUPINE] Library found:', PorcupineLib);
             
             if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.indexOf(String.fromCharCode(123, 123)) >= 0) {
                 console.log('[PORCUPINE] No access key configured - using Whisper for wake word');
@@ -3760,51 +3765,69 @@ DASHBOARD_PAGE = '''
                 return false;
             }
             
+            console.log('[PORCUPINE] Access key present, length:', PICOVOICE_ACCESS_KEY.length);
+            
             try {
                 console.log('[PORCUPINE] Initializing local wake word detection...');
                 
                 // Get wake word from settings
-                const wakeWord = (currentDevice?.wakeWord || 'jarvis').toLowerCase();
+                const wakeWord = (currentDevice?.wakeWord || 'jarvis').toLowerCase().trim();
                 
                 // Map common wake words to Porcupine built-in keywords
                 const builtInKeywords = {
-                    'jarvis': 'jarvis',
-                    'alexa': 'alexa',
-                    'computer': 'computer',
-                    'hey google': 'hey google',
-                    'hey siri': 'hey siri',
-                    'ok google': 'ok google',
-                    'picovoice': 'picovoice',
-                    'porcupine': 'porcupine',
-                    'bumblebee': 'bumblebee',
-                    'terminator': 'terminator',
-                    'grapefruit': 'grapefruit',
-                    'grasshopper': 'grasshopper',
-                    'americano': 'americano',
-                    'blueberry': 'blueberry'
+                    'jarvis': 'Jarvis',
+                    'alexa': 'Alexa',
+                    'computer': 'Computer',
+                    'hey google': 'Hey Google',
+                    'hey siri': 'Hey Siri',
+                    'ok google': 'Ok Google',
+                    'picovoice': 'Picovoice',
+                    'porcupine': 'Porcupine',
+                    'bumblebee': 'Bumblebee',
+                    'terminator': 'Terminator',
+                    'grapefruit': 'Grapefruit',
+                    'grasshopper': 'Grasshopper',
+                    'americano': 'Americano',
+                    'blueberry': 'Blueberry'
                 };
                 
-                const keyword = builtInKeywords[wakeWord] || 'jarvis';
-                console.log('[PORCUPINE] Using keyword:', keyword);
+                const keyword = builtInKeywords[wakeWord];
+                if (!keyword) {
+                    console.log('[PORCUPINE] Wake word "' + wakeWord + '" not in built-in list. Available:', Object.keys(builtInKeywords).join(', '));
+                    addActivity('Wake word "' + wakeWord + '" not supported by Porcupine. Try: jarvis, computer, alexa', 'warning');
+                    usePorcupine = false;
+                    return false;
+                }
                 
-                // Initialize Porcupine
-                porcupineInstance = await PorcupineWeb.PorcupineWorker.create(
-                    PICOVOICE_ACCESS_KEY,
-                    { 
-                        builtin: keyword,
-                        sensitivity: 0.7
-                    },
-                    (detection) => {
-                        console.log('[PORCUPINE]  WAKE WORD DETECTED!', detection);
-                        onWakeWordDetected();
-                    }
-                );
+                console.log('[PORCUPINE] Using built-in keyword:', keyword);
                 
-                console.log('[PORCUPINE]  Initialized successfully');
+                // Try different API formats for different versions
+                const PorcupineWorker = PorcupineLib.PorcupineWorker || PorcupineLib;
+                
+                if (PorcupineWorker && PorcupineWorker.create) {
+                    console.log('[PORCUPINE] Using PorcupineWorker.create API');
+                    porcupineInstance = await PorcupineWorker.create(
+                        PICOVOICE_ACCESS_KEY,
+                        [{ builtin: keyword, sensitivity: 0.7 }],
+                        (keywordIndex) => {
+                            console.log('[PORCUPINE] WAKE WORD DETECTED! Index:', keywordIndex);
+                            onWakeWordDetected();
+                        }
+                    );
+                } else {
+                    console.error('[PORCUPINE] No valid API found. Available methods:', Object.keys(PorcupineLib));
+                    usePorcupine = false;
+                    return false;
+                }
+                
+                console.log('[PORCUPINE] Initialized successfully!');
+                addActivity('Porcupine ready - say "' + wakeWord + '" to activate', 'success');
                 return true;
                 
             } catch (e) {
                 console.error('[PORCUPINE] Failed to initialize:', e);
+                console.error('[PORCUPINE] Error details:', e.message, e.stack);
+                addActivity('Porcupine init failed: ' + e.message, 'warning');
                 usePorcupine = false;
                 return false;
             }
@@ -5655,6 +5678,12 @@ DASHBOARD_PAGE = '''
             
             // In Electron, use Whisper
             if (isElectron) {
+                // If in alwaysListen mode but Porcupine failed, we're using Whisper for wake word detection
+                if (alwaysListen && !isActiveDictation) {
+                    console.log('[LISTENING] Using Whisper for wake word detection (Porcupine unavailable)');
+                    console.log('[LISTENING] Tip: Change wake word to "jarvis" for free local detection!');
+                    addActivity('Using Whisper for wake word (change to "jarvis" for free local detection)', 'info');
+                }
                 console.log('[LISTENING] Using Whisper for voice recognition');
                 useWhisper = true;
                 startWhisperRecording();
