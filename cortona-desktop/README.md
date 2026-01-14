@@ -1,6 +1,6 @@
-# Cortona - Electron App
+# Cortona Desktop App
 
-Native macOS app for Jarvis Voice Assistant.
+Native macOS app for Cortona Voice Assistant.
 
 ## Features
 
@@ -20,7 +20,7 @@ Native macOS app for Jarvis Voice Assistant.
 ### Setup
 
 ```bash
-cd electron
+cd cortona-desktop
 npm install
 ```
 
@@ -58,15 +58,15 @@ npm run build:mac:x64
 npm run dist
 ```
 
-The built app will be in `electron/dist/`.
+The built app will be in `cortona-desktop/dist/`.
 
 ## App Structure
 
 ```
-electron/
+cortona-desktop/
 ├── main.js          # Main process (tray, shortcuts, window)
 ├── preload.js       # Bridge to renderer (secure IPC)
-├── package.json     # Electron dependencies
+├── package.json     # Cortona desktop dependencies
 ├── entitlements.mac.plist  # macOS permissions
 └── assets/
     ├── icon.png     # App icon (1024x1024)

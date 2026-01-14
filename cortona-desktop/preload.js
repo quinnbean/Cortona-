@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+console.log('[PRELOAD] Loading preload.js - exposing electronAPI with porcupineStart');
+
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
   // Platform info
@@ -94,6 +96,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 // Inject a flag so the web app knows it's running in Electron
 window.addEventListener('DOMContentLoaded', () => {
+  console.log('[PRELOAD] DOMContentLoaded - checking electronAPI');
+  console.log('[PRELOAD] electronAPI keys:', Object.keys(window.electronAPI || {}));
+  console.log('[PRELOAD] porcupineStart exists:', typeof window.electronAPI?.porcupineStart);
+  
   // Add electron class to body
   document.body.classList.add('electron-app');
   
