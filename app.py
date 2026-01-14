@@ -1688,7 +1688,7 @@ DASHBOARD_PAGE = '''
             width: 60px;
             height: 60px;
             border-radius: 12px;
-            background: var(--accent);
+            background: #ef4444;
             border: none;
             cursor: pointer;
             display: flex;
@@ -1696,20 +1696,22 @@ DASHBOARD_PAGE = '''
             justify-content: center;
             font-size: 14px;
             font-weight: 600;
-            color: var(--bg-primary);
+            color: #ffffff;
             margin: 0 auto 24px;
             transition: all 0.3s;
-            box-shadow: 0 4px 12px rgba(0, 245, 212, 0.2);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
         }
         .mic-button:hover {
             transform: scale(1.02);
-            box-shadow: 0 6px 16px rgba(0, 245, 212, 0.3);
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);
         }
+        /* GREEN: Actively recording command */
         .mic-button.listening {
-            background: #ef4444;
-            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
-            animation: mic-pulse-red 1.5s ease-in-out infinite;
+            background: #22c55e;
+            box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4);
+            animation: mic-pulse-green 1.5s ease-in-out infinite;
         }
+        /* YELLOW: Waiting for wake word */
         .mic-button.wake-listening {
             background: #eab308;
             box-shadow: 0 4px 16px rgba(234, 179, 8, 0.4);
@@ -1719,9 +1721,9 @@ DASHBOARD_PAGE = '''
             opacity: 0.5;
             cursor: not-allowed;
         }
-        @keyframes mic-pulse-red {
-            0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4); }
-            50% { transform: scale(1.05); box-shadow: 0 8px 24px rgba(239, 68, 68, 0.6); }
+        @keyframes mic-pulse-green {
+            0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 8px 24px rgba(34, 197, 94, 0.6); }
         }
         @keyframes mic-pulse-yellow {
             0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(234, 179, 8, 0.3); }
@@ -3831,6 +3833,33 @@ DASHBOARD_PAGE = '''
                 usePorcupine = false;
                 return false;
             }
+        }
+        
+        // Start PASSIVE wake word listening (doesn't record, just listens for keyword)
+        async function startWakeWordListening() {
+            console.log('[WAKE] Starting passive wake word listening...');
+            
+            // Try Porcupine first (FREE, local, no API calls)
+            if (usePorcupine || PICOVOICE_ACCESS_KEY) {
+                const success = await startPorcupineListening();
+                if (success) {
+                    console.log('[WAKE] Porcupine listening - waiting for wake word');
+                    // Update UI to show yellow (wake word listening)
+                    isListening = true;
+                    isActiveDictation = false;
+                    updateUI();
+                    return;
+                }
+            }
+            
+            // If Porcupine failed, show message but DON'T start recording
+            console.log('[WAKE] Porcupine unavailable - wake word detection limited');
+            addActivity('Wake word detection requires Porcupine. Click mic to record manually.', 'warning');
+            
+            // Still update UI to show we're in always-listen mode (yellow), even if not actively listening
+            isListening = false;  // Not actually listening yet
+            hasInitialized = true;  // But mark as initialized so UI shows yellow
+            updateUI();
         }
         
         async function startPorcupineListening() {
@@ -6400,9 +6429,9 @@ DASHBOARD_PAGE = '''
             saveDevices();
             
             if (alwaysListen) {
-                addActivity(' Wake word listening enabled - say "' + (currentDevice?.wakeWord || 'jarvis') + '" to activate', 'success');
-                // Start listening for wake word (both browser and Electron)
-                startListening();
+                addActivity('Wake word listening enabled - say "' + (currentDevice?.wakeWord || 'jarvis') + '" to activate', 'success');
+                // Try to start Porcupine for passive wake word listening
+                await startWakeWordListening();
             } else {
                 addActivity('Wake word listening disabled', 'info');
                 if (isListening && !continuousMode) {
