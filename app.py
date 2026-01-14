@@ -2471,6 +2471,9 @@ DASHBOARD_PAGE = '''
         // Electron API detection (MUST be first)
         const isElectron = window.electronAPI?.isElectron || false;
         
+        // Flag to track when native Porcupine is handling audio (blocks browser mic access)
+        let nativePorcupineActive = false;
+        
         // Only connect Socket.IO in browser (not needed in Electron)
         const socket = isElectron ? null : (typeof io !== 'undefined' ? io() : null);
         
@@ -2505,6 +2508,11 @@ DASHBOARD_PAGE = '''
         // Pre-warm the microphone so it starts instantly
         // Skip in Electron since native Porcupine uses sox, not browser mic
         async function preWarmMicrophone() {
+            // BLOCK: Don't touch browser mic when native Porcupine is active
+            if (nativePorcupineActive) {
+                console.log('[MIC] Pre-warm BLOCKED (native Porcupine active)');
+                return;
+            }
             // In Electron with native Porcupine, don't pre-warm browser mic (conflicts with sox)
             if (isElectron && window.electronAPI?.porcupineStart) {
                 console.log('[MIC] Skipping pre-warm (Electron uses native audio)');
@@ -3841,6 +3849,10 @@ DASHBOARD_PAGE = '''
                     console.log('[WAKE] Porcupine start result:', result);
                     
                     if (result.success) {
+                        // CRITICAL: Mark native Porcupine as active to block browser mic
+                        nativePorcupineActive = true;
+                        console.log('[WAKE] Native Porcupine active - browser mic BLOCKED');
+                        
                         addActivity('Listening for "' + wakeWord + '" (native, free)', 'success');
                         isListening = true;
                         isActiveDictation = false;
@@ -3884,6 +3896,12 @@ DASHBOARD_PAGE = '''
         async function whisperWakeWordLoop() {
             if (!whisperWakeWordActive || !alwaysListen) {
                 console.log('[WAKE-WHISPER] Loop stopped');
+                return;
+            }
+            
+            // BLOCK: Don't use browser mic when native Porcupine is handling wake word
+            if (nativePorcupineActive) {
+                console.log('[WAKE-WHISPER] BLOCKED (native Porcupine active)');
                 return;
             }
             
@@ -3976,6 +3994,12 @@ DASHBOARD_PAGE = '''
         let porcupineActive = false;
         
         async function startPorcupineListening() {
+            // BLOCK: This is the OLD web-based Porcupine - don't use if native is active
+            if (nativePorcupineActive) {
+                console.log('[PORCUPINE-WEB] BLOCKED (native Porcupine active)');
+                return false;
+            }
+            
             // Initialize Porcupine if not done
             if (!usePorcupine) {
                 const success = await initPorcupine();
@@ -4136,6 +4160,10 @@ DASHBOARD_PAGE = '''
                 }
             }
             
+            // CRITICAL: Allow browser mic access again
+            nativePorcupineActive = false;
+            console.log('[PORCUPINE] Browser mic UNBLOCKED');
+            
             // Reset state so it can be re-initialized
             usePorcupine = false;
             
@@ -4156,6 +4184,10 @@ DASHBOARD_PAGE = '''
             }
             // Stop Whisper wake word mode if active
             stopWhisperWakeWordMode();
+            
+            // CRITICAL: Clear native Porcupine flag so browser mic can record
+            nativePorcupineActive = false;
+            console.log('[WAKE] Native Porcupine stopped - browser mic UNBLOCKED for recording');
             
             // Immediately go to GREEN (recording)
             isActiveDictation = true;
@@ -7696,7 +7728,7 @@ def api_parse_command():
                     messages=all_messages,
                     system=system_prompt
                 )
-                response_text = message.content[0].text.strip()
+        response_text = message.content[0].text.strip()
                 used_provider = 'claude'
                 print(f"CLAUDE RAW RESPONSE: {response_text}")
                 print(f"==========================================")
@@ -7784,7 +7816,7 @@ def claude_status():
     """Check AI availability (OpenAI preferred, Claude fallback)"""
     # Prefer OpenAI for speed
     if OPENAI_AVAILABLE:
-        return jsonify({
+    return jsonify({
             'available': True,
             'provider': 'openai',
             'model': 'gpt-4o',
