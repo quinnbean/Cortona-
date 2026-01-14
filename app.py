@@ -3747,6 +3747,8 @@ DASHBOARD_PAGE = '''
         
         let porcupineInstance = null;
         let porcupineStream = null;
+        let porcupineSampleRate = 16000;
+        let porcupineFrameLength = 512;
         let usePorcupine = true;  // Use local wake word detection (free)
         
         // Safely get Picovoice key (empty if not set)
@@ -3808,10 +3810,6 @@ DASHBOARD_PAGE = '''
             usePorcupine = false;
             return false;
         }
-        
-        // Store Porcupine audio params
-        let porcupineSampleRate = 16000;
-        let porcupineFrameLength = 512;
         
         // Start PASSIVE wake word listening (doesn't record, just listens for keyword)
         async function startWakeWordListening() {
