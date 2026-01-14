@@ -5187,7 +5187,7 @@ DASHBOARD_PAGE = '''
             try {
                 // Extract assistant name from wake word (e.g., "Hey Jarvis" → "Jarvis")
                 const wakeWord = currentDevice?.wakeWord || 'hey jarvis';
-                const assistantName = wakeWord.replace(/^(hey|ok|hi|hello)\s+/i, '').trim() || 'Jarvis';
+                const assistantName = wakeWord.replace(/^(hey|ok|hi|hello)\\s+/i, '').trim() || 'Jarvis';
                 
                 // Build context for adaptive AI
                 const contextData = {
