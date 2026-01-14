@@ -3786,7 +3786,7 @@ DASHBOARD_PAGE = '''
                 console.log('[WAKE] Using native Porcupine (audio captured in main process)');
                 
                 const accessKey = PICOVOICE_ACCESS_KEY;
-                if (!accessKey || accessKey.startsWith('{{')) {
+                if (!accessKey || accessKey.indexOf(String.fromCharCode(123, 123)) === 0) {
                     console.log('[WAKE] No Picovoice key, falling back to Whisper');
                     startWhisperWakeWordMode();
                     return;
