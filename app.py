@@ -2459,6 +2459,7 @@ DASHBOARD_PAGE = '''
         let spellCheckEnabled = true;
         let sensitivity = 3; // 1-5, higher = more strict matching
         let isActiveDictation = false; // true when wake word triggered dictation
+        let wakeWordHeard = false; // true briefly when wake word detected (shows yellow)
         
         // Whisper mode - now uses OpenAI cloud API for better accuracy
         let useWhisper = false;
@@ -3935,27 +3936,35 @@ DASHBOARD_PAGE = '''
         function onWakeWordDetected() {
             console.log('[PORCUPINE] Wake word triggered!');
             playSound('activate');
-            addActivity(' Wake word detected! Listening for command...', 'success');
+            addActivity('Wake word detected! Listening for command...', 'success');
             
-            // Start recording for the actual command
-            isActiveDictation = true;
-            document.getElementById('voice-status').textContent = 'Speak your command...';
-            document.getElementById('transcript').textContent = 'Listening...';
-            document.getElementById('transcript').classList.add('active');
+            // Show YELLOW briefly (wake word heard)
+            wakeWordHeard = true;
+            updateUI();
             
             // Stop Porcupine temporarily
             if (porcupineInstance) {
                 porcupineInstance.stop();
             }
             
-            // Use Cheetah (local, fast) or fall back to Whisper
-            if (useCheetah) {
-                console.log('[WAKE] Using Cheetah for command (local, fast)');
-                startCheetahRecording();
-            } else {
-                console.log('[WAKE] Using Whisper for command (cloud)');
-                startWhisperRecording();
-            }
+            // After a brief moment, transition to GREEN (recording)
+            setTimeout(() => {
+                wakeWordHeard = false;
+                isActiveDictation = true;
+                
+                document.getElementById('transcript').textContent = 'Listening...';
+                document.getElementById('transcript').classList.add('active');
+                updateUI();
+                
+                // Use Cheetah (local, fast) or fall back to Whisper
+                if (useCheetah) {
+                    console.log('[WAKE] Using Cheetah for command (local, fast)');
+                    startCheetahRecording();
+                } else {
+                    console.log('[WAKE] Using Whisper for command (cloud)');
+                    startWhisperRecording();
+                }
+            }, 300); // Brief yellow flash
         }
         
         function stopPorcupineListening() {
@@ -5865,61 +5874,42 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // During restart, keep UI stable - don't flicker between states
-            if (isRestarting && alwaysListen && hasInitialized) {
-                // Keep showing stable "Standby" state during restart
-                micButton.classList.remove('listening');
-                micButton.classList.add('wake-listening');
-                micButton.innerHTML = 'WAKE';
-                voiceStatus.textContent = 'Listening for wake word...';
-                // Don't update other elements - prevent flicker
-                return;
-            }
-            
             // Clear all mic button states first
             micButton.classList.remove('listening', 'wake-listening');
             
-            if (isListening) {
-                hasInitialized = true; // Mark as initialized once we're listening
-                
-                if (alwaysListen && !isActiveDictation) {
-                    // YELLOW: In always-listen mode, waiting for wake word
-                    micButton.classList.add('wake-listening');
-                    micButton.innerHTML = 'WAKE';
-                    voiceStatus.textContent = 'Listening for wake word...';
-                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
+            // State logic:
+            // - wakeWordHeard = true → YELLOW (wake word just detected, about to record)
+            // - isActiveDictation = true → GREEN (actively recording after wake word)
+            // - isListening && !alwaysListen → GREEN (manual recording)
+            // - Everything else → RED (off or passively waiting - no indication)
+            
+            if (wakeWordHeard && !isActiveDictation) {
+                // YELLOW: Wake word just detected, transitioning to recording
+                micButton.classList.add('wake-listening');
+                micButton.innerHTML = 'WAKE';
+                voiceStatus.textContent = 'Wake word detected!';
+                voiceHint.innerHTML = 'Starting recording...';
                 } else if (isActiveDictation) {
-                    // RED: Active dictation after wake word
-                    micButton.classList.add('listening');
+                // GREEN: Actively recording after wake word
+                micButton.classList.add('listening');
                     micButton.innerHTML = 'REC';
-                    voiceStatus.textContent = 'Recording...';
+                voiceStatus.textContent = 'Recording...';
                     voiceHint.innerHTML = 'Speak your command. Say "<strong>stop</strong>" when done.';
-                } else {
-                    // RED: Manual recording mode
-                    micButton.classList.add('listening');
+            } else if (isListening && !alwaysListen) {
+                // GREEN: Manual recording mode (clicked mic button)
+                micButton.classList.add('listening');
                     micButton.innerHTML = 'REC';
                     voiceStatus.textContent = 'Recording';
                     voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Speak now. Say "stop" or click to end.';
-                }
             } else {
-                // When not listening...
-                if (alwaysListen && hasInitialized) {
-                    // YELLOW: In always-listen mode after initialization - waiting for wake word
-                    micButton.classList.add('wake-listening');
-                    micButton.innerHTML = 'WAKE';
-                    voiceStatus.textContent = 'Listening for wake word...';
-                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'hey computer'}</strong>" to activate`;
-                } else if (alwaysListen && !hasInitialized) {
-                    // First time starting always-listen mode
+                // RED: Off or passively waiting for wake word (no visible indication)
                 micButton.innerHTML = 'MIC';
-                    voiceStatus.textContent = 'Starting...';
-                    voiceHint.innerHTML = 'Initializing microphone...';
+                if (alwaysListen) {
+                    voiceStatus.textContent = 'Standby';
+                    voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'computer'}</strong>" to activate`;
                 } else {
-                    // GREY: Not in always-listen mode - off
-                    micButton.innerHTML = 'MIC';
                     voiceStatus.textContent = 'Click to Start';
-                    voiceHint.innerHTML = 'Click mic or say your wake word';
-                    hasInitialized = false; // Reset when fully stopped
+                    voiceHint.innerHTML = 'Click mic or enable Always Listen';
                 }
             }
             
