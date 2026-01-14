@@ -16,6 +16,16 @@ try {
   Porcupine = null;
 }
 
+// Naudiodon for native audio capture (no IPC overhead)
+let portAudio;
+try {
+  portAudio = require('naudiodon');
+  console.log('[NAUDIODON] Native audio module loaded successfully');
+} catch (e) {
+  console.log('[NAUDIODON] Native audio not available:', e.message);
+  portAudio = null;
+}
+
 // ============================================================================
 // HANDLE EPIPE ERRORS (prevents crash when Whisper subprocess closes)
 // ============================================================================
@@ -72,6 +82,8 @@ let isQuitting = false;
 let whisperProcess = null;
 let porcupineHandle = null;
 let porcupineListening = false;
+let audioInputStream = null;
+let wakeWordAccessKey = null;
 
 // ============================================================================
 // WHISPER SERVICE MANAGEMENT
@@ -123,6 +135,146 @@ function stopWhisperService() {
     whisperProcess = null;
   }
 }
+// ============================================================================
+// NATIVE WAKE WORD DETECTION (using naudiodon + porcupine)
+// ============================================================================
+
+function startNativeWakeWordListening(accessKey, keyword) {
+  if (!portAudio || !Porcupine) {
+    console.error('[WAKE-WORD] naudiodon or Porcupine not available');
+    return { success: false, error: 'Native audio or Porcupine not available' };
+  }
+  
+  if (porcupineListening) {
+    console.log('[WAKE-WORD] Already listening');
+    return { success: true, message: 'Already listening' };
+  }
+  
+  try {
+    // Stop any existing instances
+    stopNativeWakeWordListening();
+    
+    // Map keyword string to built-in keyword
+    const keywordUpper = keyword.toUpperCase();
+    const builtinKeyword = BuiltinKeywords[keywordUpper];
+    
+    if (!builtinKeyword) {
+      console.error('[WAKE-WORD] Unknown keyword:', keyword);
+      return { success: false, error: `Unknown keyword: ${keyword}` };
+    }
+    
+    console.log('[WAKE-WORD] Initializing Porcupine with keyword:', keyword);
+    
+    // Initialize Porcupine
+    porcupineHandle = new Porcupine(
+      accessKey,
+      [builtinKeyword],
+      [0.7] // sensitivity
+    );
+    
+    const frameLength = porcupineHandle.frameLength;
+    const sampleRate = porcupineHandle.sampleRate;
+    
+    console.log('[WAKE-WORD] Porcupine initialized. Sample rate:', sampleRate, 'Frame length:', frameLength);
+    
+    // Create audio input stream
+    audioInputStream = portAudio.AudioIO({
+      inOptions: {
+        channelCount: 1,
+        sampleFormat: portAudio.SampleFormat16Bit,
+        sampleRate: sampleRate,
+        deviceId: -1, // Default device
+        closeOnError: false
+      }
+    });
+    
+    // Buffer to accumulate audio data
+    let audioBuffer = Buffer.alloc(0);
+    const bytesPerFrame = frameLength * 2; // 16-bit = 2 bytes per sample
+    
+    audioInputStream.on('data', (data) => {
+      if (!porcupineListening || !porcupineHandle) return;
+      
+      // Accumulate audio data
+      audioBuffer = Buffer.concat([audioBuffer, data]);
+      
+      // Process complete frames
+      while (audioBuffer.length >= bytesPerFrame) {
+        // Extract one frame
+        const frameBuffer = audioBuffer.slice(0, bytesPerFrame);
+        audioBuffer = audioBuffer.slice(bytesPerFrame);
+        
+        // Convert to Int16Array
+        const frame = new Int16Array(frameBuffer.buffer, frameBuffer.byteOffset, frameLength);
+        
+        try {
+          const keywordIndex = porcupineHandle.process(frame);
+          
+          if (keywordIndex >= 0) {
+            console.log('[WAKE-WORD] >>> WAKE WORD DETECTED! <<<');
+            
+            // Notify the renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('wake-word-detected', { keywordIndex });
+            }
+          }
+        } catch (e) {
+          // Ignore processing errors, just continue
+        }
+      }
+    });
+    
+    audioInputStream.on('error', (err) => {
+      console.error('[WAKE-WORD] Audio stream error:', err.message);
+    });
+    
+    // Start listening
+    audioInputStream.start();
+    porcupineListening = true;
+    wakeWordAccessKey = accessKey;
+    
+    console.log('[WAKE-WORD] Started listening for wake word:', keyword);
+    
+    return { 
+      success: true, 
+      sampleRate: sampleRate,
+      frameLength: frameLength
+    };
+    
+  } catch (e) {
+    console.error('[WAKE-WORD] Failed to start:', e.message);
+    stopNativeWakeWordListening();
+    return { success: false, error: e.message };
+  }
+}
+
+function stopNativeWakeWordListening() {
+  console.log('[WAKE-WORD] Stopping...');
+  
+  porcupineListening = false;
+  
+  if (audioInputStream) {
+    try {
+      audioInputStream.quit();
+    } catch (e) {
+      console.log('[WAKE-WORD] Error stopping audio stream:', e.message);
+    }
+    audioInputStream = null;
+  }
+  
+  if (porcupineHandle) {
+    try {
+      porcupineHandle.release();
+    } catch (e) {
+      console.log('[WAKE-WORD] Error releasing Porcupine:', e.message);
+    }
+    porcupineHandle = null;
+  }
+  
+  console.log('[WAKE-WORD] Stopped');
+  return { success: true };
+}
+
 
 // ============================================================================
 // WINDOW MANAGEMENT
@@ -776,11 +928,11 @@ function setupIPC() {
     }
   });
   
-  // ========== PORCUPINE WAKE WORD IPC HANDLERS ==========
+  // ========== NATIVE WAKE WORD IPC HANDLERS ==========
   
-  // Check if Porcupine is available
+  // Check if native wake word is available
   ipcMain.handle('porcupine-available', () => {
-    return { available: Porcupine !== null };
+    return { available: Porcupine !== null && portAudio !== null };
   });
   
   // Get available keywords
@@ -791,91 +943,21 @@ function setupIPC() {
     return { keywords: Object.keys(BuiltinKeywords) };
   });
   
-  // Initialize Porcupine with a keyword
-  ipcMain.handle('porcupine-init', async (event, { accessKey, keyword }) => {
-    if (!Porcupine) {
-      return { success: false, error: 'Porcupine not available' };
-    }
-    
-    try {
-      // Stop any existing instance
-      if (porcupineHandle) {
-        porcupineHandle.release();
-        porcupineHandle = null;
-      }
-      
-      // Map keyword string to built-in keyword
-      const keywordLower = keyword.toLowerCase();
-      const builtinKeyword = BuiltinKeywords[keywordLower.toUpperCase()] || BuiltinKeywords.JARVIS;
-      
-      console.log('[PORCUPINE] Initializing with keyword:', keyword, '-> builtin:', builtinKeyword);
-      
-      porcupineHandle = new Porcupine(
-        accessKey,
-        [builtinKeyword],
-        [0.7] // sensitivity
-      );
-      
-      console.log('[PORCUPINE] Initialized successfully! Sample rate:', porcupineHandle.sampleRate, 'Frame length:', porcupineHandle.frameLength);
-      
-      return { 
-        success: true, 
-        sampleRate: porcupineHandle.sampleRate,
-        frameLength: porcupineHandle.frameLength
-      };
-    } catch (e) {
-      console.error('[PORCUPINE] Init failed:', e.message);
-      return { success: false, error: e.message };
-    }
+  // Start native wake word listening (captures audio in main process)
+  ipcMain.handle('porcupine-start', async (event, { accessKey, keyword }) => {
+    console.log('[IPC] Starting native wake word with keyword:', keyword);
+    return startNativeWakeWordListening(accessKey, keyword);
   });
   
-  // Process audio frame for wake word detection
-  // Throttle to prevent overwhelming the process
-  let lastProcessTime = 0;
-  const MIN_PROCESS_INTERVAL = 20; // ms
-  
-  ipcMain.handle('porcupine-process', async (event, audioFrame) => {
-    // Throttle processing
-    const now = Date.now();
-    if (now - lastProcessTime < MIN_PROCESS_INTERVAL) {
-      return { detected: false, throttled: true };
-    }
-    lastProcessTime = now;
-    
-    if (!porcupineHandle) {
-      return { detected: false, error: 'Not initialized' };
-    }
-    
-    try {
-      // Convert to Int16Array if needed
-      const frame = new Int16Array(audioFrame);
-      const keywordIndex = porcupineHandle.process(frame);
-      
-      if (keywordIndex >= 0) {
-        console.log('[PORCUPINE] Wake word detected! Index:', keywordIndex);
-        // Notify the renderer
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('wake-word-detected', { keywordIndex });
-        }
-        return { detected: true, keywordIndex };
-      }
-      
-      return { detected: false };
-    } catch (e) {
-      console.error('[PORCUPINE] Process error:', e.message);
-      return { detected: false, error: e.message };
-    }
-  });
-  
-  // Stop Porcupine
+  // Stop native wake word listening
   ipcMain.handle('porcupine-stop', async () => {
-    if (porcupineHandle) {
-      porcupineHandle.release();
-      porcupineHandle = null;
-      console.log('[PORCUPINE] Released');
-    }
-    porcupineListening = false;
-    return { success: true };
+    console.log('[IPC] Stopping native wake word');
+    return stopNativeWakeWordListening();
+  });
+  
+  // Check if currently listening
+  ipcMain.handle('porcupine-status', () => {
+    return { listening: porcupineListening };
   });
 }
 
@@ -995,3 +1077,13 @@ if (IS_DEV) {
   });
 }
 
+// Handle renderer crashes
+app.on('render-process-gone', (event, webContents, details) => {
+  console.error('[CRASH] Renderer process gone:', details.reason, details.exitCode);
+  console.error('[CRASH] Details:', JSON.stringify(details));
+});
+
+// Handle GPU process crash
+app.on('child-process-gone', (event, details) => {
+  console.error('[CRASH] Child process gone:', details.type, details.reason);
+});

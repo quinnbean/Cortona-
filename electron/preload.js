@@ -54,23 +54,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Transcribe audio using local Whisper
   whisperTranscribe: (audioBlob) => ipcRenderer.invoke('whisper-transcribe', audioBlob),
   
-  // ========== PORCUPINE WAKE WORD DETECTION ==========
-  // Check if Porcupine is available
+  // ========== NATIVE WAKE WORD DETECTION ==========
+  // Check if native wake word is available (Porcupine + naudiodon)
   porcupineAvailable: () => ipcRenderer.invoke('porcupine-available'),
   
   // Get available built-in keywords
   porcupineKeywords: () => ipcRenderer.invoke('porcupine-keywords'),
   
-  // Initialize Porcupine with access key and keyword
-  porcupineInit: (accessKey, keyword) => ipcRenderer.invoke('porcupine-init', { accessKey, keyword }),
+  // Start native wake word listening (audio captured in main process - no IPC overhead!)
+  porcupineStart: (accessKey, keyword) => ipcRenderer.invoke('porcupine-start', { accessKey, keyword }),
   
-  // Process an audio frame (returns { detected: boolean })
-  porcupineProcess: (audioFrame) => ipcRenderer.invoke('porcupine-process', audioFrame),
-  
-  // Stop Porcupine
+  // Stop native wake word listening
   porcupineStop: () => ipcRenderer.invoke('porcupine-stop'),
   
-  // Listen for wake word detection event
+  // Check if currently listening for wake word
+  porcupineStatus: () => ipcRenderer.invoke('porcupine-status'),
+  
+  // Listen for wake word detection event (fired from main process when detected)
   onWakeWordDetected: (callback) => {
     ipcRenderer.on('wake-word-detected', (event, data) => callback(data));
   },
