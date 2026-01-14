@@ -180,10 +180,10 @@ INSTALL_PAGE = '''
             --bg-secondary: #0a0a0a;
             --bg-card: #141414;
             --border: rgba(255,255,255,0.12);
-            --accent: #ffffff;
-            --accent-2: #888888;
+            --accent: #d4af37;
+            --accent-2: #b8860b;
             --text: #ffffff;
-            --text-muted: #666666;
+            --text-muted: #888888;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1062,11 +1062,11 @@ LOGIN_PAGE = '''
             --bg-secondary: #0a0a0a;
             --bg-card: #141414;
             --border: rgba(255,255,255,0.12);
-            --accent: #ffffff;
-            --accent-2: #888888;
-            --accent-3: #666666;
+            --accent: #d4af37;
+            --accent-2: #b8860b;
+            --accent-3: #8b6914;
             --text: #ffffff;
-            --text-muted: #666666;
+            --text-muted: #888888;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1122,7 +1122,7 @@ LOGIN_PAGE = '''
         .logo-icon {
             width: 80px;
             height: 80px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            background: var(--accent);
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
@@ -1138,7 +1138,7 @@ LOGIN_PAGE = '''
         }
         h1 { font-size: 32px; font-weight: 700; }
         h1 span {
-            background: linear-gradient(135deg, var(--accent), var(--accent-3));
+            background: var(--accent-2);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -1190,7 +1190,7 @@ LOGIN_PAGE = '''
         }
         .btn {
             width: 100%;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            background: var(--accent);
             color: var(--bg-primary);
             border: none;
             border-radius: 12px;
@@ -1271,11 +1271,11 @@ SIGNUP_PAGE = '''
             --bg-secondary: #0a0a0a;
             --bg-card: #141414;
             --border: rgba(255,255,255,0.12);
-            --accent: #ffffff;
-            --accent-2: #888888;
-            --accent-3: #666666;
+            --accent: #d4af37;
+            --accent-2: #b8860b;
+            --accent-3: #8b6914;
             --text: #ffffff;
-            --text-muted: #666666;
+            --text-muted: #888888;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1305,14 +1305,14 @@ SIGNUP_PAGE = '''
         .logo { text-align: center; margin-bottom: 32px; }
         .logo-icon {
             width: 70px; height: 70px;
-            background: linear-gradient(135deg, var(--accent-2), var(--accent));
+            background: var(--accent);
             border-radius: 18px;
             display: inline-flex; align-items: center; justify-content: center;
             font-size: 36px; margin-bottom: 16px;
             box-shadow: 0 10px 40px rgba(123, 44, 191, 0.3);
         }
         h1 { font-size: 28px; font-weight: 700; }
-        h1 span { background: linear-gradient(135deg, var(--accent-2), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h1 span { color: var(--accent); }
         .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 8px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; font-size: 13px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
@@ -1330,7 +1330,7 @@ SIGNUP_PAGE = '''
         input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 245, 212, 0.1); }
         .btn {
             width: 100%;
-            background: linear-gradient(135deg, var(--accent-2), var(--accent));
+            background: var(--accent);
             color: white;
             border: none;
             border-radius: 12px;
@@ -1423,15 +1423,15 @@ DASHBOARD_PAGE = '''
             --bg-card: #141414;
             --bg-elevated: #1a1a1a;
             --border: rgba(255,255,255,0.12);
-            --border-hover: rgba(255,255,255,0.25);
-            --accent: #ffffff;
-            --accent-2: #888888;
-            --accent-3: #666666;
-            --success: #888888;
-            --warning: #aaaaaa;
+            --border-hover: rgba(212,175,55,0.4);
+            --accent: #d4af37;
+            --accent-2: #b8860b;
+            --accent-3: #8b6914;
+            --success: #4ade80;
+            --warning: #fbbf24;
             --text: #ffffff;
-            --text-secondary: #aaaaaa;
-            --text-muted: #666666;
+            --text-secondary: #cccccc;
+            --text-muted: #888888;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1469,7 +1469,7 @@ DASHBOARD_PAGE = '''
         .logo-icon {
             width: 42px;
             height: 42px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            background: var(--accent);
             border-radius: 12px;
             display: flex;
             align-items: center;
@@ -1507,7 +1507,7 @@ DASHBOARD_PAGE = '''
             color: var(--text);
         }
         .btn-primary {
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            background: var(--accent);
             color: var(--bg-primary);
         }
         .btn-primary:hover {
@@ -1677,7 +1677,7 @@ DASHBOARD_PAGE = '''
         
         /* Voice Control Card */
         .voice-control {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(128, 128, 128, 0.05));
+            background: rgba(212, 175, 55, 0.08);
             border: 1px solid var(--border);
             border-radius: 24px;
             padding: 40px;
@@ -1749,7 +1749,7 @@ DASHBOARD_PAGE = '''
         .audio-bar {
             width: 4px;
             border-radius: 2px;
-            background: linear-gradient(to top, var(--accent), var(--success));
+            background: var(--accent);
             transition: height 80ms ease-out;
             min-height: 4px;
         }
