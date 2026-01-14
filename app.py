@@ -2446,7 +2446,15 @@ DASHBOARD_PAGE = '''
         // INITIALIZATION
         // ============================================================
         
-        const socket = io();
+        // Only connect Socket.IO in browser (not needed in Electron)
+        const socket = isElectron ? null : (typeof io !== 'undefined' ? io() : null);
+        
+        // Safe socket emit wrapper (no-op in Electron)
+        function socketEmit(event, data) {
+            if (socket && socket.connected) {
+                socket.emit(event, data);
+            }
+        }
         let recognition = null;
         let isListening = false;
         let isRestarting = false; // Flag to prevent UI flicker during mic restart
@@ -3011,7 +3019,7 @@ DASHBOARD_PAGE = '''
         
         // Route a command to a specific device
         function routeCommandToDevice(targetDevice, command, action, targetApp = null) {
-            socket.emit('route_command', {
+            socketEmit('route_command', {
                 fromDeviceId: deviceId,
                 toDeviceId: targetDevice.id,
                 command: command,
@@ -3050,7 +3058,7 @@ DASHBOARD_PAGE = '''
                 console.log('Desktop client:', desktopClient);
                 
                 // Send a test ping
-                socket.emit('route_command', {
+                socketEmit('route_command', {
                     fromDeviceId: deviceId,
                     toDeviceId: desktopClient.id,
                     command: '--- TEST CONNECTION FROM VOICE HUB ---',
@@ -3121,7 +3129,7 @@ DASHBOARD_PAGE = '''
             const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
             
             if (desktopClient) {
-                socket.emit('route_command', {
+                socketEmit('route_command', {
                     fromDeviceId: deviceId,
                     toDeviceId: desktopClient.id,
                     command: 'Hello from Voice Hub! This is a test.',
@@ -3303,7 +3311,7 @@ DASHBOARD_PAGE = '''
             console.log('Routing to', targetDevice.name, ':', command);
             
             // Send command via socket to the target device
-            socket.emit('route_command', {
+            socketEmit('route_command', {
                 fromDeviceId: deviceId,
                 toDeviceId: targetDevice.id,
                 command: command,
@@ -3497,7 +3505,7 @@ DASHBOARD_PAGE = '''
                 if (!alwaysListen && !hasInitialized) {
                     addActivity('Started listening', 'info');
                 }
-                socket.emit('device_status', { deviceId, status: 'listening' });
+                socketEmit('device_status', { deviceId, status: 'listening' });
             };
             
             recognition.onresult = (event) => {
@@ -5483,7 +5491,7 @@ DASHBOARD_PAGE = '''
                 );
                 
                 if (desktopClient) {
-                    socket.emit('route_command', {
+                    socketEmit('route_command', {
                         fromDeviceId: deviceId,
                         toDeviceId: desktopClient.id,
                         command: parsed.command,
@@ -5560,7 +5568,7 @@ DASHBOARD_PAGE = '''
                 
                 if (desktopClient) {
                     console.log('Routing command to:', desktopClient.id);
-                    socket.emit('route_command', {
+                    socketEmit('route_command', {
                         fromDeviceId: deviceId,
                         toDeviceId: desktopClient.id,
                         command: parsed.command,
@@ -5608,7 +5616,7 @@ DASHBOARD_PAGE = '''
             }
             
             // Emit to server
-            socket.emit('transcript', { 
+            socketEmit('transcript', { 
                 deviceId, 
                 text, 
                 words: wordCount,
@@ -5784,7 +5792,7 @@ DASHBOARD_PAGE = '''
             
             isListening = false;
             updateUI();
-            socket.emit('device_status', { deviceId, status: 'idle' });
+            socketEmit('device_status', { deviceId, status: 'idle' });
         }
         
         async function toggleListening() {
@@ -6169,7 +6177,7 @@ DASHBOARD_PAGE = '''
             }
             
             // Sync to server so other devices see the change
-            socket.emit('device_update', {
+            socketEmit('device_update', {
                 deviceId: editingDeviceId,
                 settings: {
                     name: device.name,
@@ -6341,7 +6349,7 @@ DASHBOARD_PAGE = '''
             if (confirm(`Delete device "${name}"? This cannot be undone.`)) {
                 delete devices[id];
                 saveDevices();
-                socket.emit('device_delete', { deviceId: id });
+                socketEmit('device_delete', { deviceId: id });
                 renderDeviceList();
                 renderAvailableDevices();
                 addActivity(`Deleted device: ${name}`, 'info');
@@ -6400,7 +6408,7 @@ DASHBOARD_PAGE = '''
             addActivity(`Updated ${setting} to "${value}"`, 'info');
             
             // Sync to server
-            socket.emit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
+            socketEmit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
         }
         
         // Track if mic was manually clicked (bypasses wake word requirement)
@@ -6524,13 +6532,14 @@ DASHBOARD_PAGE = '''
             closeAddDeviceModal();
             addActivity(`Added new device: ${name}`, 'success');
             
-            socket.emit('device_add', devices[newId]);
+            socketEmit('device_add', devices[newId]);
         }
         
         // ============================================================
-        // SOCKET EVENTS
+        // SOCKET EVENTS (only in browser, not Electron)
         // ============================================================
         
+        if (socket) {
         socket.on('connect', () => {
             console.log('Connected to server');
             // Send full device info when joining
@@ -6626,6 +6635,7 @@ DASHBOARD_PAGE = '''
                 renderDeviceList();
             }
         });
+        } // End if(socket)
         
         // ============================================================
         // INITIALIZATION
