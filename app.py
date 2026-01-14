@@ -3782,7 +3782,9 @@ DASHBOARD_PAGE = '''
             console.log('[WAKE] Starting wake word listening for:', wakeWord);
             console.log('[WAKE] isElectron:', isElectron);
             console.log('[WAKE] electronAPI available:', !!window.electronAPI);
+            console.log('[WAKE] electronAPI keys:', window.electronAPI ? Object.keys(window.electronAPI) : 'N/A');
             console.log('[WAKE] porcupineStart available:', !!window.electronAPI?.porcupineStart);
+            console.log('[WAKE] porcupineStart type:', typeof window.electronAPI?.porcupineStart);
             console.log('[WAKE] PICOVOICE_ACCESS_KEY set:', !!PICOVOICE_ACCESS_KEY && PICOVOICE_ACCESS_KEY.length > 10);
             
             // Try native Porcupine first (Electron only - runs in main process, no IPC overhead)
