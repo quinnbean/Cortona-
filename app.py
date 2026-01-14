@@ -3780,6 +3780,10 @@ DASHBOARD_PAGE = '''
         async function startWakeWordListening() {
             const wakeWord = currentDevice?.wakeWord || 'computer';
             console.log('[WAKE] Starting wake word listening for:', wakeWord);
+            console.log('[WAKE] isElectron:', isElectron);
+            console.log('[WAKE] electronAPI available:', !!window.electronAPI);
+            console.log('[WAKE] porcupineStart available:', !!window.electronAPI?.porcupineStart);
+            console.log('[WAKE] PICOVOICE_ACCESS_KEY set:', !!PICOVOICE_ACCESS_KEY && PICOVOICE_ACCESS_KEY.length > 10);
             
             // Try native Porcupine first (Electron only - runs in main process, no IPC overhead)
             if (isElectron && window.electronAPI?.porcupineStart) {
