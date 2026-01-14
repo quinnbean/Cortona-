@@ -3803,45 +3803,43 @@ DASHBOARD_PAGE = '''
                 }
                 
                 console.log('[PORCUPINE] Using built-in keyword:', keyword);
-                console.log('[PORCUPINE] Library methods:', Object.keys(PorcupineLib).join(', '));
+                console.log('[PORCUPINE] Library contents:', Object.keys(PorcupineLib).join(', '));
                 
-                // Get the BuiltInKeyword enum
+                // Get components from the library
                 const BuiltInKeyword = PorcupineLib.BuiltInKeyword;
-                const PorcupineWorker = PorcupineLib.PorcupineWorker;
+                const Porcupine = PorcupineLib.Porcupine;
                 
-                if (!BuiltInKeyword) {
-                    console.error('[PORCUPINE] BuiltInKeyword enum not found');
+                if (!Porcupine) {
+                    console.error('[PORCUPINE] Porcupine class not found');
                     usePorcupine = false;
                     return false;
                 }
                 
-                // Map keyword string to enum value
-                const keywordEnum = BuiltInKeyword[keyword];
-                if (keywordEnum === undefined) {
-                    console.error('[PORCUPINE] Keyword not in enum. Available:', Object.keys(BuiltInKeyword).join(', '));
-                    usePorcupine = false;
-                    return false;
-                }
+                console.log('[PORCUPINE] Porcupine methods:', Object.keys(Porcupine).join(', '));
+                console.log('[PORCUPINE] BuiltInKeyword values:', BuiltInKeyword ? Object.keys(BuiltInKeyword).join(', ') : 'none');
                 
-                console.log('[PORCUPINE] Using BuiltInKeyword enum:', keyword, '=', keywordEnum);
-                
-                if (PorcupineWorker && typeof PorcupineWorker.create === 'function') {
-                    console.log('[PORCUPINE] Using PorcupineWorker.create API v2.x');
+                // Try using Porcupine.create() which is the main API
+                if (typeof Porcupine.create === 'function') {
+                    console.log('[PORCUPINE] Using Porcupine.create()');
                     
-                    // v2.x format: use the enum value directly
-                    porcupineInstance = await PorcupineWorker.create(
+                    // The create method needs keywords with publicPath for built-in keywords
+                    // Built-in keywords are hosted on Picovoice CDN
+                    const keywordConfig = {
+                        label: keyword.toLowerCase(),
+                        publicPath: `https://cdn.picovoice.ai/porcupine/keyword_files/en/${keyword.toLowerCase()}_wasm.ppn`,
+                        sensitivity: 0.7
+                    };
+                    
+                    porcupineInstance = await Porcupine.create(
                         PICOVOICE_ACCESS_KEY,
-                        [keywordEnum],  // Use enum value, not object
+                        [keywordConfig],
                         (keywordIndex) => {
                             console.log('[PORCUPINE] WAKE WORD DETECTED! Index:', keywordIndex);
                             onWakeWordDetected();
-                        },
-                        (error) => {
-                            console.error('[PORCUPINE] Runtime error:', error);
                         }
                     );
                 } else {
-                    console.error('[PORCUPINE] PorcupineWorker.create not found. Available:', PorcupineLib ? Object.keys(PorcupineLib) : 'null');
+                    console.error('[PORCUPINE] Porcupine.create not found. Methods:', Object.keys(Porcupine).join(', '));
                     usePorcupine = false;
                     return false;
                 }
