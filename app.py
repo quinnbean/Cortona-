@@ -3805,19 +3805,33 @@ DASHBOARD_PAGE = '''
                 console.log('[PORCUPINE] Using built-in keyword:', keyword);
                 console.log('[PORCUPINE] Library methods:', Object.keys(PorcupineLib).join(', '));
                 
-                // v2.x API: PorcupineWorker.create(accessKey, keywords, keywordCallback, errorCallback)
+                // Get the BuiltInKeyword enum
+                const BuiltInKeyword = PorcupineLib.BuiltInKeyword;
                 const PorcupineWorker = PorcupineLib.PorcupineWorker;
+                
+                if (!BuiltInKeyword) {
+                    console.error('[PORCUPINE] BuiltInKeyword enum not found');
+                    usePorcupine = false;
+                    return false;
+                }
+                
+                // Map keyword string to enum value
+                const keywordEnum = BuiltInKeyword[keyword];
+                if (keywordEnum === undefined) {
+                    console.error('[PORCUPINE] Keyword not in enum. Available:', Object.keys(BuiltInKeyword).join(', '));
+                    usePorcupine = false;
+                    return false;
+                }
+                
+                console.log('[PORCUPINE] Using BuiltInKeyword enum:', keyword, '=', keywordEnum);
                 
                 if (PorcupineWorker && typeof PorcupineWorker.create === 'function') {
                     console.log('[PORCUPINE] Using PorcupineWorker.create API v2.x');
                     
-                    // v2.x format: keywords is array of {builtin: string, sensitivity?: number}
+                    // v2.x format: use the enum value directly
                     porcupineInstance = await PorcupineWorker.create(
                         PICOVOICE_ACCESS_KEY,
-                        [{ 
-                            builtin: keyword,
-                            sensitivity: 0.7 
-                        }],
+                        [keywordEnum],  // Use enum value, not object
                         (keywordIndex) => {
                             console.log('[PORCUPINE] WAKE WORD DETECTED! Index:', keywordIndex);
                             onWakeWordDetected();
