@@ -4,6 +4,18 @@ const { exec, execSync } = require('child_process');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
 
+// Porcupine for wake word detection
+let Porcupine, BuiltinKeywords;
+try {
+  const porcupineModule = require('@picovoice/porcupine-node');
+  Porcupine = porcupineModule.Porcupine;
+  BuiltinKeywords = porcupineModule.BuiltinKeywords;
+  console.log('[PORCUPINE] Node module loaded successfully');
+} catch (e) {
+  console.log('[PORCUPINE] Node module not available:', e.message);
+  Porcupine = null;
+}
+
 // ============================================================================
 // HANDLE EPIPE ERRORS (prevents crash when Whisper subprocess closes)
 // ============================================================================
@@ -58,6 +70,8 @@ let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let whisperProcess = null;
+let porcupineHandle = null;
+let porcupineListening = false;
 
 // ============================================================================
 // WHISPER SERVICE MANAGEMENT
@@ -760,6 +774,96 @@ function setupIPC() {
     } catch (e) {
       return { success: false, error: e.message };
     }
+  });
+  
+  // ========== PORCUPINE WAKE WORD IPC HANDLERS ==========
+  
+  // Check if Porcupine is available
+  ipcMain.handle('porcupine-available', () => {
+    return { available: Porcupine !== null };
+  });
+  
+  // Get available keywords
+  ipcMain.handle('porcupine-keywords', () => {
+    if (!BuiltinKeywords) {
+      return { keywords: [] };
+    }
+    return { keywords: Object.keys(BuiltinKeywords) };
+  });
+  
+  // Initialize Porcupine with a keyword
+  ipcMain.handle('porcupine-init', async (event, { accessKey, keyword }) => {
+    if (!Porcupine) {
+      return { success: false, error: 'Porcupine not available' };
+    }
+    
+    try {
+      // Stop any existing instance
+      if (porcupineHandle) {
+        porcupineHandle.release();
+        porcupineHandle = null;
+      }
+      
+      // Map keyword string to built-in keyword
+      const keywordLower = keyword.toLowerCase();
+      const builtinKeyword = BuiltinKeywords[keywordLower.toUpperCase()] || BuiltinKeywords.JARVIS;
+      
+      console.log('[PORCUPINE] Initializing with keyword:', keyword, '-> builtin:', builtinKeyword);
+      
+      porcupineHandle = new Porcupine(
+        accessKey,
+        [builtinKeyword],
+        [0.7] // sensitivity
+      );
+      
+      console.log('[PORCUPINE] Initialized successfully! Sample rate:', porcupineHandle.sampleRate, 'Frame length:', porcupineHandle.frameLength);
+      
+      return { 
+        success: true, 
+        sampleRate: porcupineHandle.sampleRate,
+        frameLength: porcupineHandle.frameLength
+      };
+    } catch (e) {
+      console.error('[PORCUPINE] Init failed:', e.message);
+      return { success: false, error: e.message };
+    }
+  });
+  
+  // Process audio frame for wake word detection
+  ipcMain.handle('porcupine-process', async (event, audioFrame) => {
+    if (!porcupineHandle) {
+      return { detected: false, error: 'Not initialized' };
+    }
+    
+    try {
+      // Convert to Int16Array if needed
+      const frame = new Int16Array(audioFrame);
+      const keywordIndex = porcupineHandle.process(frame);
+      
+      if (keywordIndex >= 0) {
+        console.log('[PORCUPINE] Wake word detected! Index:', keywordIndex);
+        // Notify the renderer
+        if (mainWindow) {
+          mainWindow.webContents.send('wake-word-detected', { keywordIndex });
+        }
+        return { detected: true, keywordIndex };
+      }
+      
+      return { detected: false };
+    } catch (e) {
+      return { detected: false, error: e.message };
+    }
+  });
+  
+  // Stop Porcupine
+  ipcMain.handle('porcupine-stop', async () => {
+    if (porcupineHandle) {
+      porcupineHandle.release();
+      porcupineHandle = null;
+      console.log('[PORCUPINE] Released');
+    }
+    porcupineListening = false;
+    return { success: true };
   });
 }
 

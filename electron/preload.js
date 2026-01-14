@@ -54,6 +54,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Transcribe audio using local Whisper
   whisperTranscribe: (audioBlob) => ipcRenderer.invoke('whisper-transcribe', audioBlob),
   
+  // ========== PORCUPINE WAKE WORD DETECTION ==========
+  // Check if Porcupine is available
+  porcupineAvailable: () => ipcRenderer.invoke('porcupine-available'),
+  
+  // Get available built-in keywords
+  porcupineKeywords: () => ipcRenderer.invoke('porcupine-keywords'),
+  
+  // Initialize Porcupine with access key and keyword
+  porcupineInit: (accessKey, keyword) => ipcRenderer.invoke('porcupine-init', { accessKey, keyword }),
+  
+  // Process an audio frame (returns { detected: boolean })
+  porcupineProcess: (audioFrame) => ipcRenderer.invoke('porcupine-process', audioFrame),
+  
+  // Stop Porcupine
+  porcupineStop: () => ipcRenderer.invoke('porcupine-stop'),
+  
+  // Listen for wake word detection event
+  onWakeWordDetected: (callback) => {
+    ipcRenderer.on('wake-word-detected', (event, data) => callback(data));
+  },
+  
   // Listen for events from main process
   onActivateVoice: (callback) => {
     ipcRenderer.on('activate-voice', callback);

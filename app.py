@@ -3758,112 +3758,60 @@ DASHBOARD_PAGE = '''
         }
         
         async function initPorcupine() {
-            // Check which Porcupine library is available
-            const PorcupineLib = window.PorcupineWeb || window.Porcupine;
-            
-            if (!PorcupineLib) {
-                console.log('[PORCUPINE] Library not loaded - window.PorcupineWeb and window.Porcupine both undefined');
-                console.log('[PORCUPINE] Available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('porcupine') || k.toLowerCase().includes('picovoice')));
-                usePorcupine = false;
-                return false;
-            }
-            
-            console.log('[PORCUPINE] Library found:', PorcupineLib);
-            
-            if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.indexOf(String.fromCharCode(123, 123)) >= 0) {
-                console.log('[PORCUPINE] No access key configured - using Whisper for wake word');
-                usePorcupine = false;
-                return false;
-            }
-            
-            console.log('[PORCUPINE] Access key present, length:', PICOVOICE_ACCESS_KEY.length);
-            
-            try {
-                console.log('[PORCUPINE] Initializing local wake word detection...');
+            // In Electron, use native Porcupine via IPC
+            if (isElectron && window.electronAPI?.porcupineInit) {
+                console.log('[PORCUPINE] Using native Electron Porcupine');
                 
-                // Get wake word from settings
+                // Check if available
+                const availCheck = await window.electronAPI.porcupineAvailable();
+                if (!availCheck.available) {
+                    console.log('[PORCUPINE] Native module not available');
+                    usePorcupine = false;
+                    return false;
+                }
+                
+                if (!PICOVOICE_ACCESS_KEY || PICOVOICE_ACCESS_KEY === '' || PICOVOICE_ACCESS_KEY.indexOf(String.fromCharCode(123, 123)) >= 0) {
+                    console.log('[PORCUPINE] No access key configured');
+                    usePorcupine = false;
+                    return false;
+                }
+                
                 const wakeWord = (currentDevice?.wakeWord || 'jarvis').toLowerCase().trim();
+                console.log('[PORCUPINE] Initializing with keyword:', wakeWord);
                 
-                // Map common wake words to Porcupine built-in keywords
-                const builtInKeywords = {
-                    'jarvis': 'Jarvis',
-                    'alexa': 'Alexa',
-                    'computer': 'Computer',
-                    'hey google': 'Hey Google',
-                    'hey siri': 'Hey Siri',
-                    'ok google': 'Ok Google',
-                    'picovoice': 'Picovoice',
-                    'porcupine': 'Porcupine',
-                    'bumblebee': 'Bumblebee',
-                    'terminator': 'Terminator',
-                    'grapefruit': 'Grapefruit',
-                    'grasshopper': 'Grasshopper',
-                    'americano': 'Americano',
-                    'blueberry': 'Blueberry'
-                };
+                const result = await window.electronAPI.porcupineInit(PICOVOICE_ACCESS_KEY, wakeWord);
                 
-                const keyword = builtInKeywords[wakeWord];
-                if (!keyword) {
-                    console.log('[PORCUPINE] Wake word "' + wakeWord + '" not in built-in list. Available:', Object.keys(builtInKeywords).join(', '));
-                    addActivity('Wake word "' + wakeWord + '" not supported by Porcupine. Try: jarvis, computer, alexa', 'warning');
-                    usePorcupine = false;
-                    return false;
-                }
-                
-                console.log('[PORCUPINE] Using built-in keyword:', keyword);
-                console.log('[PORCUPINE] Library contents:', Object.keys(PorcupineLib).join(', '));
-                
-                // Get components from the library
-                const BuiltInKeyword = PorcupineLib.BuiltInKeyword;
-                const Porcupine = PorcupineLib.Porcupine;
-                
-                if (!Porcupine) {
-                    console.error('[PORCUPINE] Porcupine class not found');
-                    usePorcupine = false;
-                    return false;
-                }
-                
-                console.log('[PORCUPINE] Porcupine methods:', Object.keys(Porcupine).join(', '));
-                console.log('[PORCUPINE] BuiltInKeyword values:', BuiltInKeyword ? Object.keys(BuiltInKeyword).join(', ') : 'none');
-                
-                // Try using Porcupine.create() which is the main API
-                if (typeof Porcupine.create === 'function') {
-                    console.log('[PORCUPINE] Using Porcupine.create()');
+                if (result.success) {
+                    console.log('[PORCUPINE] Native init success! Sample rate:', result.sampleRate);
+                    usePorcupine = true;
+                    porcupineSampleRate = result.sampleRate;
+                    porcupineFrameLength = result.frameLength;
                     
-                    // The create method needs keywords with publicPath for built-in keywords
-                    // Built-in keywords are hosted on Picovoice CDN
-                    const keywordConfig = {
-                        label: keyword.toLowerCase(),
-                        publicPath: `https://cdn.picovoice.ai/porcupine/keyword_files/en/${keyword.toLowerCase()}_wasm.ppn`,
-                        sensitivity: 0.7
-                    };
+                    // Listen for wake word detection from main process
+                    window.electronAPI.onWakeWordDetected((data) => {
+                        console.log('[PORCUPINE] Wake word detected via IPC!');
+                        onWakeWordDetected();
+                    });
                     
-                    porcupineInstance = await Porcupine.create(
-                        PICOVOICE_ACCESS_KEY,
-                        [keywordConfig],
-                        (keywordIndex) => {
-                            console.log('[PORCUPINE] WAKE WORD DETECTED! Index:', keywordIndex);
-                            onWakeWordDetected();
-                        }
-                    );
+                    addActivity('Porcupine ready - say "' + wakeWord + '" to activate', 'success');
+                    return true;
                 } else {
-                    console.error('[PORCUPINE] Porcupine.create not found. Methods:', Object.keys(Porcupine).join(', '));
+                    console.error('[PORCUPINE] Native init failed:', result.error);
+                    addActivity('Porcupine init failed: ' + result.error, 'warning');
                     usePorcupine = false;
                     return false;
                 }
-                
-                console.log('[PORCUPINE] Initialized successfully!');
-                addActivity('Porcupine ready - say "' + wakeWord + '" to activate', 'success');
-                return true;
-                
-            } catch (e) {
-                console.error('[PORCUPINE] Failed to initialize:', e);
-                console.error('[PORCUPINE] Error details:', e.message, e.stack);
-                addActivity('Porcupine init failed: ' + e.message, 'warning');
-                usePorcupine = false;
-                return false;
             }
+            
+            // Web fallback (won't work well but kept for reference)
+            console.log('[PORCUPINE] Not in Electron or native API not available');
+            usePorcupine = false;
+            return false;
         }
+        
+        // Store Porcupine audio params
+        let porcupineSampleRate = 16000;
+        let porcupineFrameLength = 512;
         
         // Start PASSIVE wake word listening (doesn't record, just listens for keyword)
         async function startWakeWordListening() {
@@ -3892,8 +3840,14 @@ DASHBOARD_PAGE = '''
             updateUI();
         }
         
+        // Audio processing state for Porcupine
+        let porcupineAudioContext = null;
+        let porcupineProcessor = null;
+        let porcupineActive = false;
+        
         async function startPorcupineListening() {
-            if (!porcupineInstance) {
+            // Initialize Porcupine if not done
+            if (!usePorcupine) {
                 const success = await initPorcupine();
                 if (!success) {
                     console.log('[PORCUPINE] Not available, falling back to Whisper');
@@ -3902,47 +3856,71 @@ DASHBOARD_PAGE = '''
             }
             
             try {
-                console.log('[PORCUPINE] Starting local wake word listening...');
+                console.log('[PORCUPINE] Starting native wake word listening...');
                 
                 // Get mic stream if not already
                 if (!porcupineStream) {
-                    porcupineStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    porcupineStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: { 
+                            sampleRate: porcupineSampleRate,
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true
+                        } 
+                    });
                 }
                 
-                // Start processing
-                await porcupineInstance.start();
+                // Create audio context for processing
+                porcupineAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: porcupineSampleRate
+                });
                 
-                // Connect to mic
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const source = audioContext.createMediaStreamSource(porcupineStream);
+                const source = porcupineAudioContext.createMediaStreamSource(porcupineStream);
                 
-                // Create processor
-                await audioContext.audioWorklet.addModule('data:text/javascript,' + encodeURIComponent(`
-                    class PorcupineProcessor extends AudioWorkletProcessor {
-                        process(inputs) {
-                            const input = inputs[0][0];
-                            if (input) {
-                                this.port.postMessage(input);
-                            }
-                            return true;
-                        }
+                // Create ScriptProcessor for audio data (simpler than AudioWorklet)
+                const bufferSize = 4096;
+                porcupineProcessor = porcupineAudioContext.createScriptProcessor(bufferSize, 1, 1);
+                
+                let audioBuffer = new Int16Array(0);
+                
+                porcupineProcessor.onaudioprocess = async (e) => {
+                    if (!porcupineActive) return;
+                    
+                    // Convert Float32 to Int16
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const samples = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        samples[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32768)));
                     }
-                    registerProcessor('porcupine-processor', PorcupineProcessor);
-                `));
-                
-                const processorNode = new AudioWorkletNode(audioContext, 'porcupine-processor');
-                processorNode.port.onmessage = (event) => {
-                    if (porcupineInstance) {
-                        porcupineInstance.process(event.data);
+                    
+                    // Accumulate samples
+                    const newBuffer = new Int16Array(audioBuffer.length + samples.length);
+                    newBuffer.set(audioBuffer);
+                    newBuffer.set(samples, audioBuffer.length);
+                    audioBuffer = newBuffer;
+                    
+                    // Process when we have enough frames
+                    while (audioBuffer.length >= porcupineFrameLength) {
+                        const frame = audioBuffer.slice(0, porcupineFrameLength);
+                        audioBuffer = audioBuffer.slice(porcupineFrameLength);
+                        
+                        // Send to native Porcupine
+                        if (window.electronAPI?.porcupineProcess) {
+                            const result = await window.electronAPI.porcupineProcess(Array.from(frame));
+                            if (result.detected) {
+                                console.log('[PORCUPINE] Wake word detected in audio processing!');
+                                // onWakeWordDetected will be called via IPC listener
+                            }
+                        }
                     }
                 };
                 
-                source.connect(processorNode);
-                processorNode.connect(audioContext.destination);
+                source.connect(porcupineProcessor);
+                porcupineProcessor.connect(porcupineAudioContext.destination);
                 
+                porcupineActive = true;
                 isListening = true;
-                document.getElementById('voice-status').textContent = 'Listening for wake word...';
-                addActivity(' Local wake word detection active (FREE)', 'success');
+                addActivity('Local wake word detection active (FREE)', 'success');
                 updateUI();
                 
                 return true;
@@ -3951,6 +3929,26 @@ DASHBOARD_PAGE = '''
                 console.error('[PORCUPINE] Failed to start listening:', e);
                 return false;
             }
+        }
+        
+        async function stopPorcupineListening() {
+            porcupineActive = false;
+            
+            if (porcupineProcessor) {
+                porcupineProcessor.disconnect();
+                porcupineProcessor = null;
+            }
+            
+            if (porcupineAudioContext) {
+                porcupineAudioContext.close();
+                porcupineAudioContext = null;
+            }
+            
+            if (window.electronAPI?.porcupineStop) {
+                await window.electronAPI.porcupineStop();
+            }
+            
+            console.log('[PORCUPINE] Stopped listening');
         }
         
         function onWakeWordDetected() {
