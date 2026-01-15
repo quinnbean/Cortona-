@@ -5206,6 +5206,9 @@ DASHBOARD_PAGE = '''
                 addActivity('🛑 Stop command - ending dictation', 'info');
                 isActiveDictation = false;
                 
+                // CRITICAL: Stop audio visualization immediately
+                stopAudioLevelTracking();
+                
                 if (alwaysListen) {
                     transcriptEl.textContent = `Ready for "${wakeWord}"`;
                     transcriptEl.classList.remove('active');
@@ -5265,6 +5268,11 @@ DASHBOARD_PAGE = '''
                         
                         isActiveDictation = false;
                         wakeWordHeard = false;
+                        
+                        // CRITICAL: Stop audio visualization immediately
+                        stopAudioLevelTracking();
+                        updateUI();
+                        
                         if (alwaysListen && !continuousMode) {
                             setTimeout(() => {
                                 transcriptEl.textContent = `Ready for "${wakeWord}"`;
@@ -5276,7 +5284,6 @@ DASHBOARD_PAGE = '''
                                 startWakeWordListening();
                             }, 1500);
                         }
-                        updateUI();
                     })();
                 }
             } else {
