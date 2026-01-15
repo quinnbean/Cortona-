@@ -77,6 +77,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('wake-word-detected', (event, data) => callback(data));
   },
   
+  // ========== NATIVE LEOPARD SPEECH-TO-TEXT ==========
+  // Check if Leopard is available
+  leopardAvailable: () => ipcRenderer.invoke('leopard-available'),
+  
+  // Start recording for transcription
+  leopardStart: (accessKey) => ipcRenderer.invoke('leopard-start', { accessKey }),
+  
+  // Stop recording and get transcription
+  leopardStop: () => ipcRenderer.invoke('leopard-stop'),
+  
+  // Check if currently recording
+  leopardRecording: () => ipcRenderer.invoke('leopard-recording'),
+  
   // ========== KEYBIND SETTINGS ==========
   // Update the push-to-talk shortcut
   updatePTTShortcut: (keybind) => ipcRenderer.invoke('update-ptt-shortcut', keybind),

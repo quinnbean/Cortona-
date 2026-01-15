@@ -17,6 +17,17 @@ try {
   Porcupine = null;
 }
 
+// Leopard for speech-to-text transcription
+let Leopard;
+try {
+  const leopardModule = require('@picovoice/leopard-node');
+  Leopard = leopardModule.Leopard;
+  console.log('[LEOPARD] Node module loaded successfully');
+} catch (e) {
+  console.log('[LEOPARD] Node module not available:', e.message);
+  Leopard = null;
+}
+
 // node-record-lpcm16 for audio capture (uses sox, more stable than naudiodon)
 let record;
 try {
@@ -300,6 +311,134 @@ function stopNativeWakeWordListening() {
   
   console.log('[WAKE-WORD] Stopped');
   return { success: true };
+}
+
+// ============================================================================
+// NATIVE SPEECH-TO-TEXT (Leopard - records audio then transcribes)
+// ============================================================================
+
+let leopardHandle = null;
+let leopardRecording = null;
+let leopardAccessKey = null;
+
+async function startNativeLeopardRecording(accessKey) {
+  if (!record || !Leopard) {
+    console.error('[LEOPARD] node-record-lpcm16 or Leopard not available');
+    return { success: false, error: 'Native recording or Leopard not available' };
+  }
+  
+  try {
+    console.log('[LEOPARD] Starting native recording for transcription...');
+    
+    // Initialize Leopard if not done
+    if (!leopardHandle || leopardAccessKey !== accessKey) {
+      console.log('[LEOPARD] Initializing Leopard...');
+      
+      if (leopardHandle) {
+        leopardHandle.release();
+      }
+      
+      leopardHandle = new Leopard(accessKey, {
+        enableAutomaticPunctuation: true
+      });
+      leopardAccessKey = accessKey;
+      console.log('[LEOPARD] Initialized successfully');
+    }
+    
+    // Start recording audio with sox
+    leopardRecording = record.record({
+      sampleRate: 16000,
+      channels: 1,
+      audioType: 'raw',
+      recorder: 'sox',
+      endOnSilence: false,
+      threshold: 0
+    });
+    
+    // Collect audio data
+    const audioChunks = [];
+    const audioStream = leopardRecording.stream();
+    
+    audioStream.on('data', (data) => {
+      audioChunks.push(data);
+    });
+    
+    audioStream.on('error', (err) => {
+      console.error('[LEOPARD] Audio stream error:', err.message);
+    });
+    
+    // Store the chunks collector for later use
+    leopardRecording.audioChunks = audioChunks;
+    
+    console.log('[LEOPARD] Recording started');
+    return { success: true };
+    
+  } catch (e) {
+    console.error('[LEOPARD] Failed to start recording:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+async function stopNativeLeopardRecording() {
+  if (!leopardRecording) {
+    console.log('[LEOPARD] No active recording');
+    return { success: false, error: 'No active recording' };
+  }
+  
+  try {
+    console.log('[LEOPARD] Stopping recording and transcribing...');
+    
+    // Get collected audio chunks
+    const audioChunks = leopardRecording.audioChunks || [];
+    
+    // Stop recording
+    leopardRecording.stop();
+    leopardRecording = null;
+    
+    if (audioChunks.length === 0) {
+      console.log('[LEOPARD] No audio recorded');
+      return { success: false, error: 'No audio recorded' };
+    }
+    
+    // Combine audio chunks into a single buffer
+    const audioBuffer = Buffer.concat(audioChunks);
+    console.log('[LEOPARD] Audio buffer size:', audioBuffer.length, 'bytes');
+    
+    // Convert to Int16Array for Leopard
+    const samples = new Int16Array(audioBuffer.buffer, audioBuffer.byteOffset, audioBuffer.length / 2);
+    
+    // Transcribe with Leopard
+    console.log('[LEOPARD] Transcribing', samples.length, 'samples...');
+    const result = leopardHandle.process(samples);
+    
+    console.log('[LEOPARD] Transcription:', result.transcript);
+    
+    return {
+      success: true,
+      transcript: result.transcript,
+      words: result.words
+    };
+    
+  } catch (e) {
+    console.error('[LEOPARD] Transcription failed:', e.message);
+    if (leopardRecording) {
+      leopardRecording.stop();
+      leopardRecording = null;
+    }
+    return { success: false, error: e.message };
+  }
+}
+
+function releaseLeopard() {
+  if (leopardRecording) {
+    leopardRecording.stop();
+    leopardRecording = null;
+  }
+  if (leopardHandle) {
+    leopardHandle.release();
+    leopardHandle = null;
+  }
+  console.log('[LEOPARD] Released');
 }
 
 
@@ -988,6 +1127,30 @@ function setupIPC() {
   // Check if currently listening
   ipcMain.handle('porcupine-status', () => {
     return { listening: porcupineListening };
+  });
+  
+  // ========== NATIVE LEOPARD SPEECH-TO-TEXT ==========
+  
+  // Check if Leopard is available
+  ipcMain.handle('leopard-available', () => {
+    return { available: !!Leopard && !!record };
+  });
+  
+  // Start recording for transcription
+  ipcMain.handle('leopard-start', async (event, { accessKey }) => {
+    console.log('[IPC] Starting Leopard recording');
+    return await startNativeLeopardRecording(accessKey);
+  });
+  
+  // Stop recording and get transcription
+  ipcMain.handle('leopard-stop', async () => {
+    console.log('[IPC] Stopping Leopard recording and transcribing');
+    return await stopNativeLeopardRecording();
+  });
+  
+  // Check if currently recording
+  ipcMain.handle('leopard-recording', () => {
+    return { recording: !!leopardRecording };
   });
   
   // ========== KEYBIND SETTINGS ==========

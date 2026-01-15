@@ -2473,6 +2473,7 @@ DASHBOARD_PAGE = '''
         
         // Flag to track when native Porcupine is handling audio (blocks browser mic access)
         let nativePorcupineActive = false;
+        let nativeLeopardActive = false;  // Track when using native Leopard for transcription
         
         // Only connect Socket.IO in browser (not needed in Electron)
         const socket = isElectron ? null : (typeof io !== 'undefined' ? io() : null);
@@ -4525,6 +4526,44 @@ DASHBOARD_PAGE = '''
             // Play chime async (don't block on it)
             playChime('start');
             
+            // ============================================================
+            // TRY NATIVE LEOPARD FIRST (Electron only - uses sox, no conflicts!)
+            // ============================================================
+            if (isElectron && window.electronAPI?.leopardStart) {
+                console.log('[LEOPARD] Using native Leopard for transcription (sox-based)');
+                
+                const accessKey = PICOVOICE_ACCESS_KEY;
+                if (accessKey && accessKey.indexOf(String.fromCharCode(123, 123)) < 0) {
+                    try {
+                        const result = await window.electronAPI.leopardStart(accessKey);
+                        if (result.success) {
+                            console.log('[LEOPARD] Native recording started!');
+                            addActivity('Recording with native Leopard (local, fast)', 'success');
+                            
+                            // Mark as listening and using native recording
+                            isListening = true;
+                            useWhisper = true;  // Reuse this flag to track recording state
+                            nativeLeopardActive = true;  // Track that we're using native Leopard
+                            
+                            // Start audio level visualization (using browser mic just for visuals)
+                            // Actually, we can't do this without browser mic... skip for now
+                            
+                            updateUI();
+                            return;  // Successfully using native Leopard
+                        } else {
+                            console.log('[LEOPARD] Native Leopard failed:', result.error);
+                        }
+                    } catch (e) {
+                        console.error('[LEOPARD] Native Leopard error:', e);
+                    }
+                }
+                console.log('[LEOPARD] Falling back to cloud Whisper...');
+            }
+            
+            // ============================================================
+            // FALLBACK TO CLOUD WHISPER (browser mic)
+            // ============================================================
+            
             // Use cached Whisper status (instant!) or quick check
             const whisperAvailable = await checkWhisperService();
             if (!whisperAvailable) {
@@ -5307,13 +5346,58 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        function stopWhisperRecording() {
+        async function stopWhisperRecording() {
             console.log('[WHISPER] Stopping recording...');
             playChime('stop');  // Audio feedback
             
             // Reset silence detection FIRST
             window.recordingStartTime = null;
             window.silenceStart = null;
+            
+            // ============================================================
+            // IF USING NATIVE LEOPARD - stop and transcribe
+            // ============================================================
+            if (nativeLeopardActive && window.electronAPI?.leopardStop) {
+                console.log('[LEOPARD] Stopping native recording and transcribing...');
+                nativeLeopardActive = false;
+                
+                try {
+                    const result = await window.electronAPI.leopardStop();
+                    console.log('[LEOPARD] Transcription result:', result);
+                    
+                    if (result.success && result.transcript) {
+                        // Process the transcript
+                        console.log('[LEOPARD] Got transcript:', result.transcript);
+                        handleWhisperTranscript(result.transcript);
+                    } else {
+                        console.log('[LEOPARD] No transcript or error:', result.error);
+                        addActivity('No speech detected', 'warning');
+                    }
+                } catch (e) {
+                    console.error('[LEOPARD] Stop error:', e);
+                    addActivity('Transcription error', 'error');
+                }
+                
+                isListening = false;
+                useWhisper = false;
+                stopAudioLevelTracking();
+                updateUI();
+                
+                // Restart wake word listening if needed
+                if (alwaysListen) {
+                    console.log('[ALWAYS-LISTEN] Restarting wake word listening...');
+                    setTimeout(() => {
+                        if (alwaysListen) {
+                            startWakeWordListening();
+                        }
+                    }, 1500);
+                }
+                return;
+            }
+            
+            // ============================================================
+            // BROWSER-BASED WHISPER - original code
+            // ============================================================
             
             // Stop the recorder - this triggers onstop which processes the audio
             if (whisperRecorder && whisperRecorder.state === 'recording') {
