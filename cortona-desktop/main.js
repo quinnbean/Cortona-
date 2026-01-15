@@ -416,7 +416,9 @@ async function stopNativeLeopardRecording() {
     return {
       success: true,
       transcript: result.transcript,
-      words: result.words
+      words: result.words,
+      audioBytes: audioBuffer.length,
+      samples: samples.length
     };
     
   } catch (e) {

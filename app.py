@@ -1761,6 +1761,39 @@ DASHBOARD_PAGE = '''
         .audio-bar:nth-child(4) { opacity: 0.8; }
         .audio-bar:nth-child(5) { opacity: 0.6; }
         
+        /* Animated bars for native recording (no real audio data) */
+        @keyframes bar-pulse-1 {
+            0%, 100% { height: 6px; }
+            50% { height: 18px; }
+        }
+        @keyframes bar-pulse-2 {
+            0%, 100% { height: 10px; }
+            50% { height: 22px; }
+        }
+        @keyframes bar-pulse-3 {
+            0%, 100% { height: 14px; }
+            50% { height: 24px; }
+        }
+        .audio-level-container.native-recording .audio-bar:nth-child(1) {
+            animation: bar-pulse-1 0.8s ease-in-out infinite;
+            animation-delay: 0.1s;
+        }
+        .audio-level-container.native-recording .audio-bar:nth-child(2) {
+            animation: bar-pulse-2 0.7s ease-in-out infinite;
+            animation-delay: 0.2s;
+        }
+        .audio-level-container.native-recording .audio-bar:nth-child(3) {
+            animation: bar-pulse-3 0.6s ease-in-out infinite;
+        }
+        .audio-level-container.native-recording .audio-bar:nth-child(4) {
+            animation: bar-pulse-2 0.7s ease-in-out infinite;
+            animation-delay: 0.15s;
+        }
+        .audio-level-container.native-recording .audio-bar:nth-child(5) {
+            animation: bar-pulse-1 0.8s ease-in-out infinite;
+            animation-delay: 0.25s;
+        }
+        
         @keyframes recording-pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -4180,12 +4213,17 @@ DASHBOARD_PAGE = '''
         }
         
         async function onWakeWordDetected() {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:onWakeWordDetected',message:'Wake word detected!',timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            
             console.log('[WAKE] Wake word triggered!');
             playSound('activate');
             addActivity('Wake word detected! Recording...', 'success');
             
             // Stop Porcupine temporarily (both native and web-based)
             if (isElectron && window.electronAPI?.porcupineStop) {
+                console.log('[WAKE] Stopping Porcupine...');
                 await window.electronAPI.porcupineStop();
             }
             if (porcupineInstance) {
@@ -4194,9 +4232,9 @@ DASHBOARD_PAGE = '''
             // Stop Whisper wake word mode if active
             stopWhisperWakeWordMode();
             
-            // CRITICAL: Clear native Porcupine flag so browser mic can record
+            // CRITICAL: Clear native Porcupine flag so Leopard can use sox
             nativePorcupineActive = false;
-            console.log('[WAKE] Native Porcupine stopped - browser mic UNBLOCKED for recording');
+            console.log('[WAKE] Native Porcupine stopped - ready for Leopard');
             
             // Immediately go to GREEN (recording)
             isActiveDictation = true;
@@ -4205,8 +4243,8 @@ DASHBOARD_PAGE = '''
             document.getElementById('transcript').classList.add('active');
             updateUI();
             
-            // Use Whisper for command recording (most reliable)
-            console.log('[WAKE] Using Whisper for command recording');
+            // Start Leopard recording
+            console.log('[WAKE] Starting Leopard recording...');
             startWhisperRecording();
         }
         
@@ -4521,88 +4559,81 @@ DASHBOARD_PAGE = '''
         }
         
         async function startWhisperRecording() {
-            console.log('[WHISPER] Starting recording mode, cloud:', useCloudWhisper);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:startWhisperRecording',message:'Starting recording',data:{isElectron,hasLeopardStart:!!window.electronAPI?.leopardStart},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+            // #endregion
+            
+            console.log('[RECORD] Starting recording...');
             
             // Play chime async (don't block on it)
             playChime('start');
             
             // ============================================================
-            // TRY NATIVE LEOPARD FIRST (Electron only - uses sox, no conflicts!)
+            // ELECTRON APP: Use ONLY Native Leopard (local, fast, reliable)
             // ============================================================
-            if (isElectron && window.electronAPI?.leopardStart) {
-                console.log('[LEOPARD] Using native Leopard for transcription (sox-based)');
+            if (isElectron) {
+                console.log('[LEOPARD] Electron detected - using native Leopard only');
+                
+                if (!window.electronAPI?.leopardStart) {
+                    console.error('[LEOPARD] leopardStart not available!');
+                    addActivity('Leopard not available - restart the app', 'warning');
+                    return;
+                }
                 
                 const accessKey = PICOVOICE_ACCESS_KEY;
-                if (accessKey && accessKey.indexOf(String.fromCharCode(123, 123)) < 0) {
-                    try {
-                        const result = await window.electronAPI.leopardStart(accessKey);
-                        if (result.success) {
-                            console.log('[LEOPARD] Native recording started!');
-                            addActivity('Recording with native Leopard (local, fast)', 'success');
-                            
-                            // Mark as listening and using native recording
-                            isListening = true;
-                            useWhisper = true;  // Reuse this flag to track recording state
-                            nativeLeopardActive = true;  // Track that we're using native Leopard
-                            
-                            // Start audio level visualization (using browser mic just for visuals)
-                            // Actually, we can't do this without browser mic... skip for now
-                            
-                            updateUI();
-                            return;  // Successfully using native Leopard
-                        } else {
-                            console.log('[LEOPARD] Native Leopard failed:', result.error);
+                if (!accessKey || accessKey.indexOf(String.fromCharCode(123, 123)) >= 0) {
+                    console.error('[LEOPARD] Invalid or missing Picovoice access key');
+                    addActivity('Picovoice API key not configured', 'warning');
+                    return;
+                }
+                
+                try {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStart-call',message:'Calling leopardStart',data:{accessKeyLength:accessKey?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+                    // #endregion
+                    
+                    const result = await window.electronAPI.leopardStart(accessKey);
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStart-result',message:'leopardStart result',data:{result},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+                    // #endregion
+                    
+                    if (result.success) {
+                        console.log('[LEOPARD] Native recording started!');
+                        addActivity('Recording (local Leopard)', 'success');
+                        
+                        // Mark as listening and using native recording
+                        isListening = true;
+                        isActiveDictation = true;
+                        nativeLeopardActive = true;
+                        
+                        // Show animated audio visualization
+                        const audioContainer = document.getElementById('audio-level-container');
+                        if (audioContainer) {
+                            audioContainer.classList.add('active', 'native-recording');
                         }
-                    } catch (e) {
-                        console.error('[LEOPARD] Native Leopard error:', e);
+                        const recordingDot = document.getElementById('recording-dot');
+                        if (recordingDot) recordingDot.classList.add('active');
+                        
+                        updateUI();
+                        return;
+                    } else {
+                        console.error('[LEOPARD] Failed to start:', result.error);
+                        addActivity('Recording failed: ' + result.error, 'warning');
+                        return;
                     }
+                } catch (e) {
+                    console.error('[LEOPARD] Native Leopard error:', e);
+                    addActivity('Recording error: ' + e.message, 'warning');
+                    return;
                 }
-                console.log('[LEOPARD] Falling back to cloud Whisper...');
             }
             
             // ============================================================
-            // FALLBACK TO CLOUD WHISPER (browser mic)
+            // WEB ONLY: Use browser recording (not used in Electron)
             // ============================================================
-            
-            // Use cached Whisper status (instant!) or quick check
-            const whisperAvailable = await checkWhisperService();
-            if (!whisperAvailable) {
-                if (useCloudWhisper) {
-                    addActivity(' OpenAI API not configured. Add OPENAI_API_KEY in Render settings.', 'warning');
-                } else {
-                    addActivity(' Local Whisper service not running. Restart the app.', 'warning');
-                }
-                useWhisper = false;
-                return;
-            }
-            
-            addActivity(useCloudWhisper ? '☁️ Using OpenAI Whisper (cloud)' : ' Connected to local Whisper', 'success');
-            
-            try {
-                // Use pre-warmed stream if available (INSTANT!), otherwise get new one
-                if (preWarmedMicStream) {
-                    whisperMediaStream = preWarmedMicStream;
-                    preWarmedMicStream = null; // Clear so we get fresh one next time
-                    console.log('[WHISPER] Using pre-warmed mic stream (instant!)');
-                } else {
-                    whisperMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                }
-                
-                // Track when recording started (for silence detection)
-                window.recordingStartTime = Date.now();
-                window.silenceStart = null;
-                
-                // Start audio level visualization
-                startAudioLevelTracking(whisperMediaStream);
-                
-                // Start continuous recording loop
-                whisperContinuousRecord();
-                
-            } catch (e) {
-                console.error('[WHISPER] Failed to get microphone:', e);
-                addActivity('X Microphone access denied', 'warning');
-                useWhisper = false;
-            }
+            console.log('[WEB] Browser-based recording for web version');
+            addActivity('Web version - voice not supported', 'warning');
         }
         
         function whisperContinuousRecord() {
@@ -5347,40 +5378,67 @@ DASHBOARD_PAGE = '''
         }
         
         async function stopWhisperRecording() {
-            console.log('[WHISPER] Stopping recording...');
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:stopWhisperRecording',message:'Stop called',data:{isElectron,nativeLeopardActive,hasLeopardStop:!!window.electronAPI?.leopardStop},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,D,E'})}).catch(()=>{});
+            // #endregion
+            
+            console.log('[RECORD] Stopping recording...');
             playChime('stop');  // Audio feedback
             
-            // Reset silence detection FIRST
-            window.recordingStartTime = null;
-            window.silenceStart = null;
-            
             // ============================================================
-            // IF USING NATIVE LEOPARD - stop and transcribe
+            // ELECTRON: Stop Native Leopard and transcribe
             // ============================================================
-            if (nativeLeopardActive && window.electronAPI?.leopardStop) {
+            if (isElectron && nativeLeopardActive && window.electronAPI?.leopardStop) {
                 console.log('[LEOPARD] Stopping native recording and transcribing...');
                 nativeLeopardActive = false;
+                isActiveDictation = false;
                 
                 try {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStop-call',message:'Calling leopardStop',timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,E'})}).catch(()=>{});
+                    // #endregion
+                    
                     const result = await window.electronAPI.leopardStop();
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStop-result',message:'leopardStop result',data:{success:result?.success,transcript:result?.transcript,error:result?.error,audioBytes:result?.audioBytes},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,E'})}).catch(()=>{});
+                    // #endregion
+                    
                     console.log('[LEOPARD] Transcription result:', result);
+                    console.log('[LEOPARD] result.success:', result?.success);
+                    console.log('[LEOPARD] result.transcript:', result?.transcript);
+                    console.log('[LEOPARD] result.audioBytes:', result?.audioBytes);
                     
                     if (result.success && result.transcript) {
-                        // Process the transcript
                         console.log('[LEOPARD] Got transcript:', result.transcript);
-                        handleWhisperTranscript(result.transcript);
+                        console.log('[LEOPARD] Calling handleTranscript...');
+                        
+                        // Show transcript in UI immediately
+                        document.getElementById('transcript').textContent = result.transcript;
+                        addActivity('You said: ' + result.transcript, 'info');
+                        
+                        // Process with AI
+                        handleTranscript(result.transcript);
+                        console.log('[LEOPARD] handleTranscript completed');
                     } else {
                         console.log('[LEOPARD] No transcript or error:', result.error);
                         addActivity('No speech detected', 'warning');
                     }
                 } catch (e) {
                     console.error('[LEOPARD] Stop error:', e);
-                    addActivity('Transcription error', 'error');
+                    addActivity('Transcription error', 'warning');
                 }
                 
                 isListening = false;
-                useWhisper = false;
-                stopAudioLevelTracking();
+                
+                // Stop audio visualization
+                const audioContainer = document.getElementById('audio-level-container');
+                if (audioContainer) {
+                    audioContainer.classList.remove('active', 'native-recording');
+                }
+                const recordingDot = document.getElementById('recording-dot');
+                if (recordingDot) recordingDot.classList.remove('active');
+                
                 updateUI();
                 
                 // Restart wake word listening if needed
@@ -5395,47 +5453,17 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            // ============================================================
-            // BROWSER-BASED WHISPER - original code
-            // ============================================================
+            // WEB: Not supported
+            console.log('[WEB] Stop called but web recording not active');
+            isListening = false;
+            isActiveDictation = false;
             
-            // Stop the recorder - this triggers onstop which processes the audio
-            if (whisperRecorder && whisperRecorder.state === 'recording') {
-                console.log('[WHISPER] Calling recorder.stop()');
-                whisperRecorder.stop();
-                // Don't null out the recorder yet - onstop needs it
+            // Stop audio visualization
+            const audioContainer = document.getElementById('audio-level-container');
+            if (audioContainer) {
+                audioContainer.classList.remove('active', 'native-recording');
             }
-            
-            // Stop level tracking AFTER recorder stops
-            stopAudioLevelTracking();
-            
-            // Wait a bit before cleaning up to let onstop finish
-            setTimeout(() => {
-                whisperRecorder = null;
-                useWhisper = false;
-                
-                if (whisperMediaStream) {
-                    whisperMediaStream.getTracks().forEach(track => track.stop());
-                    whisperMediaStream = null;
-                }
-                
-                isListening = false;
-                updateUI();
-                console.log('[WHISPER] Cleanup complete');
-                
-                // If alwaysListen is on, restart listening for wake word
-                if (alwaysListen) {
-                    console.log('[ALWAYS-LISTEN] Restarting to listen for wake word...');
-                    setTimeout(() => {
-                        if (alwaysListen) {
-                            startListening();
-                        }
-                    }, 1000);
-                } else {
-                    // Pre-warm mic again for next use (instant start next time!)
-                    setTimeout(() => preWarmMicrophone(), 500);
-                }
-            }, 500);
+            updateUI();
         }
         
         // Audio context - initialized on first user interaction
@@ -5654,8 +5682,12 @@ DASHBOARD_PAGE = '''
         }
         
         async function handleTranscript(text, skipRouting = false) {
-            console.log('[HANDLE] handleTranscript called with:', text);
+            console.log('========================================');
+            console.log('[HANDLE] handleTranscript ENTRY');
+            console.log('[HANDLE] text:', text);
             console.log('[HANDLE] text type:', typeof text, 'length:', text ? text.length : 0);
+            console.log('[HANDLE] skipRouting:', skipRouting);
+            console.log('========================================');
             
             if (!text || text.length < 2) {
                 console.log('[HANDLE] Text too short, returning null');
@@ -6094,103 +6126,71 @@ DASHBOARD_PAGE = '''
         }
         
         function stopListening() {
-            continuousMode = false;
-            document.getElementById('toggle-continuous').classList.remove('active');
+            console.log('[STOP] stopListening called');
+            console.log('[STOP] Before: isListening=', isListening, 'isActiveDictation=', isActiveDictation, 'nativeLeopardActive=', nativeLeopardActive);
             
-            // Stop Cheetah if active
-            if (cheetahAudioContext || cheetahStream) {
-                stopCheetahRecording();
-            }
-            
-            // Stop Porcupine if active
-            if (porcupineInstance) {
-                stopPorcupineListening();
-            }
-            
-            // Stop Whisper if active
-            if (useWhisper) {
+            // Stop Leopard recording if active
+            if (nativeLeopardActive) {
+                console.log('[STOP] Stopping Leopard...');
                 stopWhisperRecording();
             }
             
-            // Stop Web Speech API if active
-            if (recognition && isListening) {
-            recognition.stop();
+            // Stop Porcupine wake word if active (but don't restart it here)
+            if (nativePorcupineActive && window.electronAPI?.porcupineStop) {
+                console.log('[STOP] Stopping Porcupine...');
+                window.electronAPI.porcupineStop();
+                nativePorcupineActive = false;
             }
             
+            // Reset all state flags
             isListening = false;
+            isActiveDictation = false;
+            wakeWordHeard = false;
+            manualMicClick = false;
+            
+            console.log('[STOP] After: isListening=', isListening, 'isActiveDictation=', isActiveDictation, 'nativeLeopardActive=', nativeLeopardActive);
             updateUI();
-            socketEmit('device_status', { deviceId, status: 'idle' });
         }
         
         async function toggleListening() {
-            console.log('toggleListening called, isListening:', isListening, 'useCheetah:', useCheetah, 'isElectron:', isElectron);
+            console.log('==========================================');
+            console.log('[MIC] toggleListening called');
+            console.log('[MIC] Current state: isListening=', isListening, 'isActiveDictation=', isActiveDictation, 'nativeLeopardActive=', nativeLeopardActive);
+            console.log('==========================================');
             
-            if (isListening) {
-                console.log('Stopping...');
+            // If currently recording, stop it
+            if (isListening || isActiveDictation || nativeLeopardActive) {
+                console.log('[MIC] Currently active, stopping...');
                 stopListening();
                 return;
             }
             
-            // Mark this as a manual mic click - bypasses wake word requirement
+            // Mark as manual mic click - bypasses wake word requirement
             manualMicClick = true;
-            console.log('[MIC] Manual mic click - wake word not required');
+            console.log('[MIC] Starting recording...');
             
-            // Try Cheetah first (local, fast, free)
-            if (useCheetah && PICOVOICE_ACCESS_KEY && PICOVOICE_ACCESS_KEY.indexOf(String.fromCharCode(123, 123)) < 0) {
-                console.log('[CHEETAH] Using local Picovoice STT (fast & free)');
-                addActivity(' Starting local STT (Cheetah)...', 'info');
-                startCheetahRecording();
-                return;
-            }
-            
-            // Fall back to Whisper (cloud)
-            if (isElectron || useWhisper || useCloudWhisper) {
-                console.log('[WHISPER] Using', useCloudWhisper ? 'OpenAI Cloud' : 'Local', 'Whisper');
+            // ============================================================
+            // ELECTRON: Use Native Leopard (only option)
+            // ============================================================
+            if (isElectron) {
+                // Stop wake word listener if running (release mic)
+                if (nativePorcupineActive) {
+                    console.log('[MIC] Stopping Porcupine first...');
+                    await window.electronAPI?.porcupineStop();
+                    nativePorcupineActive = false;
+                    // Small delay to let mic release
+                    await new Promise(r => setTimeout(r, 200));
+                }
                 
-                const whisperAvailable = await checkWhisperService();
-                if (whisperAvailable) {
-                    useWhisper = true;
-                    addActivity(useCloudWhisper ? '☁️ Starting OpenAI Whisper...' : ' Starting Whisper...', 'info');
-                    startWhisperRecording();
-            } else {
-                    if (useCloudWhisper) {
-                        addActivity(' OpenAI API not configured. Add OPENAI_API_KEY in Render.', 'warning');
-                    } else {
-                        addActivity(' Whisper service not running. Restart the Cortona app.', 'warning');
-                    }
-                }
+                console.log('[MIC] Calling startWhisperRecording...');
+                await startWhisperRecording();
+                console.log('[MIC] startWhisperRecording completed');
                 return;
             }
             
-            // BROWSER: Use Web Speech API
-            if (!recognition) {
-                console.error('No recognition object!');
-                addActivity(' Speech recognition not available in this browser', 'warning');
-                return;
-            }
-            
-                try {
-                console.log('Starting Web Speech API...');
-                    recognition.lang = currentDevice?.language || 'en-US';
-                    recognition.start();
-                    addActivity(' Starting microphone...', 'info');
-                } catch (e) {
-                    if (e.name === 'InvalidStateError') {
-                        console.log('Recognition in invalid state, reinitializing...');
-                        initSpeechRecognition();
-                        setTimeout(() => {
-                            try {
-                                recognition.lang = currentDevice?.language || 'en-US';
-                                recognition.start();
-                                addActivity(' Starting microphone...', 'info');
-                            } catch (e2) {
-                                addActivity(' Could not start microphone: ' + e2.message, 'warning');
-                            }
-                        }, 100);
-                    } else {
-                        addActivity(' Could not start microphone: ' + e.message, 'warning');
-                }
-            }
+            // WEB: Not supported
+            console.log('[WEB] Voice not supported in browser');
+            addActivity('Voice recording not available in browser', 'warning');
         }
         
         // ============================================================
@@ -6201,6 +6201,10 @@ DASHBOARD_PAGE = '''
         let hasInitialized = false;
         
         function updateUI() {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:updateUI',message:'updateUI called',data:{isListening,isActiveDictation,alwaysListen,nativeLeopardActive,nativePorcupineActive},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,C,E'})}).catch(()=>{});
+            // #endregion
+            
             // Get elements with null safety
             const micButton = document.getElementById('mic-button');
             const voiceStatus = document.getElementById('voice-status');
@@ -6226,18 +6230,30 @@ DASHBOARD_PAGE = '''
             const recordingDot = document.getElementById('recording-dot');
             
             // Determine if we're actively recording (should show audio bars)
-            const isActivelyRecording = isActiveDictation || (isListening && !alwaysListen);
+            const isActivelyRecording = isActiveDictation || nativeLeopardActive || (isListening && !alwaysListen);
             
             // Show/hide audio bars based on recording state
+            console.log('[UI] Audio bars: isActivelyRecording=', isActivelyRecording, 'nativeLeopardActive=', nativeLeopardActive);
             if (audioLevelContainer) {
-                audioLevelContainer.classList.toggle('active', isActivelyRecording);
-                // Reset bars to minimum height when not recording
-                if (!isActivelyRecording) {
+                if (isActivelyRecording) {
+                    console.log('[UI] Adding active and native-recording classes');
+                    audioLevelContainer.classList.add('active');
+                    // If using native Leopard, add animation class
+                    if (nativeLeopardActive) {
+                        audioLevelContainer.classList.add('native-recording');
+                    }
+                    console.log('[UI] Classes now:', audioLevelContainer.className);
+                } else {
+                    console.log('[UI] Removing active and native-recording classes');
+                    audioLevelContainer.classList.remove('active', 'native-recording');
+                    // Reset bars to minimum height when not recording
                     for (let i = 0; i < 5; i++) {
                         const bar = document.getElementById('bar-' + i);
                         if (bar) bar.style.height = '4px';
                     }
                 }
+            } else {
+                console.error('[UI] audioLevelContainer NOT FOUND!');
             }
             if (recordingDot) {
                 recordingDot.classList.toggle('active', isActivelyRecording);
@@ -7862,7 +7878,7 @@ def api_parse_command():
                     messages=all_messages,
                     system=system_prompt
                 )
-                response_text = message.content[0].text.strip()
+        response_text = message.content[0].text.strip()
                 used_provider = 'claude'
                 print(f"CLAUDE RAW RESPONSE: {response_text}")
                 print(f"==========================================")
@@ -7950,7 +7966,7 @@ def claude_status():
     """Check AI availability (OpenAI preferred, Claude fallback)"""
     # Prefer OpenAI for speed
     if OPENAI_AVAILABLE:
-        return jsonify({
+    return jsonify({
             'available': True,
             'provider': 'openai',
             'model': 'gpt-4o',
