@@ -2570,9 +2570,17 @@ DASHBOARD_PAGE = '''
                 addActivity(' Activated via ⌘+Shift+J', 'success');
             });
             
-            // Listen for quick recording
-            window.electronAPI.onStartRecording(() => {
-                console.log(' Quick recording started');
+            // Listen for quick recording (PTT shortcut)
+            window.electronAPI.onStartRecording(async () => {
+                console.log('[PTT] Quick recording triggered');
+                
+                // CRITICAL: Stop native Porcupine FIRST to release mic for browser recording
+                if (nativePorcupineActive && window.electronAPI?.porcupineStop) {
+                    console.log('[PTT] Stopping native Porcupine before recording...');
+                    await window.electronAPI.porcupineStop();
+                    nativePorcupineActive = false;
+                }
+                
                 if (!isListening) {
                     toggleListening();
                 }
