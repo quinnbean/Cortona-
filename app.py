@@ -1761,37 +1761,9 @@ DASHBOARD_PAGE = '''
         .audio-bar:nth-child(4) { opacity: 0.8; }
         .audio-bar:nth-child(5) { opacity: 0.6; }
         
-        /* Animated bars for native recording (no real audio data) */
-        @keyframes bar-pulse-1 {
-            0%, 100% { height: 6px; }
-            50% { height: 18px; }
-        }
-        @keyframes bar-pulse-2 {
-            0%, 100% { height: 10px; }
-            50% { height: 22px; }
-        }
-        @keyframes bar-pulse-3 {
-            0%, 100% { height: 14px; }
-            50% { height: 24px; }
-        }
-        .audio-level-container.native-recording .audio-bar:nth-child(1) {
-            animation: bar-pulse-1 0.8s ease-in-out infinite;
-            animation-delay: 0.1s;
-        }
-        .audio-level-container.native-recording .audio-bar:nth-child(2) {
-            animation: bar-pulse-2 0.7s ease-in-out infinite;
-            animation-delay: 0.2s;
-        }
-        .audio-level-container.native-recording .audio-bar:nth-child(3) {
-            animation: bar-pulse-3 0.6s ease-in-out infinite;
-        }
-        .audio-level-container.native-recording .audio-bar:nth-child(4) {
-            animation: bar-pulse-2 0.7s ease-in-out infinite;
-            animation-delay: 0.15s;
-        }
-        .audio-level-container.native-recording .audio-bar:nth-child(5) {
-            animation: bar-pulse-1 0.8s ease-in-out infinite;
-            animation-delay: 0.25s;
+        /* Native recording uses real audio levels sent via IPC */
+        .audio-level-container.native-recording .audio-bar {
+            transition: height 50ms ease-out;
         }
         
         @keyframes recording-pulse {
@@ -2636,6 +2608,26 @@ DASHBOARD_PAGE = '''
                     console.log('[NATIVE-WAKE] Wake word detected from main process!', data);
                     onWakeWordDetected();
                 });
+            }
+            
+            // Listen for real-time audio levels (for visualization)
+            if (window.electronAPI.onAudioLevel) {
+                window.electronAPI.onAudioLevel((data) => {
+                    updateAudioBars(data.level);
+                });
+            }
+        }
+        
+        // Update audio bars with real audio level
+        function updateAudioBars(level) {
+            const baseScales = [0.35, 0.6, 1, 0.6, 0.35];
+            for (let i = 0; i < 5; i++) {
+                const bar = document.getElementById('bar-' + i);
+                if (bar) {
+                    // Height ranges from 4px to 24px based on audio level
+                    const height = Math.max(4, Math.min(24, (level * 24 + 4) * baseScales[i]));
+                    bar.style.height = height + 'px';
+                }
             }
         }
         

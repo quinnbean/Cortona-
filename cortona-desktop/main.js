@@ -361,6 +361,26 @@ async function startNativeLeopardRecording(accessKey) {
     
     audioStream.on('data', (data) => {
       audioChunks.push(data);
+      
+      // Calculate audio level and send to renderer
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        // Convert buffer to Int16 samples
+        const samples = new Int16Array(data.buffer, data.byteOffset, data.length / 2);
+        
+        // Calculate RMS (root mean square) for audio level
+        let sumSquares = 0;
+        for (let i = 0; i < samples.length; i++) {
+          const normalized = samples[i] / 32768; // Normalize to -1 to 1
+          sumSquares += normalized * normalized;
+        }
+        const rms = Math.sqrt(sumSquares / samples.length);
+        
+        // Normalize to 0-1 range (multiply by 4 for sensitivity)
+        const level = Math.min(1, rms * 4);
+        
+        // Send to renderer
+        mainWindow.webContents.send('audio-level', { level });
+      }
     });
     
     audioStream.on('error', (err) => {

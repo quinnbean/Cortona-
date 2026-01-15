@@ -90,6 +90,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Check if currently recording
   leopardRecording: () => ipcRenderer.invoke('leopard-recording'),
   
+  // Listen for real-time audio levels (for visualization)
+  onAudioLevel: (callback) => {
+    ipcRenderer.on('audio-level', (event, data) => callback(data));
+  },
+  
   // ========== KEYBIND SETTINGS ==========
   // Update the push-to-talk shortcut
   updatePTTShortcut: (keybind) => ipcRenderer.invoke('update-ptt-shortcut', keybind),
