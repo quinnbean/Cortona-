@@ -6017,7 +6017,7 @@ DASHBOARD_PAGE = '''
                         waitingForAnswer = false;
                         waitingForAnswerType = null;
                         stopWhisperRecording();
-                        addChatMessage('No worries, let me know when you\\'re ready!', 'jarvis');
+                        addChatMessage("No worries, let me know when you're ready!", 'jarvis');
                         updateUI();
                     }
                 }, 15000);
@@ -6219,7 +6219,7 @@ DASHBOARD_PAGE = '''
                         'Hey! How can I help you?',
                         'Hello! What can I do for you?',
                         'Hi there! Ready to assist.',
-                        'Hey! What\\'s on your mind?'
+                        "Hey! What's on your mind?"
                     ];
                     return responses[Math.floor(Math.random() * responses.length)];
                 }
@@ -6239,7 +6239,7 @@ DASHBOARD_PAGE = '''
             // Status check
             status: {
                 phrases: ['status', 'are you there', 'you working', 'test', 'ping'],
-                response: () => 'I\\'m here and ready! 🟢'
+                response: () => "I'm here and ready! 🟢"
             }
         };
         
@@ -6313,7 +6313,7 @@ DASHBOARD_PAGE = '''
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
                             if (result.windows && result.windows.length > 0) {
-                                addChatMessage(`Available windows:\n${result.windows.map((w, i) => \`• Window \${w.index}: "\${w.title}"\`).join('\\n')}`, 'jarvis');
+                                addChatMessage('Available windows:\\n' + result.windows.map((w, i) => '• Window ' + w.index + ': "' + w.title + '"').join('\\n'), 'jarvis');
                             } else if (result.runningApps) {
                                 addChatMessage('Running apps: ' + result.runningApps.slice(0, 10).join(', '), 'jarvis');
                             }
@@ -6334,7 +6334,7 @@ DASHBOARD_PAGE = '''
                     try {
                         const result = await window.electronAPI.windowWatcherListWindows(listAppMatch);
                         if (result.success && result.windows.length > 0) {
-                            addChatMessage(`**${result.app} Windows:**\n${result.windows.map(w => \`• Window \${w.index}: "\${w.title}"\`).join('\\n')}\n\n💡 Say "watch ${listAppMatch} 2" or "watch ${listAppMatch} [title]" to select one.`, 'jarvis');
+                            addChatMessage('**' + result.app + ' Windows:**\\n' + result.windows.map(w => '• Window ' + w.index + ': "' + w.title + '"').join('\\n') + '\\n\\n💡 Say "watch ' + listAppMatch + ' 2" or "watch ' + listAppMatch + ' [title]" to select one.', 'jarvis');
                         } else if (result.success) {
                             addChatMessage(`No windows found for ${result.app}`, 'jarvis');
                         } else {
@@ -6359,7 +6359,7 @@ DASHBOARD_PAGE = '''
                     try {
                         const result = await window.electronAPI.agentWatcherStart(watchPath, 3000);
                         if (result.success) {
-                            addChatMessage('File watcher active! I\\'ll notify you when file changes stop.', 'jarvis');
+                            addChatMessage("File watcher active! I'll notify you when file changes stop.", 'jarvis');
                             addActivity('File watcher started', 'success');
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
