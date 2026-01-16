@@ -2088,8 +2088,11 @@ DASHBOARD_PAGE = '''
             border-radius: 16px;
             padding: 20px;
             margin-top: 24px;
-            min-height: 80px;
+            min-height: 300px;
+            max-height: 60vh;
             text-align: left;
+            display: flex;
+            flex-direction: column;
         }
         .transcript-box h4 {
             font-size: 12px;
@@ -2486,7 +2489,7 @@ DASHBOARD_PAGE = '''
                         <span id="transcript-count" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; display: none;">0</span>
                         <span style="font-size: 10px; color: var(--text-muted); margin-left: auto;">Click for history</span>
                     </h4>
-                    <div id="chat-messages" style="display: flex; flex-direction: column; gap: 12px; max-height: 200px; overflow-y: auto;">
+                    <div id="chat-messages" style="display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 200px; overflow-y: auto;">
                         <div class="transcript-text" id="transcript">Say your wake word or click the mic...</div>
                     </div>
                     <div id="chat-input-container" style="display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
