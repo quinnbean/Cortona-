@@ -4577,8 +4577,9 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        async function stopPorcupineListening() {
-            console.log('[PORCUPINE] Stopping...');
+        async function stopPorcupineListeningLegacy() {
+            // Legacy web-based Porcupine cleanup (kept for compatibility)
+            console.log('[PORCUPINE-LEGACY] Stopping...');
             porcupineActive = false;
             
             // Stop the processor first
