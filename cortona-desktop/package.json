@@ -79,6 +79,7 @@
     "@picovoice/leopard-node": "^3.0.0",
     "@picovoice/porcupine-node": "^3.0.0",
     "auto-launch": "^5.0.6",
+    "chokidar": "^3.5.3",
     "electron-store": "^8.1.0",
     "naudiodon": "^2.3.4",
     "node-record-lpcm16": "^1.0.1"

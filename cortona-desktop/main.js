@@ -3,6 +3,7 @@ const path = require('path');
 const { exec, execSync } = require('child_process');
 const Store = require('electron-store');
 const AutoLaunch = require('auto-launch');
+const chokidar = require('chokidar');
 
 // Porcupine for wake word detection
 let Porcupine, BuiltinKeyword;
@@ -97,6 +98,13 @@ let porcupineListening = false;
 let audioInputStream = null;
 let wakeWordAccessKey = null;
 
+// Agent watcher state
+let agentWatcher = null;
+let agentWatcherEnabled = false;
+let lastFileChange = null;
+let agentIdleTimer = null;
+const AGENT_IDLE_THRESHOLD = 3000; // 3 seconds of no changes = agent done
+
 // ============================================================================
 // WHISPER SERVICE MANAGEMENT
 // ============================================================================
@@ -147,6 +155,137 @@ function stopWhisperService() {
     whisperProcess = null;
   }
 }
+
+// ============================================================================
+// AGENT WATCHER - Detect when AI agents (like Cursor) finish working
+// ============================================================================
+
+function startAgentWatcher(watchPath, options = {}) {
+  const {
+    idleThreshold = AGENT_IDLE_THRESHOLD,
+    ignoredPatterns = [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/*.log',
+      '**/package-lock.json',
+      '**/.DS_Store'
+    ]
+  } = options;
+
+  if (agentWatcher) {
+    console.log('[AGENT-WATCHER] Already running, stopping first...');
+    stopAgentWatcher();
+  }
+
+  console.log('[AGENT-WATCHER] Starting to watch:', watchPath);
+  console.log('[AGENT-WATCHER] Idle threshold:', idleThreshold, 'ms');
+
+  // Track if we've seen any activity (to avoid false positives on startup)
+  let hasSeenActivity = false;
+  let changedFiles = [];
+
+  agentWatcher = chokidar.watch(watchPath, {
+    ignored: ignoredPatterns,
+    persistent: true,
+    ignoreInitial: true,
+    awaitWriteFinish: {
+      stabilityThreshold: 500,
+      pollInterval: 100
+    }
+  });
+
+  agentWatcher.on('change', (filePath) => {
+    console.log('[AGENT-WATCHER] File changed:', path.basename(filePath));
+    hasSeenActivity = true;
+    lastFileChange = Date.now();
+    
+    // Track changed files for summary
+    const relativePath = path.relative(watchPath, filePath);
+    if (!changedFiles.includes(relativePath)) {
+      changedFiles.push(relativePath);
+    }
+
+    // Clear existing timer
+    if (agentIdleTimer) {
+      clearTimeout(agentIdleTimer);
+    }
+
+    // Set new timer
+    agentIdleTimer = setTimeout(() => {
+      if (hasSeenActivity && agentWatcherEnabled) {
+        console.log('[AGENT-WATCHER] Agent appears to be DONE!');
+        console.log('[AGENT-WATCHER] Changed files:', changedFiles);
+        
+        // Notify the renderer
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('agent-finished', {
+            changedFiles: changedFiles,
+            watchPath: watchPath,
+            duration: Date.now() - (lastFileChange - idleThreshold)
+          });
+        }
+
+        // Show system notification
+        showNotification(
+          'Agent Finished',
+          `${changedFiles.length} file${changedFiles.length !== 1 ? 's' : ''} modified`
+        );
+
+        // Reset for next detection
+        changedFiles = [];
+        hasSeenActivity = false;
+      }
+    }, idleThreshold);
+  });
+
+  agentWatcher.on('add', (filePath) => {
+    console.log('[AGENT-WATCHER] File added:', path.basename(filePath));
+    // Trigger same logic as change
+    agentWatcher.emit('change', filePath);
+  });
+
+  agentWatcher.on('error', (error) => {
+    console.error('[AGENT-WATCHER] Error:', error);
+  });
+
+  agentWatcher.on('ready', () => {
+    console.log('[AGENT-WATCHER] Ready and watching for changes');
+    agentWatcherEnabled = true;
+  });
+
+  return { success: true, watchPath };
+}
+
+function stopAgentWatcher() {
+  console.log('[AGENT-WATCHER] Stopping...');
+  
+  agentWatcherEnabled = false;
+  
+  if (agentIdleTimer) {
+    clearTimeout(agentIdleTimer);
+    agentIdleTimer = null;
+  }
+
+  if (agentWatcher) {
+    agentWatcher.close();
+    agentWatcher = null;
+  }
+
+  lastFileChange = null;
+  console.log('[AGENT-WATCHER] Stopped');
+  return { success: true };
+}
+
+function getAgentWatcherStatus() {
+  return {
+    enabled: agentWatcherEnabled,
+    watching: !!agentWatcher,
+    lastChange: lastFileChange
+  };
+}
+
 // ============================================================================
 // NATIVE WAKE WORD DETECTION (using node-record-lpcm16 + porcupine)
 // ============================================================================
@@ -1217,6 +1356,37 @@ function setupIPC() {
   // Get current PTT shortcut
   ipcMain.handle('get-ptt-shortcut', () => {
     return store.get('pttShortcut') || 'CommandOrControl+Shift+Space';
+  });
+
+  // ========== AGENT WATCHER ==========
+  
+  // Start watching a directory for agent activity
+  ipcMain.handle('agent-watcher-start', async (event, { watchPath, idleThreshold }) => {
+    console.log('[IPC] Starting agent watcher for:', watchPath);
+    try {
+      const result = startAgentWatcher(watchPath, { idleThreshold });
+      store.set('agentWatcherPath', watchPath);
+      return result;
+    } catch (e) {
+      console.error('[IPC] Agent watcher start error:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Stop the agent watcher
+  ipcMain.handle('agent-watcher-stop', async () => {
+    console.log('[IPC] Stopping agent watcher');
+    return stopAgentWatcher();
+  });
+
+  // Get agent watcher status
+  ipcMain.handle('agent-watcher-status', async () => {
+    return getAgentWatcherStatus();
+  });
+
+  // Get last watched path
+  ipcMain.handle('agent-watcher-get-path', async () => {
+    return store.get('agentWatcherPath') || null;
   });
 }
 
