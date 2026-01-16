@@ -5593,18 +5593,16 @@ DASHBOARD_PAGE = '''
             // Clear input
             input.value = '';
             
-            // Show user message in chat
-            addChatMessage(text, 'user');
-            
             // Add to transcript history
             addToTranscriptHistory(text, 'user');
             
-            // Check for special commands first
+            // Check for special commands first (these handle their own chat messages)
             const lowerText = text.toLowerCase();
             
             // Agent watcher commands (Electron only)
             if (isElectron && window.electronAPI?.agentWatcherStart) {
                 if (lowerText.includes('watch') && (lowerText.includes('project') || lowerText.includes('folder') || lowerText.includes('this'))) {
+                    addChatMessage(text, 'user');  // Show user's command
                     // Get current path from user or use default
                     const pathMatch = text.match(/watch\s+(?:the\s+)?(?:folder|project|directory)?\s*[:\s]?\s*(.+)/i);
                     let watchPath = pathMatch ? pathMatch[1].trim() : null;
@@ -5633,6 +5631,7 @@ DASHBOARD_PAGE = '''
                 }
                 
                 if (lowerText.includes('stop') && lowerText.includes('watch')) {
+                    addChatMessage(text, 'user');  // Show user's command
                     try {
                         await window.electronAPI.agentWatcherStop();
                         addChatMessage('Agent watcher stopped.', 'jarvis');
