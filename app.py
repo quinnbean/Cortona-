@@ -140,7 +140,7 @@ def load_users():
         except:
             pass
     # Default admin user
-    return {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD), 'name': 'Admin'}}
+    return {'admin': {'password_hash': generate_password_hash(ADMIN_PASSWORD, method='pbkdf2:sha256'), 'name': 'Admin'}}
 
 def save_users():
     """Save users to JSON file"""
@@ -4205,9 +4205,6 @@ DASHBOARD_PAGE = '''
         }
         
         async function onWakeWordDetected() {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:onWakeWordDetected',message:'Wake word detected!',timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
             
             console.log('[WAKE] Wake word triggered!');
             playSound('activate');
@@ -4551,9 +4548,6 @@ DASHBOARD_PAGE = '''
         }
         
         async function startWhisperRecording() {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:startWhisperRecording',message:'Starting recording',data:{isElectron,hasLeopardStart:!!window.electronAPI?.leopardStart},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-            // #endregion
             
             console.log('[RECORD] Starting recording...');
             
@@ -4580,15 +4574,7 @@ DASHBOARD_PAGE = '''
                 }
                 
                 try {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStart-call',message:'Calling leopardStart',data:{accessKeyLength:accessKey?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-                    // #endregion
-                    
                     const result = await window.electronAPI.leopardStart(accessKey);
-                    
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStart-result',message:'leopardStart result',data:{result},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-                    // #endregion
                     
                     if (result.success) {
                         console.log('[LEOPARD] Native recording started!');
@@ -5370,9 +5356,6 @@ DASHBOARD_PAGE = '''
         }
         
         async function stopWhisperRecording() {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:stopWhisperRecording',message:'Stop called',data:{isElectron,nativeLeopardActive,hasLeopardStop:!!window.electronAPI?.leopardStop},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,D,E'})}).catch(()=>{});
-            // #endregion
             
             console.log('[RECORD] Stopping recording...');
             playChime('stop');  // Audio feedback
@@ -5386,15 +5369,9 @@ DASHBOARD_PAGE = '''
                 isActiveDictation = false;
                 
                 try {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStop-call',message:'Calling leopardStop',timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,E'})}).catch(()=>{});
-                    // #endregion
                     
                     const result = await window.electronAPI.leopardStop();
                     
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:leopardStop-result',message:'leopardStop result',data:{success:result?.success,transcript:result?.transcript,error:result?.error,audioBytes:result?.audioBytes},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,E'})}).catch(()=>{});
-                    // #endregion
                     
                     console.log('[LEOPARD] Transcription result:', result);
                     console.log('[LEOPARD] result.success:', result?.success);
@@ -6193,9 +6170,6 @@ DASHBOARD_PAGE = '''
         let hasInitialized = false;
         
         function updateUI() {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/bcebf288-6f54-4e95-ae25-a18f9c0dd395',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app.py:updateUI',message:'updateUI called',data:{isListening,isActiveDictation,alwaysListen,nativeLeopardActive,nativePorcupineActive},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,C,E'})}).catch(()=>{});
-            // #endregion
             
             // Get elements with null safety
             const micButton = document.getElementById('mic-button');
@@ -7318,7 +7292,7 @@ def signup():
         
         # Create the user
         USERS[username] = {
-            'password_hash': generate_password_hash(password),
+            'password_hash': generate_password_hash(password, method='pbkdf2:sha256'),
             'name': name
         }
         save_users()
