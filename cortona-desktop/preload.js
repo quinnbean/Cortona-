@@ -121,6 +121,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('agent-finished', (event, data) => callback(data));
   },
   
+  // ========== WINDOW WATCHER (Universal AI Detection) ==========
+  // Get list of running applications
+  windowWatcherApps: () => ipcRenderer.invoke('window-watcher-apps'),
+  
+  // Start watching a specific app window
+  windowWatcherStart: (appName, idleThreshold, captureInterval) => 
+    ipcRenderer.invoke('window-watcher-start', { appName, idleThreshold, captureInterval }),
+  
+  // Stop the window watcher
+  windowWatcherStop: () => ipcRenderer.invoke('window-watcher-stop'),
+  
+  // Get window watcher status
+  windowWatcherStatus: () => ipcRenderer.invoke('window-watcher-status'),
+  
+  // Get window info for a specific app
+  windowWatcherInfo: (appName) => ipcRenderer.invoke('window-watcher-info', appName),
+  
+  // Get last watched app
+  windowWatcherGetApp: () => ipcRenderer.invoke('window-watcher-get-app'),
+  
+  // Listen for window activity
+  onWindowActivity: (callback) => {
+    ipcRenderer.on('window-activity', (event, data) => callback(data));
+  },
+  
+  // Listen for window agent finished
+  onWindowAgentFinished: (callback) => {
+    ipcRenderer.on('window-agent-finished', (event, data) => callback(data));
+  },
+  
   // Listen for events from main process
   onActivateVoice: (callback) => {
     ipcRenderer.on('activate-voice', callback);

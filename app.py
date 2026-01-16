@@ -1879,6 +1879,16 @@ DASHBOARD_PAGE = '''
             background: #ef4444;
         }
         
+        .status-dot.success {
+            background: #22c55e;
+            animation: status-pulse 0.5s ease-in-out 3;
+        }
+        
+        @keyframes status-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.5); }
+        }
+        
         /* ============================================
            COMMAND SUGGESTIONS - Quick action chips
            ============================================ */
@@ -2981,17 +2991,50 @@ DASHBOARD_PAGE = '''
                 });
             }
             
-            // Listen for agent watcher completion
+            // Listen for agent watcher completion (file-based)
             if (window.electronAPI.onAgentFinished) {
                 window.electronAPI.onAgentFinished((data) => {
                     console.log('[AGENT-WATCHER] Agent finished!', data);
                     const fileCount = data.changedFiles?.length || 0;
                     const fileList = data.changedFiles?.slice(0, 5).join(', ') || 'unknown files';
                     const moreFiles = fileCount > 5 ? ` and ${fileCount - 5} more` : '';
-                    
+
                     addChatMessage(`Agent finished! Modified ${fileCount} file${fileCount !== 1 ? 's' : ''}: ${fileList}${moreFiles}`, 'jarvis');
                     addActivity(`Agent done: ${fileCount} files changed`, 'success');
                     playChime('success');
+                });
+            }
+            
+            // Listen for window watcher activity (universal)
+            if (window.electronAPI.onWindowActivity) {
+                window.electronAPI.onWindowActivity((data) => {
+                    console.log('[WINDOW-WATCHER] Activity:', data);
+                    // Update status to show activity
+                    const watcherText = document.getElementById('status-watcher-text');
+                    if (watcherText) {
+                        watcherText.textContent = `Active: ${data.app}`;
+                        setTimeout(() => {
+                            watcherText.textContent = `Watching: ${data.app}`;
+                        }, 1000);
+                    }
+                });
+            }
+            
+            // Listen for window watcher completion (universal AI detection)
+            if (window.electronAPI.onWindowAgentFinished) {
+                window.electronAPI.onWindowAgentFinished((data) => {
+                    console.log('[WINDOW-WATCHER] Agent finished!', data);
+                    
+                    addChatMessage(`🎉 **${data.app}** appears to be done! No activity for ${Math.round(data.idleTime/1000)}s.`, 'jarvis');
+                    addActivity(`${data.app} finished`, 'success');
+                    playChime('success');
+                    
+                    // Flash the watcher status
+                    const watcherDot = document.getElementById('status-watcher');
+                    if (watcherDot) {
+                        watcherDot.classList.add('success');
+                        setTimeout(() => watcherDot.classList.remove('success'), 3000);
+                    }
                 });
             }
         }
@@ -6042,16 +6085,26 @@ DASHBOARD_PAGE = '''
         
         // Command registry with synonyms for instant matching
         const COMMAND_REGISTRY = {
-            // Agent watcher commands
+            // Universal window watcher - watches any app
+            watchApp: {
+                keywords: ['watch', 'monitor', 'track', 'observe'],
+                contexts: ['chrome', 'cursor', 'safari', 'firefox', 'vscode', 'discord', 'chatgpt', 'claude', 'gemini', 'terminal', 'windsurf', 'midjourney'],
+                phrases: ['watch chrome', 'watch cursor', 'watch vscode', 'watch safari', 'watch discord', 'monitor chrome', 'monitor cursor', 'watch chatgpt', 'watch claude', 'watch gemini']
+            },
+            // File-based watcher (for project folders)
             startWatch: {
                 keywords: ['watch', 'monitor', 'track', 'observe'],
-                contexts: ['project', 'folder', 'cursor', 'agent', 'files', 'directory', 'code', 'changes', 'this'],
-                phrases: ['start watching', 'begin monitoring', 'keep an eye on', 'watch for changes']
+                contexts: ['project', 'folder', 'files', 'directory', 'code', 'changes', 'this'],
+                phrases: ['watch folder', 'watch project', 'watch files', 'watch for changes', 'watch for file changes']
             },
             stopWatch: {
                 keywords: ['stop', 'quit', 'end', 'cancel', 'disable', 'halt'],
                 contexts: ['watching', 'monitoring', 'tracking', 'observer', 'watcher'],
                 phrases: ['stop watching', 'quit monitoring', 'end watch', 'cancel watcher', 'turn off watcher']
+            },
+            // List running apps
+            listApps: {
+                phrases: ['list apps', 'what apps', 'running apps', 'show apps', 'which apps']
             },
             // Greetings (handle locally for instant response)
             greeting: {
@@ -6072,8 +6125,10 @@ DASHBOARD_PAGE = '''
                 response: () => `Here's what I can do:
 • **Voice Commands** - Say your wake word, then speak
 • **Type Commands** - Use this chat input
-• **Watch Agent** - "watch cursor" to monitor AI activity
+• **Watch Any App** - "watch cursor" or "watch chrome" to detect when AI finishes
+• **Watch Folder** - "watch project" for file changes
 • **Control Apps** - "open chrome", "type hello"
+• **List Apps** - "list apps" to see what's running
 • **Ask Questions** - I'll answer using AI`
             },
             // Status check
@@ -6114,8 +6169,39 @@ DASHBOARD_PAGE = '''
         // Execute matched command
         async function executeLocalCommand(cmdName, text) {
             const cmd = COMMAND_REGISTRY[cmdName];
+            const lower = text.toLowerCase();
             
             switch (cmdName) {
+                case 'watchApp':
+                    if (!isElectron || !window.electronAPI?.windowWatcherStart) {
+                        return { handled: false, reason: 'Not in Electron' };
+                    }
+                    // Extract app name from text
+                    const appNames = ['chrome', 'cursor', 'safari', 'firefox', 'vscode', 'discord', 'chatgpt', 'claude', 'gemini', 'terminal', 'windsurf', 'midjourney'];
+                    const appMatch = appNames.find(app => lower.includes(app));
+                    if (!appMatch) {
+                        addChatMessage('Which app should I watch? Try: "watch cursor", "watch chrome", or "watch vscode"', 'jarvis');
+                        return { handled: true };
+                    }
+                    
+                    addChatMessage(`Starting universal watcher on: **${appMatch}**`, 'jarvis');
+                    try {
+                        const result = await window.electronAPI.windowWatcherStart(appMatch, 5000, 500);
+                        if (result.success) {
+                            addChatMessage(`Now watching **${result.app}**! I'll notify you when the AI finishes (5s of no activity).`, 'jarvis');
+                            addActivity(`Watching: ${result.app}`, 'success');
+                            updateWatcherWidget(result.app, true);
+                        } else {
+                            addChatMessage('Failed: ' + result.error, 'jarvis');
+                            if (result.runningApps) {
+                                addChatMessage('Running apps: ' + result.runningApps.slice(0, 10).join(', '), 'jarvis');
+                            }
+                        }
+                    } catch (e) {
+                        addChatMessage('Error: ' + e.message, 'jarvis');
+                    }
+                    return { handled: true };
+                
                 case 'startWatch':
                     if (!isElectron || !window.electronAPI?.agentWatcherStart) {
                         return { handled: false, reason: 'Not in Electron' };
@@ -6126,12 +6212,12 @@ DASHBOARD_PAGE = '''
                         const lastPath = await window.electronAPI.agentWatcherGetPath();
                         watchPath = lastPath || '/Users/quinnbean/Cortona-';
                     }
-                    addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
+                    addChatMessage(`Starting file watcher on: ${watchPath}`, 'jarvis');
                     try {
                         const result = await window.electronAPI.agentWatcherStart(watchPath, 3000);
                         if (result.success) {
-                            addChatMessage('Agent watcher active! I\\'ll notify you when the AI agent finishes.', 'jarvis');
-                            addActivity('Agent watcher started', 'success');
+                            addChatMessage('File watcher active! I\\'ll notify you when file changes stop.', 'jarvis');
+                            addActivity('File watcher started', 'success');
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
                         }
@@ -6141,13 +6227,32 @@ DASHBOARD_PAGE = '''
                     return { handled: true };
                     
                 case 'stopWatch':
-                    if (!isElectron || !window.electronAPI?.agentWatcherStop) {
+                    if (!isElectron) {
                         return { handled: false, reason: 'Not in Electron' };
                     }
                     try {
-                        await window.electronAPI.agentWatcherStop();
-                        addChatMessage('Agent watcher stopped.', 'jarvis');
-                        addActivity('Agent watcher stopped', 'info');
+                        // Stop both watchers
+                        if (window.electronAPI?.windowWatcherStop) {
+                            await window.electronAPI.windowWatcherStop();
+                        }
+                        if (window.electronAPI?.agentWatcherStop) {
+                            await window.electronAPI.agentWatcherStop();
+                        }
+                        addChatMessage('All watchers stopped.', 'jarvis');
+                        addActivity('Watchers stopped', 'info');
+                        updateWatcherWidget(null, false);
+                    } catch (e) {
+                        addChatMessage('Error: ' + e.message, 'jarvis');
+                    }
+                    return { handled: true };
+                
+                case 'listApps':
+                    if (!isElectron || !window.electronAPI?.windowWatcherApps) {
+                        return { handled: false, reason: 'Not in Electron' };
+                    }
+                    try {
+                        const apps = await window.electronAPI.windowWatcherApps();
+                        addChatMessage(`**Running Apps:**\n${apps.slice(0, 15).map(a => '• ' + a).join('\n')}${apps.length > 15 ? '\n... and ' + (apps.length - 15) + ' more' : ''}`, 'jarvis');
                     } catch (e) {
                         addChatMessage('Error: ' + e.message, 'jarvis');
                     }
@@ -6161,6 +6266,24 @@ DASHBOARD_PAGE = '''
                     
                 default:
                     return { handled: false };
+            }
+        }
+        
+        // Update watcher widget
+        function updateWatcherWidget(appName, active) {
+            const watcherItem = document.getElementById('status-watcher-item');
+            const watcherDot = document.getElementById('status-watcher');
+            const watcherText = document.getElementById('status-watcher-text');
+            
+            if (!watcherItem) return;
+            
+            if (active && appName) {
+                watcherItem.style.display = 'flex';
+                watcherDot.classList.add('active');
+                watcherText.textContent = `Watching: ${appName}`;
+            } else {
+                watcherItem.style.display = 'none';
+                watcherDot.classList.remove('active');
             }
         }
         

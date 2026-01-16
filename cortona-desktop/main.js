@@ -287,6 +287,313 @@ function getAgentWatcherStatus() {
 }
 
 // ============================================================================
+// UNIVERSAL WINDOW WATCHER - Detect when ANY AI app finishes
+// ============================================================================
+
+// Window watcher state
+let windowWatcher = null;
+let windowWatcherEnabled = false;
+let windowWatcherApp = null;
+let windowWatcherInterval = null;
+let lastWindowHash = null;
+let lastWindowActivity = null;
+let windowIdleTimer = null;
+let windowWatcherConfig = {
+  idleThreshold: 5000,      // 5 seconds of no changes = done
+  captureInterval: 500,     // Check every 500ms
+  sensitivity: 'medium'     // low, medium, high
+};
+
+// Common AI app identifiers
+const AI_APP_ALIASES = {
+  'cursor': ['Cursor', 'cursor'],
+  'vscode': ['Visual Studio Code', 'Code', 'code'],
+  'chrome': ['Google Chrome', 'Chrome'],
+  'safari': ['Safari'],
+  'firefox': ['Firefox'],
+  'chatgpt': ['Google Chrome', 'Safari', 'Firefox'], // Web-based
+  'claude': ['Google Chrome', 'Safari', 'Firefox'],
+  'gemini': ['Google Chrome', 'Safari', 'Firefox'],
+  'discord': ['Discord'], // For Midjourney
+  'windsurf': ['Windsurf', 'windsurf'],
+  'terminal': ['Terminal', 'iTerm', 'iTerm2']
+};
+
+// Get list of running applications
+function getRunningApps() {
+  try {
+    const script = `
+      tell application "System Events"
+        set appList to name of every process whose background only is false
+        return appList
+      end tell
+    `;
+    const result = execSync(`osascript -e '${script.replace(/'/g, "\\'")}'`, { encoding: 'utf8' });
+    return result.trim().split(', ').filter(a => a);
+  } catch (e) {
+    console.error('[WINDOW-WATCHER] Failed to get running apps:', e.message);
+    return [];
+  }
+}
+
+// Find app by name (with alias support)
+function findAppByName(searchName) {
+  const lower = searchName.toLowerCase();
+  const aliases = AI_APP_ALIASES[lower] || [searchName];
+  const running = getRunningApps();
+  
+  for (const alias of aliases) {
+    const found = running.find(app => 
+      app.toLowerCase().includes(alias.toLowerCase()) ||
+      alias.toLowerCase().includes(app.toLowerCase())
+    );
+    if (found) return found;
+  }
+  return null;
+}
+
+// Get window bounds and info for an app
+function getWindowInfo(appName) {
+  try {
+    const script = `
+      tell application "System Events"
+        tell process "${appName}"
+          if (count of windows) > 0 then
+            set win to window 1
+            set winPos to position of win
+            set winSize to size of win
+            set winTitle to name of win
+            return (item 1 of winPos as text) & "," & (item 2 of winPos as text) & "," & (item 1 of winSize as text) & "," & (item 2 of winSize as text) & "," & winTitle
+          end if
+        end tell
+      end tell
+    `;
+    const result = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 5000 });
+    const [x, y, width, height, ...titleParts] = result.trim().split(',');
+    return {
+      x: parseInt(x),
+      y: parseInt(y),
+      width: parseInt(width),
+      height: parseInt(height),
+      title: titleParts.join(','),
+      app: appName
+    };
+  } catch (e) {
+    console.error('[WINDOW-WATCHER] Failed to get window info:', e.message);
+    return null;
+  }
+}
+
+// Capture a region of screen and return hash (for change detection)
+function captureWindowHash(windowInfo) {
+  if (!windowInfo) return null;
+  
+  try {
+    const { x, y, width, height } = windowInfo;
+    // Use screencapture with -R for region, output to /dev/null but get hash
+    // We'll capture to a temp file and hash it
+    const tempFile = `/tmp/cortona_capture_${Date.now()}.png`;
+    
+    // Capture the window region
+    execSync(`screencapture -R${x},${y},${width},${height} -x "${tempFile}"`, { timeout: 3000 });
+    
+    // Get file hash (fast comparison)
+    const hash = execSync(`md5 -q "${tempFile}"`, { encoding: 'utf8', timeout: 2000 }).trim();
+    
+    // Clean up
+    try { require('fs').unlinkSync(tempFile); } catch(e) {}
+    
+    return hash;
+  } catch (e) {
+    console.error('[WINDOW-WATCHER] Capture failed:', e.message);
+    return null;
+  }
+}
+
+// Alternative: Monitor window title changes (faster, less resource intensive)
+function getWindowTitle(appName) {
+  try {
+    const script = `
+      tell application "System Events"
+        tell process "${appName}"
+          if (count of windows) > 0 then
+            return name of window 1
+          end if
+        end tell
+      end tell
+    `;
+    return execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 2000 }).trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+// Check if app's frontmost window is active (has focus and receiving input)
+function isAppActive(appName) {
+  try {
+    const script = `
+      tell application "System Events"
+        set frontApp to name of first application process whose frontmost is true
+        return frontApp
+      end tell
+    `;
+    const frontApp = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 2000 }).trim();
+    return frontApp.toLowerCase().includes(appName.toLowerCase());
+  } catch (e) {
+    return false;
+  }
+}
+
+// Start universal window watcher
+function startWindowWatcher(appNameOrAlias, options = {}) {
+  console.log('[WINDOW-WATCHER] Starting for:', appNameOrAlias);
+  
+  // Stop existing watcher
+  stopWindowWatcher();
+  
+  // Find the actual app
+  const appName = findAppByName(appNameOrAlias);
+  if (!appName) {
+    console.error('[WINDOW-WATCHER] App not found:', appNameOrAlias);
+    return { 
+      success: false, 
+      error: `App "${appNameOrAlias}" not found or not running`,
+      runningApps: getRunningApps()
+    };
+  }
+  
+  console.log('[WINDOW-WATCHER] Found app:', appName);
+  
+  // Update config
+  Object.assign(windowWatcherConfig, options);
+  
+  windowWatcherEnabled = true;
+  windowWatcherApp = appName;
+  lastWindowActivity = Date.now();
+  
+  // Get initial state
+  const windowInfo = getWindowInfo(appName);
+  if (windowInfo) {
+    lastWindowHash = captureWindowHash(windowInfo);
+    console.log('[WINDOW-WATCHER] Initial hash:', lastWindowHash?.substring(0, 8));
+  }
+  
+  // Start monitoring loop
+  windowWatcherInterval = setInterval(() => {
+    if (!windowWatcherEnabled) return;
+    
+    const currentInfo = getWindowInfo(windowWatcherApp);
+    if (!currentInfo) {
+      console.log('[WINDOW-WATCHER] Window not found, app may have closed');
+      return;
+    }
+    
+    // Method 1: Screenshot hash comparison (detects any visual change)
+    const currentHash = captureWindowHash(currentInfo);
+    
+    // Method 2: Title change detection (fast, catches "Generating..." → "Done")
+    const hasHashChanged = currentHash && currentHash !== lastWindowHash;
+    
+    if (hasHashChanged) {
+      console.log('[WINDOW-WATCHER] Activity detected! Hash changed.');
+      lastWindowHash = currentHash;
+      lastWindowActivity = Date.now();
+      
+      // Clear any pending "done" timer
+      if (windowIdleTimer) {
+        clearTimeout(windowIdleTimer);
+        windowIdleTimer = null;
+      }
+      
+      // Notify renderer of activity
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('window-activity', {
+          app: windowWatcherApp,
+          title: currentInfo.title,
+          timestamp: lastWindowActivity
+        });
+      }
+    } else {
+      // No change - check if we've been idle long enough
+      const idleTime = Date.now() - lastWindowActivity;
+      
+      if (idleTime >= windowWatcherConfig.idleThreshold && !windowIdleTimer) {
+        console.log('[WINDOW-WATCHER] Idle threshold reached, starting done timer...');
+        
+        // Wait a bit more to confirm it's really done
+        windowIdleTimer = setTimeout(() => {
+          const finalIdleTime = Date.now() - lastWindowActivity;
+          if (finalIdleTime >= windowWatcherConfig.idleThreshold) {
+            console.log('[WINDOW-WATCHER] Agent appears to be DONE!');
+            
+            // Notify renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('window-agent-finished', {
+                app: windowWatcherApp,
+                title: currentInfo.title,
+                idleTime: finalIdleTime
+              });
+            }
+            
+            // Show system notification
+            new Notification({
+              title: '🎉 Agent Finished!',
+              body: `${windowWatcherApp} has been idle for ${Math.round(finalIdleTime/1000)}s`,
+              silent: false
+            }).show();
+          }
+          windowIdleTimer = null;
+        }, 2000); // Extra 2s confirmation
+      }
+    }
+  }, windowWatcherConfig.captureInterval);
+  
+  console.log('[WINDOW-WATCHER] Started monitoring', appName);
+  
+  return {
+    success: true,
+    app: appName,
+    config: windowWatcherConfig
+  };
+}
+
+// Stop window watcher
+function stopWindowWatcher() {
+  console.log('[WINDOW-WATCHER] Stopping...');
+  
+  windowWatcherEnabled = false;
+  
+  if (windowWatcherInterval) {
+    clearInterval(windowWatcherInterval);
+    windowWatcherInterval = null;
+  }
+  
+  if (windowIdleTimer) {
+    clearTimeout(windowIdleTimer);
+    windowIdleTimer = null;
+  }
+  
+  const wasWatching = windowWatcherApp;
+  windowWatcherApp = null;
+  lastWindowHash = null;
+  lastWindowActivity = null;
+  
+  console.log('[WINDOW-WATCHER] Stopped');
+  return { success: true, wasWatching };
+}
+
+// Get window watcher status
+function getWindowWatcherStatus() {
+  return {
+    enabled: windowWatcherEnabled,
+    app: windowWatcherApp,
+    lastActivity: lastWindowActivity,
+    idleSince: lastWindowActivity ? Date.now() - lastWindowActivity : null,
+    config: windowWatcherConfig
+  };
+}
+
+// ============================================================================
 // NATIVE WAKE WORD DETECTION (using node-record-lpcm16 + porcupine)
 // ============================================================================
 
@@ -1387,6 +1694,50 @@ function setupIPC() {
   // Get last watched path
   ipcMain.handle('agent-watcher-get-path', async () => {
     return store.get('agentWatcherPath') || null;
+  });
+
+  // ========== WINDOW WATCHER (Universal AI Detection) ==========
+
+  // Get list of running applications
+  ipcMain.handle('window-watcher-apps', async () => {
+    console.log('[IPC] Getting running apps');
+    return getRunningApps();
+  });
+
+  // Start watching a specific app window
+  ipcMain.handle('window-watcher-start', async (event, { appName, idleThreshold, captureInterval }) => {
+    console.log('[IPC] Starting window watcher for:', appName);
+    try {
+      const result = startWindowWatcher(appName, { idleThreshold, captureInterval });
+      if (result.success) {
+        store.set('windowWatcherApp', appName);
+      }
+      return result;
+    } catch (e) {
+      console.error('[IPC] Window watcher start error:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Stop the window watcher
+  ipcMain.handle('window-watcher-stop', async () => {
+    console.log('[IPC] Stopping window watcher');
+    return stopWindowWatcher();
+  });
+
+  // Get window watcher status
+  ipcMain.handle('window-watcher-status', async () => {
+    return getWindowWatcherStatus();
+  });
+
+  // Get window info for a specific app
+  ipcMain.handle('window-watcher-info', async (event, appName) => {
+    return getWindowInfo(appName);
+  });
+
+  // Get last watched app
+  ipcMain.handle('window-watcher-get-app', async () => {
+    return store.get('windowWatcherApp') || null;
   });
 }
 
