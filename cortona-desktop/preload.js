@@ -102,6 +102,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Get current PTT shortcut
   getPTTShortcut: () => ipcRenderer.invoke('get-ptt-shortcut'),
   
+  // ========== AGENT WATCHER ==========
+  // Start watching a directory for AI agent activity
+  agentWatcherStart: (watchPath, idleThreshold) => 
+    ipcRenderer.invoke('agent-watcher-start', { watchPath, idleThreshold }),
+  
+  // Stop the agent watcher
+  agentWatcherStop: () => ipcRenderer.invoke('agent-watcher-stop'),
+  
+  // Get agent watcher status
+  agentWatcherStatus: () => ipcRenderer.invoke('agent-watcher-status'),
+  
+  // Get last watched path
+  agentWatcherGetPath: () => ipcRenderer.invoke('agent-watcher-get-path'),
+  
+  // Listen for agent finished events
+  onAgentFinished: (callback) => {
+    ipcRenderer.on('agent-finished', (event, data) => callback(data));
+  },
+  
   // Listen for events from main process
   onActivateVoice: (callback) => {
     ipcRenderer.on('activate-voice', callback);

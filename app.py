@@ -2161,6 +2161,23 @@ DASHBOARD_PAGE = '''
                     <div id="chat-messages" style="display: flex; flex-direction: column; gap: 12px; max-height: 200px; overflow-y: auto;">
                         <div class="transcript-text" id="transcript">Say your wake word or click the mic...</div>
                     </div>
+                    <div id="chat-input-container" style="display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                        <input type="text" id="chat-input" placeholder="Type a command..." 
+                               style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; transition: border-color 0.2s;"
+                               onkeydown="if(event.key === 'Enter') sendChatMessage()"
+                               onfocus="this.style.borderColor='var(--accent)'"
+                               onblur="this.style.borderColor='var(--border)'">
+                        <button onclick="sendChatMessage()" 
+                                style="background: var(--accent); border: none; border-radius: 8px; padding: 10px 16px; color: white; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: opacity 0.2s;"
+                                onmouseover="this.style.opacity='0.9'"
+                                onmouseout="this.style.opacity='1'">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                            Send
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -2614,6 +2631,20 @@ DASHBOARD_PAGE = '''
             if (window.electronAPI.onAudioLevel) {
                 window.electronAPI.onAudioLevel((data) => {
                     updateAudioBars(data.level);
+                });
+            }
+            
+            // Listen for agent watcher completion
+            if (window.electronAPI.onAgentFinished) {
+                window.electronAPI.onAgentFinished((data) => {
+                    console.log('[AGENT-WATCHER] Agent finished!', data);
+                    const fileCount = data.changedFiles?.length || 0;
+                    const fileList = data.changedFiles?.slice(0, 5).join(', ') || 'unknown files';
+                    const moreFiles = fileCount > 5 ? ` and ${fileCount - 5} more` : '';
+                    
+                    addChatMessage(`Agent finished! Modified ${fileCount} file${fileCount !== 1 ? 's' : ''}: ${fileList}${moreFiles}`, 'jarvis');
+                    addActivity(`Agent done: ${fileCount} files changed`, 'success');
+                    playChime('success');
                 });
             }
         }
@@ -5550,6 +5581,71 @@ DASHBOARD_PAGE = '''
             transcript.style.display = 'block';
             transcript.textContent = 'Say your wake word or click the mic...';
             chatMessages.appendChild(transcript);
+        }
+        
+        // Send a typed message (same as voice command)
+        async function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            
+            if (!text) return;
+            
+            // Clear input
+            input.value = '';
+            
+            // Show user message in chat
+            addChatMessage(text, 'user');
+            
+            // Add to transcript history
+            addToTranscriptHistory(text, 'user');
+            
+            // Check for special commands first
+            const lowerText = text.toLowerCase();
+            
+            // Agent watcher commands (Electron only)
+            if (isElectron && window.electronAPI?.agentWatcherStart) {
+                if (lowerText.includes('watch') && (lowerText.includes('project') || lowerText.includes('folder') || lowerText.includes('this'))) {
+                    // Get current path from user or use default
+                    const pathMatch = text.match(/watch\s+(?:the\s+)?(?:folder|project|directory)?\s*[:\s]?\s*(.+)/i);
+                    let watchPath = pathMatch ? pathMatch[1].trim() : null;
+                    
+                    // If no path specified, prompt or use a default
+                    if (!watchPath || watchPath === 'this' || watchPath === 'project' || watchPath === 'folder') {
+                        const lastPath = await window.electronAPI.agentWatcherGetPath();
+                        watchPath = lastPath || '/Users/' + require?.('os')?.userInfo?.()?.username || process.env.HOME;
+                        addChatMessage(`Starting agent watcher on: ${watchPath}\\n\\nTo watch a different folder, type: watch /path/to/folder`, 'jarvis');
+                    } else {
+                        addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
+                    }
+                    
+                    try {
+                        const result = await window.electronAPI.agentWatcherStart(watchPath, 3000);
+                        if (result.success) {
+                            addChatMessage('Agent watcher active! I\\'ll notify you when the AI agent finishes making changes.', 'jarvis');
+                            addActivity('Agent watcher started: ' + watchPath, 'success');
+                        } else {
+                            addChatMessage('Failed to start watcher: ' + result.error, 'jarvis');
+                        }
+                    } catch (e) {
+                        addChatMessage('Error starting watcher: ' + e.message, 'jarvis');
+                    }
+                    return;
+                }
+                
+                if (lowerText.includes('stop') && lowerText.includes('watch')) {
+                    try {
+                        await window.electronAPI.agentWatcherStop();
+                        addChatMessage('Agent watcher stopped.', 'jarvis');
+                        addActivity('Agent watcher stopped', 'info');
+                    } catch (e) {
+                        addChatMessage('Error stopping watcher: ' + e.message, 'jarvis');
+                    }
+                    return;
+                }
+            }
+            
+            // Process as regular command (send to AI)
+            handleTranscript(text);
         }
         
         function playSound(type) {
