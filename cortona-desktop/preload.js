@@ -125,9 +125,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Get list of running applications
   windowWatcherApps: () => ipcRenderer.invoke('window-watcher-apps'),
   
-  // Start watching a specific app window
-  windowWatcherStart: (appName, idleThreshold, captureInterval) => 
-    ipcRenderer.invoke('window-watcher-start', { appName, idleThreshold, captureInterval }),
+  // Start watching a specific app window (with optional window selector)
+  windowWatcherStart: (appName, idleThreshold, captureInterval, windowSelector) => 
+    ipcRenderer.invoke('window-watcher-start', { appName, idleThreshold, captureInterval, windowSelector }),
+  
+  // List all windows for an app (to select which window to watch)
+  windowWatcherListWindows: (appName) => ipcRenderer.invoke('window-watcher-list-windows', appName),
   
   // Stop the window watcher
   windowWatcherStop: () => ipcRenderer.invoke('window-watcher-stop'),

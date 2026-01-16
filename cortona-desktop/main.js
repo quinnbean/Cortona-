@@ -352,14 +352,66 @@ function findAppByName(searchName) {
   return null;
 }
 
-// Get window bounds and info for an app
-function getWindowInfo(appName) {
+// Get ALL windows for an app (with titles)
+function getAllWindows(appName) {
   try {
     const script = `
       tell application "System Events"
         tell process "${appName}"
-          if (count of windows) > 0 then
-            set win to window 1
+          set windowList to {}
+          set winCount to count of windows
+          repeat with i from 1 to winCount
+            set win to window i
+            set winPos to position of win
+            set winSize to size of win
+            set winTitle to name of win
+            set end of windowList to (i as text) & "|" & (item 1 of winPos as text) & "|" & (item 2 of winPos as text) & "|" & (item 1 of winSize as text) & "|" & (item 2 of winSize as text) & "|" & winTitle
+          end repeat
+          set AppleScript's text item delimiters to ";;;"
+          return windowList as text
+        end tell
+      end tell
+    `;
+    const result = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 5000 });
+    if (!result.trim()) return [];
+    
+    return result.trim().split(';;;').map(w => {
+      const [index, x, y, width, height, ...titleParts] = w.split('|');
+      return {
+        index: parseInt(index),
+        x: parseInt(x),
+        y: parseInt(y),
+        width: parseInt(width),
+        height: parseInt(height),
+        title: titleParts.join('|'),
+        app: appName
+      };
+    });
+  } catch (e) {
+    console.error('[WINDOW-WATCHER] Failed to get all windows:', e.message);
+    return [];
+  }
+}
+
+// Get window bounds and info for a specific window (by index or title match)
+function getWindowInfo(appName, windowSelector = 1) {
+  try {
+    // If windowSelector is a string, find window by title
+    if (typeof windowSelector === 'string') {
+      const allWindows = getAllWindows(appName);
+      const match = allWindows.find(w => 
+        w.title.toLowerCase().includes(windowSelector.toLowerCase())
+      );
+      if (match) return match;
+      // Fall back to first window if no title match
+      windowSelector = 1;
+    }
+    
+    const script = `
+      tell application "System Events"
+        tell process "${appName}"
+          if (count of windows) >= ${windowSelector} then
+            set win to window ${windowSelector}
             set winPos to position of win
             set winSize to size of win
             set winTitle to name of win
@@ -371,6 +423,7 @@ function getWindowInfo(appName) {
     const result = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 5000 });
     const [x, y, width, height, ...titleParts] = result.trim().split(',');
     return {
+      index: windowSelector,
       x: parseInt(x),
       y: parseInt(y),
       width: parseInt(width),
@@ -444,45 +497,61 @@ function isAppActive(appName) {
   }
 }
 
+// Window selector for multi-window apps
+let windowWatcherSelector = 1;
+let windowWatcherTitle = null;
+
 // Start universal window watcher
 function startWindowWatcher(appNameOrAlias, options = {}) {
-  console.log('[WINDOW-WATCHER] Starting for:', appNameOrAlias);
-  
+  console.log('[WINDOW-WATCHER] Starting for:', appNameOrAlias, 'options:', options);
+
   // Stop existing watcher
   stopWindowWatcher();
-  
+
   // Find the actual app
   const appName = findAppByName(appNameOrAlias);
   if (!appName) {
     console.error('[WINDOW-WATCHER] App not found:', appNameOrAlias);
-    return { 
-      success: false, 
+    return {
+      success: false,
       error: `App "${appNameOrAlias}" not found or not running`,
       runningApps: getRunningApps()
     };
   }
-  
+
   console.log('[WINDOW-WATCHER] Found app:', appName);
-  
+
   // Update config
   Object.assign(windowWatcherConfig, options);
   
+  // Handle window selector (number or title string)
+  windowWatcherSelector = options.windowSelector || 1;
+
   windowWatcherEnabled = true;
   windowWatcherApp = appName;
   lastWindowActivity = Date.now();
-  
-  // Get initial state
-  const windowInfo = getWindowInfo(appName);
+
+  // Get initial state (with selector support)
+  const windowInfo = getWindowInfo(appName, windowWatcherSelector);
   if (windowInfo) {
+    windowWatcherTitle = windowInfo.title;
     lastWindowHash = captureWindowHash(windowInfo);
+    console.log('[WINDOW-WATCHER] Watching window:', windowInfo.title);
     console.log('[WINDOW-WATCHER] Initial hash:', lastWindowHash?.substring(0, 8));
+  } else {
+    console.error('[WINDOW-WATCHER] Could not get window info');
+    return {
+      success: false,
+      error: `Could not find window ${windowWatcherSelector} for ${appName}`,
+      windows: getAllWindows(appName)
+    };
   }
   
   // Start monitoring loop
   windowWatcherInterval = setInterval(() => {
     if (!windowWatcherEnabled) return;
-    
-    const currentInfo = getWindowInfo(windowWatcherApp);
+
+    const currentInfo = getWindowInfo(windowWatcherApp, windowWatcherSelector);
     if (!currentInfo) {
       console.log('[WINDOW-WATCHER] Window not found, app may have closed');
       return;
@@ -548,11 +617,13 @@ function startWindowWatcher(appNameOrAlias, options = {}) {
     }
   }, windowWatcherConfig.captureInterval);
   
-  console.log('[WINDOW-WATCHER] Started monitoring', appName);
+  console.log('[WINDOW-WATCHER] Started monitoring', appName, 'window:', windowWatcherTitle);
   
   return {
     success: true,
     app: appName,
+    windowTitle: windowWatcherTitle,
+    windowSelector: windowWatcherSelector,
     config: windowWatcherConfig
   };
 }
@@ -574,7 +645,10 @@ function stopWindowWatcher() {
   }
   
   const wasWatching = windowWatcherApp;
+  const wasTitle = windowWatcherTitle;
   windowWatcherApp = null;
+  windowWatcherTitle = null;
+  windowWatcherSelector = 1;
   lastWindowHash = null;
   lastWindowActivity = null;
   
@@ -587,6 +661,8 @@ function getWindowWatcherStatus() {
   return {
     enabled: windowWatcherEnabled,
     app: windowWatcherApp,
+    windowTitle: windowWatcherTitle,
+    windowSelector: windowWatcherSelector,
     lastActivity: lastWindowActivity,
     idleSince: lastWindowActivity ? Date.now() - lastWindowActivity : null,
     config: windowWatcherConfig
@@ -1705,12 +1781,13 @@ function setupIPC() {
   });
 
   // Start watching a specific app window
-  ipcMain.handle('window-watcher-start', async (event, { appName, idleThreshold, captureInterval }) => {
-    console.log('[IPC] Starting window watcher for:', appName);
+  ipcMain.handle('window-watcher-start', async (event, { appName, idleThreshold, captureInterval, windowSelector }) => {
+    console.log('[IPC] Starting window watcher for:', appName, 'window:', windowSelector);
     try {
-      const result = startWindowWatcher(appName, { idleThreshold, captureInterval });
+      const result = startWindowWatcher(appName, { idleThreshold, captureInterval, windowSelector });
       if (result.success) {
         store.set('windowWatcherApp', appName);
+        store.set('windowWatcherSelector', windowSelector);
       }
       return result;
     } catch (e) {
@@ -1733,6 +1810,16 @@ function setupIPC() {
   // Get window info for a specific app
   ipcMain.handle('window-watcher-info', async (event, appName) => {
     return getWindowInfo(appName);
+  });
+
+  // List all windows for an app
+  ipcMain.handle('window-watcher-list-windows', async (event, appName) => {
+    const realAppName = findAppByName(appName);
+    if (!realAppName) {
+      return { success: false, error: `App "${appName}" not found`, runningApps: getRunningApps() };
+    }
+    const windows = getAllWindows(realAppName);
+    return { success: true, app: realAppName, windows };
   });
 
   // Get last watched app

@@ -6106,6 +6106,12 @@ DASHBOARD_PAGE = '''
             listApps: {
                 phrases: ['list apps', 'what apps', 'running apps', 'show apps', 'which apps']
             },
+            // List windows for an app (to distinguish between multiple)
+            listWindows: {
+                keywords: ['list', 'show', 'which'],
+                contexts: ['windows', 'window'],
+                phrases: ['list windows', 'show windows', 'cursor windows', 'which window', 'list cursor windows', 'show cursor windows']
+            },
             // Greetings (handle locally for instant response)
             greeting: {
                 phrases: ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy', 'greetings', 'sup', 'yo'],
@@ -6184,18 +6190,56 @@ DASHBOARD_PAGE = '''
                         return { handled: true };
                     }
                     
-                    addChatMessage(`Starting universal watcher on: **${appMatch}**`, 'jarvis');
+                    // Check for window number (e.g., "watch cursor 2")
+                    const windowNumMatch = text.match(/(\d+)\s*$/);
+                    let windowSelector = windowNumMatch ? parseInt(windowNumMatch[1]) : null;
+                    
+                    // Check for window title/keyword (e.g., "watch cursor cortona" or "watch cursor project-name")
+                    if (!windowSelector) {
+                        const words = text.toLowerCase().split(/\s+/);
+                        const appIndex = words.indexOf(appMatch);
+                        if (appIndex >= 0 && words[appIndex + 1] && !['window', 'app'].includes(words[appIndex + 1])) {
+                            windowSelector = words[appIndex + 1]; // Use as title search
+                        }
+                    }
+                    
+                    addChatMessage(`Starting universal watcher on: **${appMatch}**${windowSelector ? ` (window: ${windowSelector})` : ''}`, 'jarvis');
                     try {
-                        const result = await window.electronAPI.windowWatcherStart(appMatch, 5000, 500);
+                        const result = await window.electronAPI.windowWatcherStart(appMatch, 5000, 500, windowSelector);
                         if (result.success) {
-                            addChatMessage(`Now watching **${result.app}**! I'll notify you when the AI finishes (5s of no activity).`, 'jarvis');
+                            const windowInfo = result.windowTitle ? ` "${result.windowTitle}"` : '';
+                            addChatMessage(`Now watching **${result.app}**${windowInfo}! I'll notify you when activity stops for 5s.`, 'jarvis');
                             addActivity(`Watching: ${result.app}`, 'success');
-                            updateWatcherWidget(result.app, true);
+                            updateWatcherWidget(result.app, true, result.windowTitle);
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
-                            if (result.runningApps) {
+                            if (result.windows && result.windows.length > 0) {
+                                addChatMessage(`Available windows:\n${result.windows.map((w, i) => \`• Window \${w.index}: "\${w.title}"\`).join('\\n')}`, 'jarvis');
+                            } else if (result.runningApps) {
                                 addChatMessage('Running apps: ' + result.runningApps.slice(0, 10).join(', '), 'jarvis');
                             }
+                        }
+                    } catch (e) {
+                        addChatMessage('Error: ' + e.message, 'jarvis');
+                    }
+                    return { handled: true };
+                
+                case 'listWindows':
+                    if (!isElectron || !window.electronAPI?.windowWatcherListWindows) {
+                        return { handled: false, reason: 'Not in Electron' };
+                    }
+                    // Extract app name
+                    const listAppNames = ['chrome', 'cursor', 'safari', 'firefox', 'vscode', 'discord', 'terminal', 'windsurf'];
+                    const listAppMatch = listAppNames.find(app => lower.includes(app)) || 'cursor';
+                    
+                    try {
+                        const result = await window.electronAPI.windowWatcherListWindows(listAppMatch);
+                        if (result.success && result.windows.length > 0) {
+                            addChatMessage(`**${result.app} Windows:**\n${result.windows.map(w => \`• Window \${w.index}: "\${w.title}"\`).join('\\n')}\n\n💡 Say "watch ${listAppMatch} 2" or "watch ${listAppMatch} [title]" to select one.`, 'jarvis');
+                        } else if (result.success) {
+                            addChatMessage(`No windows found for ${result.app}`, 'jarvis');
+                        } else {
+                            addChatMessage('Failed: ' + result.error, 'jarvis');
                         }
                     } catch (e) {
                         addChatMessage('Error: ' + e.message, 'jarvis');
@@ -6270,7 +6314,7 @@ DASHBOARD_PAGE = '''
         }
         
         // Update watcher widget
-        function updateWatcherWidget(appName, active) {
+        function updateWatcherWidget(appName, active, windowTitle = null) {
             const watcherItem = document.getElementById('status-watcher-item');
             const watcherDot = document.getElementById('status-watcher');
             const watcherText = document.getElementById('status-watcher-text');
@@ -6280,7 +6324,13 @@ DASHBOARD_PAGE = '''
             if (active && appName) {
                 watcherItem.style.display = 'flex';
                 watcherDot.classList.add('active');
-                watcherText.textContent = `Watching: ${appName}`;
+                // Show abbreviated window title if available
+                let displayText = `Watching: ${appName}`;
+                if (windowTitle) {
+                    const shortTitle = windowTitle.length > 20 ? windowTitle.substring(0, 20) + '...' : windowTitle;
+                    displayText = `👁️ ${appName}: ${shortTitle}`;
+                }
+                watcherText.textContent = displayText;
             } else {
                 watcherItem.style.display = 'none';
                 watcherDot.classList.remove('active');
