@@ -5937,6 +5937,105 @@ DASHBOARD_PAGE = '''
             };
         }
         
+        // ============================================================
+        // QUESTION DETECTION & AUTO-MIC ACTIVATION
+        // ============================================================
+        
+        let waitingForAnswer = false;
+        let waitingForAnswerType = null;
+        let waitingForAnswerTimer = null;
+        
+        // Detect if text is a question
+        function isQuestion(text) {
+            if (!text) return false;
+            const lower = text.toLowerCase().trim();
+            
+            // Ends with question mark
+            if (text.trim().endsWith('?')) return true;
+            
+            // Starts with question words
+            const questionStarts = ['what', 'which', 'where', 'when', 'who', 'how', 'why', 'would', 'could', 'should', 'can', 'do you', 'did you', 'are you', 'is there', 'shall'];
+            if (questionStarts.some(q => lower.startsWith(q))) return true;
+            
+            // Contains clarification phrases
+            const clarifyPhrases = ['could you', 'would you', 'can you tell me', 'what would you like', 'which one', 'do you mean', 'did you mean', 'let me know', 'tell me more'];
+            if (clarifyPhrases.some(p => lower.includes(p))) return true;
+            
+            return false;
+        }
+        
+        // Wait for user's answer after AI asks a question
+        function waitForAnswer(reasonType = 'question', delayMs = 1500) {
+            console.log('[WAIT-ANSWER] Preparing to listen for answer, reason:', reasonType);
+            
+            waitingForAnswer = true;
+            waitingForAnswerType = reasonType;
+            
+            // Update UI to show we're waiting
+            const voiceStatus = document.getElementById('voice-status');
+            const voiceHint = document.getElementById('voice-hint');
+            
+            if (voiceStatus) voiceStatus.textContent = 'Listening for your answer...';
+            if (voiceHint) voiceHint.innerHTML = '<strong>Speak your response</strong> or type below';
+            
+            // Update voice orb to show "waiting" state
+            updateVoiceOrbState('wake-listening');
+            
+            // Clear any existing timer
+            if (waitingForAnswerTimer) {
+                clearTimeout(waitingForAnswerTimer);
+            }
+            
+            // Wait for speech synthesis to finish, then activate mic
+            waitingForAnswerTimer = setTimeout(() => {
+                // Check if speech is still playing
+                if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                    console.log('[WAIT-ANSWER] Speech still playing, waiting...');
+                    // Check again after a bit
+                    waitingForAnswerTimer = setTimeout(() => waitForAnswer(reasonType, 500), 500);
+                    return;
+                }
+                
+                console.log('[WAIT-ANSWER] Activating mic for answer...');
+                
+                // Play a subtle chime to indicate we're listening
+                playChime('start');
+                
+                // Start recording
+                if (isElectron && window.electronAPI?.leopardStart) {
+                    // Use native Leopard in Electron
+                    startWhisperRecording();
+                } else if (!isListening) {
+                    // Fall back to web speech or Whisper
+                    startWhisperRecording();
+                }
+                
+                // Auto-timeout after 10 seconds if no response
+                setTimeout(() => {
+                    if (waitingForAnswer && isListening) {
+                        console.log('[WAIT-ANSWER] Timeout - no response');
+                        waitingForAnswer = false;
+                        waitingForAnswerType = null;
+                        stopWhisperRecording();
+                        addChatMessage('No worries, let me know when you\\'re ready!', 'jarvis');
+                        updateUI();
+                    }
+                }, 15000);
+                
+            }, delayMs);
+        }
+        
+        // Cancel waiting for answer
+        function cancelWaitForAnswer() {
+            waitingForAnswer = false;
+            waitingForAnswerType = null;
+            if (waitingForAnswerTimer) {
+                clearTimeout(waitingForAnswerTimer);
+                waitingForAnswerTimer = null;
+            }
+        }
+        
+        // Enhanced addChatMessage that detects questions and auto-activates mic
         // Add a message to the chat with enhanced UI
         function addChatMessage(text, sender = 'user') {
             const chatMessages = document.getElementById('chat-messages');
@@ -6527,26 +6626,28 @@ DASHBOARD_PAGE = '''
                             action: lastAction.action
                         };
                     }
-                    // If unclear, just copy to clipboard instead of asking for clarification
+                    // If unclear, ask a clarifying question and wait for response
                     else if (claudeResult.needsClarification || claudeResult.action === 'clarify') {
-                        // Copy the original text to clipboard as fallback
-                        try {
-                            await navigator.clipboard.writeText(text);
-                            addChatMessage(`"${text}"`, 'user');
-                            addChatMessage("Copied to clipboard.", 'jarvis');
-                            speakText("Copied to clipboard.");
-                            addActivity(' Copied to clipboard (unrecognized command)', 'info');
-                            console.log(' Unrecognized command, copied to clipboard:', text);
-                        } catch (err) {
-                            console.error('Clipboard error:', err);
-                            addChatMessage("Sorry, couldn't copy that.", 'jarvis');
-                        }
+                        // Generate a helpful clarifying question
+                        const clarifyMessage = claudeResult.speak || "I didn't quite catch that. Could you rephrase or tell me what you'd like me to do?";
+                        addChatMessage(clarifyMessage, 'jarvis');
+                        speakText(clarifyMessage);
+                        addActivity('Asking for clarification', 'info');
+                        
+                        // Auto-activate mic to listen for the answer
+                        waitForAnswer('clarification');
                         return;
                     }
                     // Claude has a response to speak (but still executing)
                     else if (claudeResult.speak && !claudeResult.needsClarification) {
                         addChatMessage(claudeResult.speak, 'jarvis');
                         speakText(claudeResult.speak);
+                        
+                        // If AI asked a question, auto-activate mic for the answer
+                        if (isQuestion(claudeResult.speak)) {
+                            console.log('[AI-QUESTION] Detected question in AI response, waiting for answer...');
+                            waitForAnswer('ai-question');
+                        }
                     }
                     
                     // Normal execution (if not already set by repeat)
@@ -8536,12 +8637,18 @@ User: "what can you do" or "help"
 > {{"action":null,"speak":"I can open apps, type in Cursor, search the web, run terminal commands - just tell me what you need.","response":"Help"}}
 
 User: (truly gibberish like "asdfgh" or random characters)
-> {{"action":"clarify","needsClarification":true,"speak":"","response":"Unclear"}}
+> {{"action":"clarify","needsClarification":true,"speak":"Sorry, I didn't catch that. Could you say it again?","response":"Unclear"}}
 
-NEVER ask for clarification for normal speech! If it's English words, respond to them.
-If unsure, just acknowledge and offer to help. ONLY use clarify for truly unrecognizable input.
+CLARIFYING QUESTIONS (mic auto-activates for user's answer):
+- For ambiguous commands, ASK a clarifying question!
+- "open it" without context > {{"action":"clarify","needsClarification":true,"speak":"Open what? Which app would you like?","response":"Need app"}}
+- "search for that" > {{"action":"clarify","needsClarification":true,"speak":"What would you like me to search for?","response":"Need term"}}
+- "type something" > {{"action":"clarify","needsClarification":true,"speak":"What would you like me to type?","response":"Need content"}}
+- For gibberish, ask them to repeat
 
-Remember: ALWAYS be conversational in "speak". You're {assistant_name}, not a robot. Be cool, be British, be helpful. Even simple questions deserve a response!
+DON'T over-clarify - if it's clear enough, just do it!
+
+Remember: ALWAYS be conversational in "speak". You're {assistant_name}, not a robot. Be cool, be British, be helpful!
 
 Return ONLY valid JSON."""
 
