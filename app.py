@@ -1684,54 +1684,346 @@ DASHBOARD_PAGE = '''
             text-align: center;
             margin-bottom: 32px;
         }
-        .mic-button {
-            width: 60px;
-            height: 60px;
-            border-radius: 12px;
-            background: #ef4444;
+        /* ============================================
+           VOICE ORB - Animated microphone button
+           ============================================ */
+        .voice-orb-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .voice-orb {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
             border: none;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
-            font-weight: 600;
-            color: #ffffff;
-            margin: 0 auto 24px;
-            transition: all 0.3s;
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            color: white;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 32px rgba(239, 68, 68, 0.4);
+            z-index: 2;
+            position: relative;
         }
-        .mic-button:hover {
-            transform: scale(1.02);
-            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);
+        
+        .voice-orb svg {
+            width: 32px;
+            height: 32px;
+            transition: transform 0.3s;
         }
-        /* GREEN: Actively recording command */
-        .mic-button.listening {
-            background: #22c55e;
-            box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4);
-            animation: mic-pulse-green 1.5s ease-in-out infinite;
+        
+        .voice-orb:hover {
+            transform: scale(1.05);
+            box-shadow: 0 12px 40px rgba(239, 68, 68, 0.5);
         }
-        /* YELLOW: Waiting for wake word */
-        .mic-button.wake-listening {
-            background: #eab308;
-            box-shadow: 0 4px 16px rgba(234, 179, 8, 0.4);
-            animation: mic-pulse-yellow 2s ease-in-out infinite;
+        
+        .voice-orb:hover svg {
+            transform: scale(1.1);
         }
-        .mic-button.disabled {
+        
+        /* Ripple rings */
+        .voice-orb-ring {
+            position: absolute;
+            border-radius: 50%;
+            border: 2px solid rgba(239, 68, 68, 0.3);
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .voice-orb-ring:nth-child(1) { width: 100px; height: 100px; }
+        .voice-orb-ring:nth-child(2) { width: 120px; height: 120px; }
+        .voice-orb-ring:nth-child(3) { width: 140px; height: 140px; }
+        
+        /* IDLE: Subtle breathing animation */
+        .voice-orb-container.idle .voice-orb {
+            animation: orb-breathe 3s ease-in-out infinite;
+        }
+        
+        @keyframes orb-breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+        
+        /* LISTENING (wake word): Yellow with slow pulse */
+        .voice-orb-container.wake-listening .voice-orb {
+            background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%);
+            box-shadow: 0 8px 32px rgba(234, 179, 8, 0.5);
+            animation: orb-pulse-slow 2s ease-in-out infinite;
+        }
+        
+        .voice-orb-container.wake-listening .voice-orb-ring {
+            border-color: rgba(234, 179, 8, 0.4);
+            animation: ripple-slow 3s ease-out infinite;
+        }
+        
+        .voice-orb-container.wake-listening .voice-orb-ring:nth-child(2) { animation-delay: 1s; }
+        .voice-orb-container.wake-listening .voice-orb-ring:nth-child(3) { animation-delay: 2s; }
+        
+        /* RECORDING: Green with active ripples */
+        .voice-orb-container.listening .voice-orb {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            box-shadow: 0 8px 32px rgba(34, 197, 94, 0.5);
+            animation: orb-pulse-active 1s ease-in-out infinite;
+        }
+        
+        .voice-orb-container.listening .voice-orb-ring {
+            border-color: rgba(34, 197, 94, 0.5);
+            animation: ripple-active 1.5s ease-out infinite;
+        }
+        
+        .voice-orb-container.listening .voice-orb-ring:nth-child(2) { animation-delay: 0.5s; }
+        .voice-orb-container.listening .voice-orb-ring:nth-child(3) { animation-delay: 1s; }
+        
+        /* PROCESSING: Purple with spinning */
+        .voice-orb-container.processing .voice-orb {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            box-shadow: 0 8px 32px rgba(139, 92, 246, 0.5);
+        }
+        
+        .voice-orb-container.processing .voice-orb svg {
+            animation: spin 1s linear infinite;
+        }
+        
+        .voice-orb-container.processing .voice-orb-ring {
+            border-color: rgba(139, 92, 246, 0.4);
+            animation: ripple-processing 2s ease-out infinite;
+        }
+        
+        @keyframes orb-pulse-slow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        @keyframes orb-pulse-active {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+        
+        @keyframes ripple-slow {
+            0% { transform: scale(0.8); opacity: 0.6; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+        
+        @keyframes ripple-active {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        
+        @keyframes ripple-processing {
+            0% { transform: scale(0.9) rotate(0deg); opacity: 0.5; }
+            100% { transform: scale(1.3) rotate(180deg); opacity: 0; }
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .voice-orb.disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
-        @keyframes mic-pulse-green {
-            0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4); }
-            50% { transform: scale(1.05); box-shadow: 0 8px 24px rgba(34, 197, 94, 0.6); }
+        
+        /* Legacy support - keep old class working */
+        .mic-button { display: none; }
+        
+        /* ============================================
+           STATUS BAR - Connection & state indicators
+           ============================================ */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 50px;
+            margin-bottom: 20px;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
         }
-        @keyframes mic-pulse-yellow {
-            0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(234, 179, 8, 0.3); }
-            50% { transform: scale(1.03); box-shadow: 0 6px 20px rgba(234, 179, 8, 0.5); }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
         }
-        @keyframes mic-pulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 10px 40px rgba(16, 185, 129, 0.3); }
-            50% { transform: scale(1.08); box-shadow: 0 15px 60px rgba(16, 185, 129, 0.5); }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+        }
+        
+        .status-dot.active {
+            background: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+        }
+        
+        .status-dot.warning {
+            background: #eab308;
+            box-shadow: 0 0 8px rgba(234, 179, 8, 0.6);
+        }
+        
+        .status-dot.error {
+            background: #ef4444;
+        }
+        
+        /* ============================================
+           COMMAND SUGGESTIONS - Quick action chips
+           ============================================ */
+        .command-suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+        
+        .suggestion-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 50px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .suggestion-chip:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--accent);
+            color: var(--text);
+            transform: translateY(-1px);
+        }
+        
+        .suggestion-chip .chip-icon {
+            font-size: 14px;
+        }
+        
+        /* ============================================
+           BETTER CHAT BUBBLES
+           ============================================ */
+        .chat-message {
+            padding: 12px 16px;
+            border-radius: 16px;
+            max-width: 85%;
+            animation: messageSlide 0.3s ease;
+            position: relative;
+        }
+        
+        @keyframes messageSlide {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .chat-message.user {
+            background: linear-gradient(135deg, rgba(0, 245, 212, 0.15) 0%, rgba(0, 200, 180, 0.1) 100%);
+            border: 1px solid rgba(0, 245, 212, 0.3);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .chat-message.jarvis {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(123, 44, 191, 0.1) 100%);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        
+        .chat-message .msg-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        
+        .chat-message .sender {
+            font-size: 11px;
+            font-weight: 600;
+            opacity: 0.8;
+        }
+        
+        .chat-message .timestamp {
+            font-size: 10px;
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+        
+        .chat-message .msg-content {
+            line-height: 1.5;
+        }
+        
+        .chat-message .msg-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .chat-message:hover .msg-actions {
+            opacity: 1;
+        }
+        
+        .msg-action-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .msg-action-btn:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Typing indicator */
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 12px 16px;
+            background: rgba(139, 92, 246, 0.1);
+            border-radius: 16px;
+            border-bottom-left-radius: 4px;
+            align-self: flex-start;
+            max-width: 80px;
+        }
+        
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: typingBounce 1.4s ease-in-out infinite;
+        }
+        
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-8px); }
         }
         
         /* Audio Level Visualization */
@@ -2129,8 +2421,44 @@ DASHBOARD_PAGE = '''
             
             <!-- Voice Control -->
             <div class="voice-control">
-                <button class="mic-button" id="mic-button" onclick="toggleListening()">
-                </button>
+                <!-- Status Bar -->
+                <div class="status-bar" id="status-bar">
+                    <div class="status-item">
+                        <span class="status-dot active" id="status-connection"></span>
+                        <span id="status-connection-text">Connected</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot" id="status-listening"></span>
+                        <span id="status-listening-text">Standby</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot active" id="status-ai"></span>
+                        <span>AI Ready</span>
+                    </div>
+                    <div class="status-item" id="status-watcher-item" style="display: none;">
+                        <span class="status-dot active" id="status-watcher"></span>
+                        <span id="status-watcher-text">Watching</span>
+                    </div>
+                </div>
+                
+                <!-- Voice Orb -->
+                <div class="voice-orb-container idle" id="voice-orb-container">
+                    <div class="voice-orb-ring"></div>
+                    <div class="voice-orb-ring"></div>
+                    <div class="voice-orb-ring"></div>
+                    <button class="voice-orb" id="voice-orb" onclick="toggleListening()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="23"></line>
+                            <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                    </button>
+                </div>
+                
+                <!-- Hidden legacy button for compatibility -->
+                <button class="mic-button" id="mic-button" style="display:none;"></button>
+                
                 <!-- Audio Level Visualization -->
                 <div class="audio-level-container" id="audio-level-container">
                     <div class="audio-bar" id="bar-0"></div>
@@ -2140,7 +2468,7 @@ DASHBOARD_PAGE = '''
                     <div class="audio-bar" id="bar-4"></div>
                 </div>
                 <span class="recording-dot" id="recording-dot"></span>
-                <div class="voice-status" id="voice-status">Click to Start</div>
+                <div class="voice-status" id="voice-status">Click the orb to start</div>
                 <div class="voice-hint" id="voice-hint">
                     Or say your wake word: <strong id="current-wake-word">"Hey Computer"</strong>
                 </div>
@@ -2176,6 +2504,22 @@ DASHBOARD_PAGE = '''
                                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                             </svg>
                             Send
+                        </button>
+                    </div>
+                    
+                    <!-- Command Suggestions -->
+                    <div class="command-suggestions" id="command-suggestions">
+                        <button class="suggestion-chip" onclick="runSuggestion('hello')">
+                            <span class="chip-icon">👋</span> Say Hi
+                        </button>
+                        <button class="suggestion-chip" onclick="runSuggestion('watch cursor')">
+                            <span class="chip-icon">👁️</span> Watch Agent
+                        </button>
+                        <button class="suggestion-chip" onclick="runSuggestion('help')">
+                            <span class="chip-icon">❓</span> Help
+                        </button>
+                        <button class="suggestion-chip" onclick="runSuggestion('open chrome')">
+                            <span class="chip-icon">🌐</span> Open Chrome
                         </button>
                     </div>
                 </div>
@@ -5547,29 +5891,135 @@ DASHBOARD_PAGE = '''
             };
         }
         
-        // Add a message to the chat
+        // Add a message to the chat with enhanced UI
         function addChatMessage(text, sender = 'user') {
             const chatMessages = document.getElementById('chat-messages');
             const transcript = document.getElementById('transcript');
-            
+
+            // Remove typing indicator if present
+            const typingEl = chatMessages.querySelector('.typing-indicator');
+            if (typingEl) typingEl.remove();
+
             // Clear the initial "waiting" message
-            if (transcript.textContent.includes('Say your wake word')) {
+            if (transcript.textContent.includes('Say your wake word') || transcript.textContent.includes('Click the orb')) {
                 transcript.style.display = 'none';
             }
+
+            // Format timestamp
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             
+            // Generate unique ID for copy functionality
+            const msgId = 'msg-' + Date.now();
+
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message ${sender}`;
+            messageDiv.id = msgId;
             messageDiv.innerHTML = `
-                <div class="sender">${sender === 'jarvis' ? ' Jarvis' : ' You'}</div>
-                <div>${text}</div>
+                <div class="msg-header">
+                    <span class="sender">${sender === 'jarvis' ? '🤖 Jarvis' : '👤 You'}</span>
+                    <span class="timestamp">${timeStr}</span>
+                </div>
+                <div class="msg-content">${formatMessageContent(text)}</div>
+                <div class="msg-actions">
+                    <button class="msg-action-btn" onclick="copyMessage('${msgId}')" title="Copy">
+                        📋 Copy
+                    </button>
+                </div>
             `;
-            
+
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
-            
-            // Keep only last 10 messages
-            while (chatMessages.children.length > 11) {
+
+            // Keep only last 15 messages
+            while (chatMessages.children.length > 16) {
                 chatMessages.removeChild(chatMessages.children[1]);
+            }
+            
+            // Update voice orb state
+            updateVoiceOrbState();
+        }
+        
+        // Format message content (handle markdown-like syntax)
+        function formatMessageContent(text) {
+            return text
+                .replace(/\\n/g, '<br>')
+                .replace(/\`([^\`]+)\`/g, '<code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>')
+                .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/•/g, '<br>•');
+        }
+        
+        // Copy message to clipboard
+        function copyMessage(msgId) {
+            const msgEl = document.getElementById(msgId);
+            if (msgEl) {
+                const content = msgEl.querySelector('.msg-content').innerText;
+                navigator.clipboard.writeText(content).then(() => {
+                    addActivity('Copied to clipboard', 'success');
+                });
+            }
+        }
+        
+        // Show typing indicator
+        function showTypingIndicator() {
+            const chatMessages = document.getElementById('chat-messages');
+            if (!chatMessages.querySelector('.typing-indicator')) {
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'typing-indicator';
+                typingDiv.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+                chatMessages.appendChild(typingDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        }
+        
+        // Run suggestion command
+        function runSuggestion(cmd) {
+            document.getElementById('chat-input').value = cmd;
+            sendChatMessage();
+        }
+        
+        // Update voice orb visual state
+        function updateVoiceOrbState(state) {
+            const container = document.getElementById('voice-orb-container');
+            if (!container) return;
+            
+            // Remove all state classes
+            container.classList.remove('idle', 'wake-listening', 'listening', 'processing');
+            
+            // Add appropriate state class
+            if (state) {
+                container.classList.add(state);
+            } else {
+                // Auto-detect state
+                if (isListening || nativeLeopardActive) {
+                    container.classList.add('listening');
+                } else if (alwaysListen || nativePorcupineActive) {
+                    container.classList.add('wake-listening');
+                } else {
+                    container.classList.add('idle');
+                }
+            }
+            
+            // Update status bar
+            updateStatusBar();
+        }
+        
+        // Update status bar indicators
+        function updateStatusBar() {
+            const listeningDot = document.getElementById('status-listening');
+            const listeningText = document.getElementById('status-listening-text');
+            
+            if (isListening || nativeLeopardActive) {
+                listeningDot.classList.add('active');
+                listeningDot.classList.remove('warning');
+                listeningText.textContent = 'Recording';
+            } else if (alwaysListen || nativePorcupineActive) {
+                listeningDot.classList.add('warning');
+                listeningDot.classList.remove('active');
+                listeningText.textContent = 'Wake Word';
+            } else {
+                listeningDot.classList.remove('active', 'warning');
+                listeningText.textContent = 'Standby';
             }
         }
         
@@ -5738,6 +6188,8 @@ DASHBOARD_PAGE = '''
             
             // STEP 2: No keyword match - fall back to AI
             console.log('[HYBRID] No keyword match, falling back to AI...');
+            showTypingIndicator();
+            updateVoiceOrbState('processing');
             handleTranscript(text);
         }
         
@@ -6469,6 +6921,9 @@ DASHBOARD_PAGE = '''
             if (alwaysListenToggle) alwaysListenToggle.classList.toggle('active', alwaysListen);
             if (badgeAlways) badgeAlways.style.display = alwaysListen ? 'inline-block' : 'none';
             if (badgeContinuous) badgeContinuous.style.display = continuousMode ? 'inline-block' : 'none';
+            
+            // Update new voice orb UI
+            updateVoiceOrbState();
         }
         
         let editingDeviceId = null;
