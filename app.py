@@ -5583,7 +5583,135 @@ DASHBOARD_PAGE = '''
             chatMessages.appendChild(transcript);
         }
         
-        // Send a typed message (same as voice command)
+        // ============================================================
+        // HYBRID COMMAND SYSTEM - Fast keywords + AI fallback
+        // ============================================================
+        
+        // Command registry with synonyms for instant matching
+        const COMMAND_REGISTRY = {
+            // Agent watcher commands
+            startWatch: {
+                keywords: ['watch', 'monitor', 'track', 'observe'],
+                contexts: ['project', 'folder', 'cursor', 'agent', 'files', 'directory', 'code', 'changes', 'this'],
+                phrases: ['start watching', 'begin monitoring', 'keep an eye on', 'watch for changes']
+            },
+            stopWatch: {
+                keywords: ['stop', 'quit', 'end', 'cancel', 'disable', 'halt'],
+                contexts: ['watching', 'monitoring', 'tracking', 'observer', 'watcher'],
+                phrases: ['stop watching', 'quit monitoring', 'end watch', 'cancel watcher', 'turn off watcher']
+            },
+            // Greetings (handle locally for instant response)
+            greeting: {
+                phrases: ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy', 'greetings', 'sup', 'yo'],
+                response: () => {
+                    const responses = [
+                        'Hey! How can I help you?',
+                        'Hello! What can I do for you?',
+                        'Hi there! Ready to assist.',
+                        'Hey! What\\'s on your mind?'
+                    ];
+                    return responses[Math.floor(Math.random() * responses.length)];
+                }
+            },
+            // Help command
+            help: {
+                phrases: ['help', 'what can you do', 'commands', 'how do i', 'what are my options'],
+                response: () => `Here's what I can do:
+• **Voice Commands** - Say your wake word, then speak
+• **Type Commands** - Use this chat input
+• **Watch Agent** - "watch cursor" to monitor AI activity
+• **Control Apps** - "open chrome", "type hello"
+• **Ask Questions** - I'll answer using AI`
+            },
+            // Status check
+            status: {
+                phrases: ['status', 'are you there', 'you working', 'test', 'ping'],
+                response: () => 'I\\'m here and ready! 🟢'
+            }
+        };
+        
+        // Fast keyword matching function
+        function matchCommand(text) {
+            const lower = text.toLowerCase().trim();
+            
+            for (const [cmdName, cmd] of Object.entries(COMMAND_REGISTRY)) {
+                // Check exact phrase matches first (fastest)
+                if (cmd.phrases && cmd.phrases.some(p => lower.includes(p) || lower === p)) {
+                    return { command: cmdName, confidence: 1.0 };
+                }
+                
+                // Check keyword + context combinations
+                if (cmd.keywords && cmd.contexts) {
+                    const hasKeyword = cmd.keywords.some(k => lower.includes(k));
+                    const hasContext = cmd.contexts.some(c => lower.includes(c));
+                    if (hasKeyword && hasContext) {
+                        return { command: cmdName, confidence: 0.9 };
+                    }
+                }
+                
+                // Check keywords alone (lower confidence)
+                if (cmd.keywords && cmd.keywords.some(k => lower === k || lower.startsWith(k + ' '))) {
+                    return { command: cmdName, confidence: 0.7 };
+                }
+            }
+            
+            return null; // No match - will fall back to AI
+        }
+        
+        // Execute matched command
+        async function executeLocalCommand(cmdName, text) {
+            const cmd = COMMAND_REGISTRY[cmdName];
+            
+            switch (cmdName) {
+                case 'startWatch':
+                    if (!isElectron || !window.electronAPI?.agentWatcherStart) {
+                        return { handled: false, reason: 'Not in Electron' };
+                    }
+                    const pathMatch = text.match(/(?:watch|monitor|track)\s+(?:the\s+)?(?:folder|project|directory|for)?\s*[:\s]?\s*(\/.+)/i);
+                    let watchPath = pathMatch ? pathMatch[1].trim() : null;
+                    if (!watchPath) {
+                        const lastPath = await window.electronAPI.agentWatcherGetPath();
+                        watchPath = lastPath || '/Users/quinnbean/Cortona-';
+                    }
+                    addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
+                    try {
+                        const result = await window.electronAPI.agentWatcherStart(watchPath, 3000);
+                        if (result.success) {
+                            addChatMessage('Agent watcher active! I\\'ll notify you when the AI agent finishes.', 'jarvis');
+                            addActivity('Agent watcher started', 'success');
+                        } else {
+                            addChatMessage('Failed: ' + result.error, 'jarvis');
+                        }
+                    } catch (e) {
+                        addChatMessage('Error: ' + e.message, 'jarvis');
+                    }
+                    return { handled: true };
+                    
+                case 'stopWatch':
+                    if (!isElectron || !window.electronAPI?.agentWatcherStop) {
+                        return { handled: false, reason: 'Not in Electron' };
+                    }
+                    try {
+                        await window.electronAPI.agentWatcherStop();
+                        addChatMessage('Agent watcher stopped.', 'jarvis');
+                        addActivity('Agent watcher stopped', 'info');
+                    } catch (e) {
+                        addChatMessage('Error: ' + e.message, 'jarvis');
+                    }
+                    return { handled: true };
+                    
+                case 'greeting':
+                case 'help':
+                case 'status':
+                    addChatMessage(cmd.response(), 'jarvis');
+                    return { handled: true };
+                    
+                default:
+                    return { handled: false };
+            }
+        }
+        
+        // Send a typed message (hybrid: keywords first, then AI)
         async function sendChatMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
@@ -5593,62 +5721,23 @@ DASHBOARD_PAGE = '''
             // Clear input
             input.value = '';
             
-            // Add to transcript history
+            // Show user message
+            addChatMessage(text, 'user');
             addToTranscriptHistory(text, 'user');
             
-            // Check for special commands first (these handle their own chat messages)
-            const lowerText = text.toLowerCase();
+            // STEP 1: Try fast keyword matching first
+            const match = matchCommand(text);
             
-            // Agent watcher commands (Electron only)
-            if (isElectron && window.electronAPI?.agentWatcherStart) {
-                // Match various "watch" commands: watch project, watch cursor, watch agent, watch files, start watching, etc.
-                const watchPatterns = ['project', 'folder', 'this', 'cursor', 'agent', 'files', 'directory', 'code', 'changes'];
-                const isWatchCommand = lowerText.includes('watch') && 
-                    (watchPatterns.some(p => lowerText.includes(p)) || lowerText.match(/^watch\s*$/i) || lowerText.match(/start\s+watch/i));
-                
-                if (isWatchCommand) {
-                    addChatMessage(text, 'user');  // Show user's command
-                    // Get current path from user or use default
-                    const pathMatch = text.match(/watch\s+(?:the\s+)?(?:folder|project|directory|for)?\s*[:\s]?\s*(\/.+)/i);
-                    let watchPath = pathMatch ? pathMatch[1].trim() : null;
-                    
-                    // If no explicit path, use the Cortona project folder
-                    if (!watchPath) {
-                        const lastPath = await window.electronAPI.agentWatcherGetPath();
-                        watchPath = lastPath || '/Users/quinnbean/Cortona-';
-                        addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
-                    } else {
-                        addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
-                    }
-                    
-                    try {
-                        const result = await window.electronAPI.agentWatcherStart(watchPath, 3000);
-                        if (result.success) {
-                            addChatMessage('Agent watcher active! I\\'ll notify you when the AI agent finishes making changes.', 'jarvis');
-                            addActivity('Agent watcher started: ' + watchPath, 'success');
-                        } else {
-                            addChatMessage('Failed to start watcher: ' + result.error, 'jarvis');
-                        }
-                    } catch (e) {
-                        addChatMessage('Error starting watcher: ' + e.message, 'jarvis');
-                    }
-                    return;
-                }
-                
-                if (lowerText.includes('stop') && lowerText.includes('watch')) {
-                    addChatMessage(text, 'user');  // Show user's command
-                    try {
-                        await window.electronAPI.agentWatcherStop();
-                        addChatMessage('Agent watcher stopped.', 'jarvis');
-                        addActivity('Agent watcher stopped', 'info');
-                    } catch (e) {
-                        addChatMessage('Error stopping watcher: ' + e.message, 'jarvis');
-                    }
-                    return;
+            if (match && match.confidence >= 0.7) {
+                console.log(`[HYBRID] Keyword match: ${match.command} (${match.confidence})`);
+                const result = await executeLocalCommand(match.command, text);
+                if (result.handled) {
+                    return; // Command handled locally - no AI needed!
                 }
             }
             
-            // Process as regular command (send to AI)
+            // STEP 2: No keyword match - fall back to AI
+            console.log('[HYBRID] No keyword match, falling back to AI...');
             handleTranscript(text);
         }
         
