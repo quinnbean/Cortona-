@@ -3077,7 +3077,7 @@ DASHBOARD_PAGE = '''
         // Check and track microphone permission status
         async function checkMicPermission() {
             // If running in Electron, use native macOS permission check
-            if (window.electronAPI?.isElectron) {
+            if (window.electronAPI?.isElectron && window.electronAPI?.getMicStatus) {
                 try {
                     const status = await window.electronAPI.getMicStatus();
                     console.log('[MIC] Electron mic status:', status);
@@ -3230,11 +3230,11 @@ DASHBOARD_PAGE = '''
         
         // Auto-detect device info based on browser/OS - ALWAYS runs on every load
         function getDeviceInfo() {
-            const ua = navigator.userAgent;
-            const platform = navigator.platform;
-            
+            const ua = navigator.userAgent || '';
+            const platform = navigator.platform || '';
+
             let name, icon, wakeWord;
-            
+
             if (platform.includes('Mac') || ua.includes('Macintosh')) {
                 name = 'MacBook';
                 icon = '';
