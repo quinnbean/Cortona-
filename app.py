@@ -5601,17 +5601,22 @@ DASHBOARD_PAGE = '''
             
             // Agent watcher commands (Electron only)
             if (isElectron && window.electronAPI?.agentWatcherStart) {
-                if (lowerText.includes('watch') && (lowerText.includes('project') || lowerText.includes('folder') || lowerText.includes('this'))) {
+                // Match various "watch" commands: watch project, watch cursor, watch agent, watch files, start watching, etc.
+                const watchPatterns = ['project', 'folder', 'this', 'cursor', 'agent', 'files', 'directory', 'code', 'changes'];
+                const isWatchCommand = lowerText.includes('watch') && 
+                    (watchPatterns.some(p => lowerText.includes(p)) || lowerText.match(/^watch\s*$/i) || lowerText.match(/start\s+watch/i));
+                
+                if (isWatchCommand) {
                     addChatMessage(text, 'user');  // Show user's command
                     // Get current path from user or use default
-                    const pathMatch = text.match(/watch\s+(?:the\s+)?(?:folder|project|directory)?\s*[:\s]?\s*(.+)/i);
+                    const pathMatch = text.match(/watch\s+(?:the\s+)?(?:folder|project|directory|for)?\s*[:\s]?\s*(\/.+)/i);
                     let watchPath = pathMatch ? pathMatch[1].trim() : null;
                     
-                    // If no path specified, prompt or use a default
-                    if (!watchPath || watchPath === 'this' || watchPath === 'project' || watchPath === 'folder') {
+                    // If no explicit path, use the Cortona project folder
+                    if (!watchPath) {
                         const lastPath = await window.electronAPI.agentWatcherGetPath();
-                        watchPath = lastPath || '/Users/' + require?.('os')?.userInfo?.()?.username || process.env.HOME;
-                        addChatMessage(`Starting agent watcher on: ${watchPath}\\n\\nTo watch a different folder, type: watch /path/to/folder`, 'jarvis');
+                        watchPath = lastPath || '/Users/quinnbean/Cortona-';
+                        addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
                     } else {
                         addChatMessage(`Starting agent watcher on: ${watchPath}`, 'jarvis');
                     }
