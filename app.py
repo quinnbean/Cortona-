@@ -2940,31 +2940,36 @@ DASHBOARD_PAGE = '''
             console.log(' Running in Electron app');
             
             // Listen for global shortcut activation
-            window.electronAPI.onActivateVoice(() => {
-                console.log(' Activated via global shortcut');
-                if (!isListening) {
-                    toggleListening();
-                }
-                // Focus the mic and show we're ready
-                document.getElementById('mic-button').focus();
-                addActivity(' Activated via ⌘+Shift+J', 'success');
-            });
+            if (window.electronAPI?.onActivateVoice) {
+                window.electronAPI.onActivateVoice(() => {
+                    console.log(' Activated via global shortcut');
+                    if (!isListening) {
+                        toggleListening();
+                    }
+                    // Focus the mic and show we're ready
+                    const micBtn = document.getElementById('mic-button') || document.getElementById('voice-orb');
+                    if (micBtn) micBtn.focus();
+                    addActivity(' Activated via ⌘+Shift+J', 'success');
+                });
+            }
             
             // Listen for quick recording (PTT shortcut)
-            window.electronAPI.onStartRecording(async () => {
-                console.log('[PTT] Quick recording triggered');
-                
-                // CRITICAL: Stop native Porcupine FIRST to release mic for browser recording
-                if (nativePorcupineActive && window.electronAPI?.porcupineStop) {
-                    console.log('[PTT] Stopping native Porcupine before recording...');
-                    await window.electronAPI.porcupineStop();
-                    nativePorcupineActive = false;
-                }
-                
-                if (!isListening) {
-                    toggleListening();
-                }
-            });
+            if (window.electronAPI?.onStartRecording) {
+                window.electronAPI.onStartRecording(async () => {
+                    console.log('[PTT] Quick recording triggered');
+                    
+                    // CRITICAL: Stop native Porcupine FIRST to release mic for browser recording
+                    if (nativePorcupineActive && window.electronAPI?.porcupineStop) {
+                        console.log('[PTT] Stopping native Porcupine before recording...');
+                        await window.electronAPI.porcupineStop();
+                        nativePorcupineActive = false;
+                    }
+                    
+                    if (!isListening) {
+                        toggleListening();
+                    }
+                });
+            }
             
             // Push-to-Talk: stop recording when key released
             if (window.electronAPI.onStopRecording) {
