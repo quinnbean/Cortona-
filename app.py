@@ -2844,15 +2844,39 @@ DASHBOARD_PAGE = '''
     
     <script>
         // ============================================================
+        // DEBUG LOGGING - Track script loading progress
+        // ============================================================
+        console.log('%c[CORTONA] Script loading started...', 'color: #00f5d4; font-weight: bold;');
+        const _loadStart = Date.now();
+        const _checkpoints = [];
+        
+        function _checkpoint(name) {
+            const elapsed = Date.now() - _loadStart;
+            _checkpoints.push({ name, elapsed });
+            console.log(`%c[CORTONA] ✓ ${name} (${elapsed}ms)`, 'color: #22c55e;');
+        }
+        
+        function _error(location, error) {
+            console.error(`%c[CORTONA] ✗ ERROR in ${location}:`, 'color: #ef4444; font-weight: bold;', error);
+            console.error('Stack:', error.stack);
+        }
+        
+        // Wrap initialization in try-catch
+        try {
+        
+        // ============================================================
         // INITIALIZATION
         // ============================================================
-        
+        _checkpoint('Script start');
+
         // Electron API detection (MUST be first)
         const isElectron = window.electronAPI?.isElectron || false;
+        _checkpoint('Electron detection: ' + isElectron);
         
         // Flag to track when native Porcupine is handling audio (blocks browser mic access)
         let nativePorcupineActive = false;
         let nativeLeopardActive = false;  // Track when using native Leopard for transcription
+        _checkpoint('Variables initialized');
         
         // Only connect Socket.IO in browser (not needed in Electron)
         const socket = isElectron ? null : (typeof io !== 'undefined' ? io() : null);
@@ -2936,6 +2960,7 @@ DASHBOARD_PAGE = '''
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let micPermission = 'prompt'; // 'granted', 'denied', or 'prompt'
         
+        _checkpoint('Before Electron listeners');
         if (isElectron) {
             console.log(' Running in Electron app');
             
@@ -3043,7 +3068,8 @@ DASHBOARD_PAGE = '''
                 });
             }
         }
-        
+        _checkpoint('Electron listeners done');
+
         // Update audio bars with real audio level
         function updateAudioBars(level) {
             const baseScales = [0.35, 0.6, 1, 0.6, 0.35];
@@ -6184,10 +6210,11 @@ DASHBOARD_PAGE = '''
             chatMessages.appendChild(transcript);
         }
         
+        _checkpoint('Before hybrid command system');
         // ============================================================
         // HYBRID COMMAND SYSTEM - Fast keywords + AI fallback
         // ============================================================
-        
+
         // Command registry with synonyms for instant matching
         const COMMAND_REGISTRY = {
             // Universal window watcher - watches any app
@@ -8049,6 +8076,29 @@ DASHBOARD_PAGE = '''
             }, 1000);
         } else if (isElectron) {
             console.log('[ELECTRON] Skipping auto-start - use mic button for Whisper');
+        }
+        
+        _checkpoint('Script fully loaded');
+        console.log('%c[CORTONA] ✅ All initialization complete!', 'color: #00f5d4; font-weight: bold; font-size: 14px;');
+        console.log('[CORTONA] Checkpoints:', _checkpoints);
+        
+        } catch (initError) {
+            // Catch any initialization errors
+            console.error('%c[CORTONA] ❌ INITIALIZATION ERROR:', 'color: #ef4444; font-weight: bold; font-size: 16px;');
+            console.error('Error:', initError.message);
+            console.error('Stack:', initError.stack);
+            console.error('Checkpoints completed before error:', _checkpoints);
+            
+            // Show error in UI if possible
+            try {
+                const chatMessages = document.getElementById('chat-messages');
+                if (chatMessages) {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.cssText = 'background: #ef4444; color: white; padding: 12px; border-radius: 8px; margin: 8px;';
+                    errorDiv.innerHTML = '<strong>⚠️ Script Error:</strong> ' + initError.message + '<br><small>Check console (Cmd+Option+I) for details</small>';
+                    chatMessages.appendChild(errorDiv);
+                }
+            } catch (e) {}
         }
     </script>
 </body>
