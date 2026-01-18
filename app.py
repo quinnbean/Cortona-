@@ -2554,8 +2554,22 @@ DASHBOARD_PAGE = '''
                         <h4>Wake Word</h4>
                         <p>Say this to activate voice recognition</p>
                     </div>
-                    <input type="text" class="setting-input" id="wake-word-input" 
-                           placeholder="jarvis" onblur="updateDeviceSetting('wakeWord', this.value)">
+                    <select class="setting-input" id="wake-word-input" onchange="updateDeviceSetting('wakeWord', this.value)">
+                        <option value="computer">Computer</option>
+                        <option value="jarvis">Jarvis</option>
+                        <option value="alexa">Alexa</option>
+                        <option value="hey_google">Hey Google</option>
+                        <option value="hey_siri">Hey Siri</option>
+                        <option value="ok_google">OK Google</option>
+                        <option value="bumblebee">Bumblebee</option>
+                        <option value="terminator">Terminator</option>
+                        <option value="picovoice">Picovoice</option>
+                        <option value="porcupine">Porcupine</option>
+                        <option value="americano">Americano</option>
+                        <option value="blueberry">Blueberry</option>
+                        <option value="grapefruit">Grapefruit</option>
+                        <option value="grasshopper">Grasshopper</option>
+                    </select>
                 </div>
                 <div class="setting-row">
                     <div class="setting-label">
@@ -2801,7 +2815,22 @@ DASHBOARD_PAGE = '''
                 </div>
                 <div class="form-group">
                     <label>Wake Word</label>
-                    <input type="text" id="new-device-wake" placeholder="e.g., Hey Jarvis, OK Computer">
+                    <select id="new-device-wake">
+                        <option value="computer">Computer</option>
+                        <option value="jarvis">Jarvis</option>
+                        <option value="alexa">Alexa</option>
+                        <option value="hey_google">Hey Google</option>
+                        <option value="hey_siri">Hey Siri</option>
+                        <option value="ok_google">OK Google</option>
+                        <option value="bumblebee">Bumblebee</option>
+                        <option value="terminator">Terminator</option>
+                        <option value="picovoice">Picovoice</option>
+                        <option value="porcupine">Porcupine</option>
+                        <option value="americano">Americano</option>
+                        <option value="blueberry">Blueberry</option>
+                        <option value="grapefruit">Grapefruit</option>
+                        <option value="grasshopper">Grasshopper</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>Icon</label>
@@ -2844,42 +2873,18 @@ DASHBOARD_PAGE = '''
     
     <script>
         // ============================================================
-        // DEBUG LOGGING - Track script loading progress
-        // ============================================================
-        console.log('%c[CORTONA] Script loading started...', 'color: #00f5d4; font-weight: bold;');
-        const _loadStart = Date.now();
-        const _checkpoints = [];
-        
-        function _checkpoint(name) {
-            const elapsed = Date.now() - _loadStart;
-            _checkpoints.push({ name, elapsed });
-            console.log(`%c[CORTONA] ✓ ${name} (${elapsed}ms)`, 'color: #22c55e;');
-        }
-        
-        function _error(location, error) {
-            console.error(`%c[CORTONA] ✗ ERROR in ${location}:`, 'color: #ef4444; font-weight: bold;', error);
-            console.error('Stack:', error.stack);
-        }
-        
-        // Wrap initialization in try-catch
-        try {
-        
-        // ============================================================
         // INITIALIZATION
         // ============================================================
-        _checkpoint('Script start');
 
         // Electron API detection (MUST be first)
         const isElectron = window.electronAPI?.isElectron || false;
-        _checkpoint('Electron detection: ' + isElectron);
         
         // Flag to track when native Porcupine is handling audio (blocks browser mic access)
         let nativePorcupineActive = false;
         let nativeLeopardActive = false;  // Track when using native Leopard for transcription
-        _checkpoint('Variables initialized');
         
-        // Only connect Socket.IO in browser (not needed in Electron)
-        const socket = isElectron ? null : (typeof io !== 'undefined' ? io() : null);
+        // Connect Socket.IO (needed for Chrome extension notifications in Electron too)
+        const socket = (typeof io !== 'undefined' ? io() : null);
         
         // Safe socket emit wrapper (no-op in Electron)
         function socketEmit(event, data) {
@@ -2960,7 +2965,6 @@ DASHBOARD_PAGE = '''
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let micPermission = 'prompt'; // 'granted', 'denied', or 'prompt'
         
-        _checkpoint('Before Electron listeners');
         if (isElectron) {
             console.log(' Running in Electron app');
             
@@ -2974,7 +2978,7 @@ DASHBOARD_PAGE = '''
                     // Focus the mic and show we're ready
                     const micBtn = document.getElementById('mic-button') || document.getElementById('voice-orb');
                     if (micBtn) micBtn.focus();
-                    addActivity(' Activated via ⌘+Shift+J', 'success');
+                    addActivity(' Activated via Cmd+Shift+J', 'success');
                 });
             }
             
@@ -3039,10 +3043,19 @@ DASHBOARD_PAGE = '''
             if (window.electronAPI.onWindowActivity) {
                 window.electronAPI.onWindowActivity((data) => {
                     console.log('[WINDOW-WATCHER] Activity:', data);
+                    
+                    // If this is the first activity, notify the user
+                    if (data.firstActivity) {
+                        const sourceInfo = data.source ? ` (detected via ${data.source})` : '';
+                        addChatMessage(`**${data.app}** started working${sourceInfo}! I'll let you know when it's done.`, 'jarvis');
+                        addActivity(`${data.app} started`, 'info');
+                    }
+                    
                     // Update status to show activity
                     const watcherText = document.getElementById('status-watcher-text');
                     if (watcherText) {
-                        watcherText.textContent = `Active: ${data.app}`;
+                        const cpuInfo = data.cpu ? ` (${data.cpu.toFixed(0)}% CPU)` : '';
+                        watcherText.textContent = `Active: ${data.app}${cpuInfo}`;
                         setTimeout(() => {
                             watcherText.textContent = `Watching: ${data.app}`;
                         }, 1000);
@@ -3051,13 +3064,34 @@ DASHBOARD_PAGE = '''
             }
             
             // Listen for window watcher completion (universal AI detection)
+            // Add cooldown to prevent spam
+            let lastWatcherNotification = 0;
+            const WATCHER_COOLDOWN = 10000; // 10 second cooldown between notifications
+            
             if (window.electronAPI.onWindowAgentFinished) {
                 window.electronAPI.onWindowAgentFinished((data) => {
                     console.log('[WINDOW-WATCHER] Agent finished!', data);
                     
-                    addChatMessage(`🎉 **${data.app}** appears to be done! No activity for ${Math.round(data.idleTime/1000)}s.`, 'jarvis');
-                    addActivity(`${data.app} finished`, 'success');
-                    playChime('success');
+                    // Prevent spam - ignore if we just notified
+                    const now = Date.now();
+                    if (now - lastWatcherNotification < WATCHER_COOLDOWN) {
+                        console.log('[WINDOW-WATCHER] Ignoring duplicate notification (cooldown)');
+                        return;
+                    }
+                    lastWatcherNotification = now;
+                    
+                    // Handle app closed vs finished
+                    if (data.reason === 'closed') {
+                        addChatMessage(`**${data.app}** window was closed.`, 'jarvis');
+                        addActivity(`${data.app} closed`, 'info');
+                    } else {
+                        addChatMessage(` **${data.app}** appears to be done! No activity for ${Math.round(data.idleTime/1000)}s.`, 'jarvis');
+                        addActivity(`${data.app} finished`, 'success');
+                        playChime('success');
+                    }
+                    
+                    // Update watcher widget to show stopped
+                    updateWatcherWidget(null, false);
                     
                     // Flash the watcher status
                     const watcherDot = document.getElementById('status-watcher');
@@ -3067,8 +3101,93 @@ DASHBOARD_PAGE = '''
                     }
                 });
             }
+            
+            // ============================================================
+            // CHROME EXTENSION EVENTS (Browser AI detection)
+            // ============================================================
+            if (socket) {
+                // Chrome extension detected AI started
+                socket.on('chrome_ai_started', (data) => {
+                    console.log('[CHROME] AI started:', data);
+                    addActivity(`${data.ai} started responding...`, 'info');
+                });
+                
+                // Chrome extension detected AI finished
+                socket.on('chrome_ai_finished', (data) => {
+                    console.log('[CHROME] AI finished:', data);
+                    addChatMessage(`**${data.ai}** finished responding in your browser!`, 'jarvis');
+                    addActivity(`${data.ai} done`, 'success');
+                    playChime('success');
+                    
+                    // Show native notification
+                    if (isElectron && window.electronAPI?.showNotification) {
+                        window.electronAPI.showNotification(
+                            data.ai + ' Finished',
+                            'Your AI assistant has finished responding'
+                        );
+                    }
+                });
+                
+                // ============================================================
+                // CURSOR EXTENSION EVENTS (Direct Cursor integration)
+                // ============================================================
+                
+                // Cursor AI agent started working
+                socket.on('cursor_agent_started', (data) => {
+                    console.log('[CURSOR-EXT] Agent started:', data);
+                    const fileName = data.file ? data.file.split('/').pop() : '';
+                    addActivity(`Cursor AI started${fileName ? ` on ${fileName}` : ''}`, 'info');
+                    addChatMessage(`**Cursor AI** started working${fileName ? ` on \`${fileName}\`` : ''}...`, 'jarvis');
+                });
+                
+                // Cursor AI agent finished
+                socket.on('cursor_agent_finished', (data) => {
+                    console.log('[CURSOR-EXT] Agent finished:', data);
+                    const fileName = data.file ? data.file.split('/').pop() : '';
+                    const idleTime = data.idleTime ? Math.round(data.idleTime / 1000) : 0;
+                    
+                    addChatMessage(`**Cursor AI** finished!${fileName ? ` Last file: \`${fileName}\`` : ''} (idle ${idleTime}s)`, 'jarvis');
+                    addActivity('Cursor AI done', 'success');
+                    playChime('success');
+                    
+                    // Show native notification
+                    if (isElectron && window.electronAPI?.showNotification) {
+                        window.electronAPI.showNotification(
+                            'Cursor AI Finished',
+                            `AI agent completed${fileName ? ' - ' + fileName : ''}`
+                        );
+                    }
+                });
+                
+                // Cursor file saved
+                socket.on('cursor_file_saved', (data) => {
+                    console.log('[CURSOR-EXT] File saved:', data);
+                    const fileName = data.file ? data.file.split('/').pop() : 'file';
+                    addActivity(`Saved: ${fileName}`, 'info');
+                });
+                
+                // Cursor terminal completed
+                socket.on('cursor_terminal_done', (data) => {
+                    console.log('[CURSOR-EXT] Terminal done:', data);
+                    addActivity('Terminal: completed', 'success');
+                });
+                
+                // Cursor terminal error
+                socket.on('cursor_terminal_error', (data) => {
+                    console.log('[CURSOR-EXT] Terminal error:', data);
+                    addActivity('Terminal: error detected', 'warning');
+                    addChatMessage(`**Cursor Terminal** reported an error`, 'jarvis');
+                });
+                
+                // Cursor diagnostics error
+                socket.on('cursor_diagnostics_error', (data) => {
+                    console.log('[CURSOR-EXT] Diagnostics error:', data);
+                    if (data.errors > 0) {
+                        addActivity(`Code errors: ${data.errors}`, 'warning');
+                    }
+                });
+            }
         }
-        _checkpoint('Electron listeners done');
 
         // Update audio bars with real audio level
         function updateAudioBars(level) {
@@ -3201,7 +3320,7 @@ DASHBOARD_PAGE = '''
                 }
             } else {
                 // Not in Electron, show instructions
-                addActivity('ℹ️ Open System Settings > Privacy & Security > Accessibility manually', 'info');
+                addActivity('[i] Open System Settings > Privacy & Security > Accessibility manually', 'info');
             }
         }
         
@@ -3367,12 +3486,12 @@ DASHBOARD_PAGE = '''
             'claude': { name: 'Claude', icon: '', keywords: ['claude', 'anthropic'] },
             'chatgpt': { name: 'ChatGPT', icon: '', keywords: ['chatgpt', 'chat gpt', 'openai', 'gpt'] },
             'copilot': { name: 'Copilot', icon: '', keywords: ['copilot', 'github copilot'] },
-            'gemini': { name: 'Gemini', icon: '🌟', keywords: ['gemini', 'google ai', 'bard'] },
-            'terminal': { name: 'Terminal', icon: '⬛', keywords: ['terminal', 'command line', 'shell', 'console'] },
+            'gemini': { name: 'Gemini', icon: '*', keywords: ['gemini', 'google ai', 'bard'] },
+            'terminal': { name: 'Terminal', icon: '#', keywords: ['terminal', 'command line', 'shell', 'console'] },
             'browser': { name: 'Browser', icon: '', keywords: ['browser', 'chrome', 'firefox', 'safari', 'edge'] },
             'notes': { name: 'Notes', icon: '', keywords: ['notes', 'notepad', 'text editor'] },
-            'slack': { name: 'Slack', icon: '💼', keywords: ['slack'] },
-            'discord': { name: 'Discord', icon: '🎮', keywords: ['discord'] },
+            'slack': { name: 'Slack', icon: '', keywords: ['slack'] },
+            'discord': { name: 'Discord', icon: '', keywords: ['discord'] },
         };
         
         // Parse a command to extract target device/app and the actual command
@@ -3559,7 +3678,7 @@ DASHBOARD_PAGE = '''
             });
             
             showLastCommand(targetDevice.icon || '', `> ${targetDevice.name}`, command);
-            addActivity(`📤 Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
+            addActivity(`> Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
         }
         
         // Test desktop client connection
@@ -3595,9 +3714,9 @@ DASHBOARD_PAGE = '''
                     action: 'type',
                     timestamp: new Date().toISOString()
                 });
-                addActivity(`📤 Sent test ping to ${desktopClient.name}`, 'info');
+                addActivity(`> Sent test ping to ${desktopClient.name}`, 'info');
             } else {
-                addActivity('ℹ️ Use the Electron app for app control (no separate client needed)', 'info');
+                addActivity('[i] Use the Electron app for app control (no separate client needed)', 'info');
                 console.log('No desktop client. Device types:', Object.values(devices).map(d => ({name: d.name, type: d.type})));
             }
         }
@@ -3667,7 +3786,7 @@ DASHBOARD_PAGE = '''
                     targetApp: 'cursor',
                     timestamp: new Date().toISOString()
                 });
-                addActivity('📤 Sent test text to Cursor', 'success');
+                addActivity('> Sent test text to Cursor', 'success');
             } else {
                 addActivity('X No desktop client! Use the Electron app for app control.', 'warning');
             }
@@ -3851,7 +3970,7 @@ DASHBOARD_PAGE = '''
             });
             
             showLastCommand(targetDevice.icon || '', '> ' + targetDevice.name, command);
-            addActivity('📤 Sent to ' + targetDevice.name + ': "' + command.substring(0, 40) + '..."', 'success');
+            addActivity('> Sent to ' + targetDevice.name + ': "' + command.substring(0, 40) + '..."', 'success');
             document.getElementById('transcript').textContent = ' > ' + targetDevice.name + ': "' + command + '"';
         }
         
@@ -3886,7 +4005,7 @@ DASHBOARD_PAGE = '''
             const transcriptEl = document.getElementById('transcript');
             const wakeWord = currentDevice?.wakeWord?.toLowerCase() || 'hey computer';
             
-            addActivity('🛑 Stop command - ending dictation', 'info');
+            addActivity('[STOP] Stop command - ending dictation', 'info');
             
             // End active dictation
             isActiveDictation = false;
@@ -4086,7 +4205,7 @@ DASHBOARD_PAGE = '''
                     
                     if (isQuickStop) {
                         // Stop the current dictation session, but keep always-listen mode if enabled
-                        addActivity('🛑 Stop command - ending dictation', 'info');
+                        addActivity('[STOP] Stop command - ending dictation', 'info');
                         addToTranscriptHistory(lowerTranscript, 'stop');
                         
                         // End active dictation
@@ -5102,7 +5221,7 @@ DASHBOARD_PAGE = '''
                     await transcribeWithWhisper(blob);
                 } else {
                     console.log('[WHISPER] Audio too small, skipping');
-                    addActivity('🔇 No speech detected', 'info');
+                    addActivity('[MUTE] No speech detected', 'info');
                 }
                 
                 // Clear chunks
@@ -5654,12 +5773,12 @@ DASHBOARD_PAGE = '''
                     'like and subscribe',
                     'see you next time',
                     'goodbye',
-                    'チャンネル',
-                    'ご視聴',
-                    'ありがとう',
-                    'お願い',
-                    '谢谢',
-                    '订阅',
+                    'chiyanneru',
+                    'goviewlisten',
+                    'arigatou',
+                    'owishi',
+                    'thanksthanks',
+                    'subscriberead',
                     'music',
                     '[music]',
                     '...',
@@ -5699,7 +5818,7 @@ DASHBOARD_PAGE = '''
             
             // Filter hallucinations
             if (isWhisperHallucination(text)) {
-                addActivity('🔇 Filtered background noise', 'info');
+                addActivity('[MUTE] Filtered background noise', 'info');
                 return;
             }
             
@@ -5712,7 +5831,7 @@ DASHBOARD_PAGE = '''
             
             // Check for stop command
             if (checkForStopCommand(lowerText)) {
-                addActivity('🛑 Stop command - ending dictation', 'info');
+                addActivity('[STOP] Stop command - ending dictation', 'info');
                 isActiveDictation = false;
                 
                 // CRITICAL: Stop audio visualization immediately
@@ -5833,15 +5952,30 @@ DASHBOARD_PAGE = '''
                     
                     if (result.success && result.transcript) {
                         console.log('[LEOPARD] Got transcript:', result.transcript);
-                        console.log('[LEOPARD] Calling handleTranscript...');
                         
                         // Show transcript in UI immediately
                         document.getElementById('transcript').textContent = result.transcript;
                         addActivity('You said: ' + result.transcript, 'info');
+                        addChatMessage(result.transcript, 'user');
                         
-                        // Process with AI
-                        handleTranscript(result.transcript);
-                        console.log('[LEOPARD] handleTranscript completed');
+                        // HYBRID: Try local commands first, then AI
+                        const match = matchCommand(result.transcript);
+                        if (match && match.confidence >= 0.7) {
+                            console.log('[LEOPARD] Local command match:', match.command);
+                            const cmdResult = await executeLocalCommand(match.command, result.transcript);
+                            if (cmdResult.handled) {
+                                console.log('[LEOPARD] Command handled locally!');
+                            } else {
+                                // Local command didn't handle it, fall back to AI
+                                console.log('[LEOPARD] Local command failed, using AI...');
+                                handleTranscript(result.transcript);
+                            }
+                        } else {
+                            // No local match, use AI
+                            console.log('[LEOPARD] No local match, using AI...');
+                            handleTranscript(result.transcript);
+                        }
+                        console.log('[LEOPARD] Processing completed');
                     } else {
                         console.log('[LEOPARD] No transcript or error:', result.error);
                         addActivity('No speech detected', 'warning');
@@ -6076,6 +6210,22 @@ DASHBOARD_PAGE = '''
             // Remove typing indicator if present
             const typingEl = chatMessages.querySelector('.typing-indicator');
             if (typingEl) typingEl.remove();
+            
+            // Reset orb state when Jarvis responds (processing complete)
+            if (sender === 'jarvis') {
+                const voiceOrbContainer = document.getElementById('voice-orb-container');
+                if (voiceOrbContainer) {
+                    voiceOrbContainer.classList.remove('processing');
+                    // Set to appropriate state based on current mode
+                    if (alwaysListen) {
+                        voiceOrbContainer.classList.add('wake-listening');
+                    } else {
+                        voiceOrbContainer.classList.add('idle');
+                    }
+                }
+                const voiceStatus = document.getElementById('voice-status');
+                if (voiceStatus) voiceStatus.textContent = alwaysListen ? 'Standby' : 'Click to Start';
+            }
 
             // Clear the initial "waiting" message
             if (transcript.textContent.includes('Say your wake word') || transcript.textContent.includes('Click the orb')) {
@@ -6094,13 +6244,13 @@ DASHBOARD_PAGE = '''
             messageDiv.id = msgId;
             messageDiv.innerHTML = `
                 <div class="msg-header">
-                    <span class="sender">${sender === 'jarvis' ? '🤖 Jarvis' : '👤 You'}</span>
+                    <span class="sender">${sender === 'jarvis' ? ' Jarvis' : ' You'}</span>
                     <span class="timestamp">${timeStr}</span>
                 </div>
                 <div class="msg-content">${formatMessageContent(text)}</div>
                 <div class="msg-actions">
                     <button class="msg-action-btn" onclick="copyMessage('${msgId}')" title="Copy">
-                        📋 Copy
+                         Copy
                     </button>
                 </div>
             `;
@@ -6123,7 +6273,7 @@ DASHBOARD_PAGE = '''
                 .replace(/\\n/g, '<br>')
                 .replace(/\`([^\`]+)\`/g, '<code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>')
                 .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
-                .replace(/•/g, '<br>•');
+                .replace(/\*/g, '<br>*');
         }
         
         // Copy message to clipboard
@@ -6210,7 +6360,6 @@ DASHBOARD_PAGE = '''
             chatMessages.appendChild(transcript);
         }
         
-        _checkpoint('Before hybrid command system');
         // ============================================================
         // HYBRID COMMAND SYSTEM - Fast keywords + AI fallback
         // ============================================================
@@ -6219,9 +6368,14 @@ DASHBOARD_PAGE = '''
         const COMMAND_REGISTRY = {
             // Universal window watcher - watches any app
             watchApp: {
-                keywords: ['watch', 'monitor', 'track', 'observe'],
+                keywords: ['watch', 'monitor', 'track', 'observe', 'keep an eye'],
                 contexts: ['chrome', 'cursor', 'safari', 'firefox', 'vscode', 'discord', 'chatgpt', 'claude', 'gemini', 'terminal', 'windsurf', 'midjourney'],
-                phrases: ['watch chrome', 'watch cursor', 'watch vscode', 'watch safari', 'watch discord', 'monitor chrome', 'monitor cursor', 'watch chatgpt', 'watch claude', 'watch gemini']
+                phrases: [
+                    'watch chrome', 'watch cursor', 'watch vscode', 'watch safari', 'watch discord',
+                    'monitor chrome', 'monitor cursor', 'watch chatgpt', 'watch claude', 'watch gemini',
+                    'keep an eye on cursor', 'keep an eye on chrome', 'watch cursor for me',
+                    'let me know when cursor', 'notify me when cursor', 'tell me when cursor'
+                ]
             },
             // File-based watcher (for project folders)
             startWatch: {
@@ -6261,28 +6415,30 @@ DASHBOARD_PAGE = '''
             help: {
                 phrases: ['help', 'what can you do', 'commands', 'how do i', 'what are my options'],
                 response: () => `Here's what I can do:
-• **Voice Commands** - Say your wake word, then speak
-• **Type Commands** - Use this chat input
-• **Watch Any App** - "watch cursor" or "watch chrome" to detect when AI finishes
-• **Watch Folder** - "watch project" for file changes
-• **Control Apps** - "open chrome", "type hello"
-• **List Apps** - "list apps" to see what's running
-• **Ask Questions** - I'll answer using AI`
+* **Voice Commands** - Say your wake word, then speak
+* **Type Commands** - Use this chat input
+* **Watch Any App** - "watch cursor" or "watch chrome" to detect when AI finishes
+* **Watch Folder** - "watch project" for file changes
+* **Control Apps** - "open chrome", "type hello"
+* **List Apps** - "list apps" to see what's running
+* **Ask Questions** - I'll answer using AI`
             },
             // Status check
             status: {
                 phrases: ['status', 'are you there', 'you working', 'test', 'ping'],
-                response: () => "I'm here and ready! 🟢"
+                response: () => "I'm here and ready! o"
             }
         };
         
         // Fast keyword matching function
         function matchCommand(text) {
             const lower = text.toLowerCase().trim();
+            console.log('[MATCH] Checking command:', lower);
             
             for (const [cmdName, cmd] of Object.entries(COMMAND_REGISTRY)) {
                 // Check exact phrase matches first (fastest)
                 if (cmd.phrases && cmd.phrases.some(p => lower.includes(p) || lower === p)) {
+                    console.log('[MATCH] Phrase match:', cmdName);
                     return { command: cmdName, confidence: 1.0 };
                 }
                 
@@ -6291,16 +6447,19 @@ DASHBOARD_PAGE = '''
                     const hasKeyword = cmd.keywords.some(k => lower.includes(k));
                     const hasContext = cmd.contexts.some(c => lower.includes(c));
                     if (hasKeyword && hasContext) {
+                        console.log('[MATCH] Keyword+context match:', cmdName);
                         return { command: cmdName, confidence: 0.9 };
                     }
                 }
                 
                 // Check keywords alone (lower confidence)
                 if (cmd.keywords && cmd.keywords.some(k => lower === k || lower.startsWith(k + ' '))) {
+                    console.log('[MATCH] Keyword match:', cmdName);
                     return { command: cmdName, confidence: 0.7 };
                 }
             }
             
+            console.log('[MATCH] No match found, falling back to AI');
             return null; // No match - will fall back to AI
         }
         
@@ -6314,11 +6473,38 @@ DASHBOARD_PAGE = '''
                     if (!isElectron || !window.electronAPI?.windowWatcherStart) {
                         return { handled: false, reason: 'Not in Electron' };
                     }
-                    // Extract app name from text
-                    const appNames = ['chrome', 'cursor', 'safari', 'firefox', 'vscode', 'discord', 'chatgpt', 'claude', 'gemini', 'terminal', 'windsurf', 'midjourney'];
-                    const appMatch = appNames.find(app => lower.includes(app));
+                    
+                    // Common mishearings map
+                    const appAliases = {
+                        'cursor': ['cursor', 'curser', 'cursed', 'kurser', 'kursor', 'coursor', 'courser'],
+                        'chrome': ['chrome', 'crome', 'chrom', 'krome'],
+                        'safari': ['safari', 'saffari', 'safary'],
+                        'firefox': ['firefox', 'fire fox', 'firfox'],
+                        'vscode': ['vscode', 'vs code', 'visual studio', 'code'],
+                        'discord': ['discord', 'discorde'],
+                        'chatgpt': ['chatgpt', 'chat gpt', 'chat gbt', 'gpt'],
+                        'claude': ['claude', 'claud', 'cloud'],
+                        'gemini': ['gemini', 'jemini'],
+                        'terminal': ['terminal', 'terme', 'termal'],
+                        'windsurf': ['windsurf', 'wind surf'],
+                        'midjourney': ['midjourney', 'mid journey']
+                    };
+                    
+                    // Find matching app (checking aliases)
+                    let appMatch = null;
+                    console.log('[WATCH] Looking for app in text:', lower);
+                    for (const [appName, aliases] of Object.entries(appAliases)) {
+                        if (aliases.some(alias => lower.includes(alias))) {
+                            appMatch = appName;
+                            console.log('[WATCH] Found app match:', appName);
+                            break;
+                        }
+                    }
+                    
                     if (!appMatch) {
+                        console.log('[WATCH] No app match found in:', lower);
                         addChatMessage('Which app should I watch? Try: "watch cursor", "watch chrome", or "watch vscode"', 'jarvis');
+                        addChatMessage('(I heard: "' + text + '")', 'jarvis');
                         return { handled: true };
                     }
                     
@@ -6335,18 +6521,42 @@ DASHBOARD_PAGE = '''
                         }
                     }
                     
-                    addChatMessage(`Starting universal watcher on: **${appMatch}**${windowSelector ? ` (window: ${windowSelector})` : ''}`, 'jarvis');
+                    // If no window specified, check if there are multiple windows
+                    if (!windowSelector && window.electronAPI?.windowWatcherListWindows) {
+                        try {
+                            const windowList = await window.electronAPI.windowWatcherListWindows(appMatch);
+                            if (windowList.success && windowList.windows && windowList.windows.length > 1) {
+                                // Multiple windows! Ask which one
+                                let msg = `I found **${windowList.windows.length} ${appMatch} windows**. Which one should I watch?\n\n`;
+                                windowList.windows.forEach((win, i) => {
+                                    const shortTitle = win.title.length > 50 ? win.title.substring(0, 50) + '...' : win.title;
+                                    msg += `**${i + 1}.** ${shortTitle}\n`;
+                                });
+                                msg += `\nSay "watch ${appMatch} 1" or "watch ${appMatch} 2", etc.`;
+                                addChatMessage(msg, 'jarvis');
+                                speakText(`I found ${windowList.windows.length} ${appMatch} windows. Which one should I watch? Say watch ${appMatch} 1 or watch ${appMatch} 2.`);
+                                
+                                // Auto-activate mic to listen for the answer
+                                waitForAnswer('window-selection');
+                                return { handled: true };
+                            }
+                        } catch (e) {
+                            console.log('[WATCH] Could not list windows:', e);
+                        }
+                    }
+                    
+                    addChatMessage(`Starting watcher on: **${appMatch}**${windowSelector ? ` (window ${windowSelector})` : ''}...`, 'jarvis');
                     try {
                         const result = await window.electronAPI.windowWatcherStart(appMatch, 5000, 500, windowSelector);
                         if (result.success) {
                             const windowInfo = result.windowTitle ? ` "${result.windowTitle}"` : '';
-                            addChatMessage(`Now watching **${result.app}**${windowInfo}! I'll notify you when activity stops for 5s.`, 'jarvis');
+                            addChatMessage(`Now watching **${result.app}**${windowInfo}. Waiting for activity to start... I'll notify you when it finishes.`, 'jarvis');
                             addActivity(`Watching: ${result.app}`, 'success');
                             updateWatcherWidget(result.app, true, result.windowTitle);
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
                             if (result.windows && result.windows.length > 0) {
-                                addChatMessage('Available windows:\\n' + result.windows.map((w, i) => '• Window ' + w.index + ': "' + w.title + '"').join('\\n'), 'jarvis');
+                                addChatMessage('Available windows:\\n' + result.windows.map((w, i) => '* Window ' + w.index + ': "' + w.title + '"').join('\\n'), 'jarvis');
                             } else if (result.runningApps) {
                                 addChatMessage('Running apps: ' + result.runningApps.slice(0, 10).join(', '), 'jarvis');
                             }
@@ -6367,7 +6577,7 @@ DASHBOARD_PAGE = '''
                     try {
                         const result = await window.electronAPI.windowWatcherListWindows(listAppMatch);
                         if (result.success && result.windows.length > 0) {
-                            addChatMessage('**' + result.app + ' Windows:**\\n' + result.windows.map(w => '• Window ' + w.index + ': "' + w.title + '"').join('\\n') + '\\n\\n💡 Say "watch ' + listAppMatch + ' 2" or "watch ' + listAppMatch + ' [title]" to select one.', 'jarvis');
+                            addChatMessage('**' + result.app + ' Windows:**\\n' + result.windows.map(w => '* Window ' + w.index + ': "' + w.title + '"').join('\\n') + '\\n\\n* Say "watch ' + listAppMatch + ' 2" or "watch ' + listAppMatch + ' [title]" to select one.', 'jarvis');
                         } else if (result.success) {
                             addChatMessage(`No windows found for ${result.app}`, 'jarvis');
                         } else {
@@ -6428,7 +6638,7 @@ DASHBOARD_PAGE = '''
                     }
                     try {
                         const apps = await window.electronAPI.windowWatcherApps();
-                        addChatMessage(`**Running Apps:**\n${apps.slice(0, 15).map(a => '• ' + a).join('\n')}${apps.length > 15 ? '\n... and ' + (apps.length - 15) + ' more' : ''}`, 'jarvis');
+                        addChatMessage('**Running Apps:** ' + apps.slice(0, 15).join(', ') + (apps.length > 15 ? ' and ' + (apps.length - 15) + ' more' : ''), 'jarvis');
                     } catch (e) {
                         addChatMessage('Error: ' + e.message, 'jarvis');
                     }
@@ -6460,7 +6670,7 @@ DASHBOARD_PAGE = '''
                 let displayText = `Watching: ${appName}`;
                 if (windowTitle) {
                     const shortTitle = windowTitle.length > 20 ? windowTitle.substring(0, 20) + '...' : windowTitle;
-                    displayText = `👁️ ${appName}: ${shortTitle}`;
+                    displayText = ` ${appName}: ${shortTitle}`;
                 }
                 watcherText.textContent = displayText;
             } else {
@@ -6612,6 +6822,15 @@ DASHBOARD_PAGE = '''
                 return null;
             }
             
+            // Set PROCESSING state - AI is thinking
+            const voiceOrbContainer = document.getElementById('voice-orb-container');
+            if (voiceOrbContainer) {
+                voiceOrbContainer.classList.remove('idle', 'wake-listening', 'listening');
+                voiceOrbContainer.classList.add('processing');
+            }
+            const voiceStatus = document.getElementById('voice-status');
+            if (voiceStatus) voiceStatus.textContent = 'Processing...';
+            
             text = text.trim();
             console.log('[HANDLE] After trim:', text);
             
@@ -6739,7 +6958,7 @@ DASHBOARD_PAGE = '''
             if (!skipRouting && parsed.targetDevice && parsed.targetDevice.id !== deviceId) {
                 routeCommandToDevice(parsed.targetDevice, parsed.command, parsed.action);
                 copyToClipboard(parsed.command); // Always copy to clipboard
-                document.getElementById('transcript').textContent = `📤 Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
+                document.getElementById('transcript').textContent = `> Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
                 return;
             }
             
@@ -6858,8 +7077,8 @@ DASHBOARD_PAGE = '''
                     
                     copyToClipboard(parsed.command);
                     showLastCommand(appInfo.icon, `> ${appInfo.name} on ${desktopClient.name}`, parsed.command);
-                    addActivity(`📤 Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
-                    document.getElementById('transcript').textContent = `📤 > ${appInfo.name}: "${parsed.command}"`;
+                    addActivity(`> Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                    document.getElementById('transcript').textContent = `> > ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
                     // No desktop client and not in Electron - copy to clipboard
@@ -6973,7 +7192,7 @@ DASHBOARD_PAGE = '''
                 'new paragraph': String.fromCharCode(10) + String.fromCharCode(10),
                 'open quote': '"', 'close quote': '"', 'quote': '"',
                 'open paren': '(', 'close paren': ')',
-                'hyphen': '-', 'dash': '—'
+                'hyphen': '-', 'dash': '-'
             };
             
             for (const [word, symbol] of Object.entries(replacements)) {
@@ -7098,8 +7317,8 @@ DASHBOARD_PAGE = '''
                     console.log('[MIC] Stopping Porcupine first...');
                     await window.electronAPI?.porcupineStop();
                     nativePorcupineActive = false;
-                    // Small delay to let mic release
-                    await new Promise(r => setTimeout(r, 200));
+                    // Minimal delay - sox takes over mic quickly
+                    await new Promise(r => setTimeout(r, 50));
                 }
                 
                 console.log('[MIC] Calling startWhisperRecording...');
@@ -7127,6 +7346,7 @@ DASHBOARD_PAGE = '''
             const voiceStatus = document.getElementById('voice-status');
             const voiceHint = document.getElementById('voice-hint');
             const wakeWordSpan = document.getElementById('current-wake-word');
+            const voiceOrbContainer = document.getElementById('voice-orb-container');
             
             // Guard: don't proceed if critical elements missing
             if (!micButton || !voiceStatus || !voiceHint) {
@@ -7137,10 +7357,15 @@ DASHBOARD_PAGE = '''
             // Clear all mic button states first
             micButton.classList.remove('listening', 'wake-listening');
             
+            // Clear voice orb container states too
+            if (voiceOrbContainer) {
+                voiceOrbContainer.classList.remove('idle', 'wake-listening', 'listening', 'processing');
+            }
+            
             // State logic:
-            // - isActiveDictation or (isListening && !alwaysListen) → GREEN (actively recording)
-            // - alwaysListen enabled → YELLOW (standby, waiting for wake word)
-            // - Everything else → RED (off)
+            // - isActiveDictation or (isListening && !alwaysListen) -> GREEN (actively recording)
+            // - alwaysListen enabled -> YELLOW (standby, waiting for wake word)
+            // - Everything else -> RED (off)
             
             // Get audio visualization elements
             const audioLevelContainer = document.getElementById('audio-level-container');
@@ -7176,33 +7401,40 @@ DASHBOARD_PAGE = '''
                 recordingDot.classList.toggle('active', isActivelyRecording);
             }
             
-            if (isActiveDictation) {
-                // GREEN: Actively recording after wake word
+            if (isActiveDictation || nativeLeopardActive) {
+                // GREEN: Actively recording after wake word OR native Leopard recording
                 micButton.classList.add('listening');
-                    micButton.innerHTML = 'REC';
+                micButton.innerHTML = 'REC';
                 voiceStatus.textContent = 'Recording...';
                 voiceHint.innerHTML = 'Speak your command. Press <strong>Space</strong> or say "stop" when done.';
+                if (voiceOrbContainer) voiceOrbContainer.classList.add('listening');
             } else if (isListening && !alwaysListen) {
                 // GREEN: Manual recording mode (clicked mic button)
                 micButton.classList.add('listening');
-                    micButton.innerHTML = 'REC';
-                    voiceStatus.textContent = 'Recording';
+                micButton.innerHTML = 'REC';
+                voiceStatus.textContent = 'Recording';
                 voiceHint.innerHTML = continuousMode ? 'Continuous mode active' : 'Press <strong>Space</strong> or say "stop" to end.';
+                if (voiceOrbContainer) voiceOrbContainer.classList.add('listening');
             } else if (alwaysListen) {
                 // YELLOW: Always Listen is ON - standby, waiting for wake word
                 micButton.classList.add('wake-listening');
                 micButton.innerHTML = 'WAKE';
                 voiceStatus.textContent = 'Standby';
-                voiceHint.innerHTML = `Say "<strong>${currentDevice?.wakeWord || 'computer'}</strong>" to activate`;
+                var hintWake = (currentDevice?.wakeWord || 'computer').replace(/_/g, ' ');
+                voiceHint.innerHTML = 'Say "<strong>' + hintWake.charAt(0).toUpperCase() + hintWake.slice(1) + '</strong>" to activate';
+                if (voiceOrbContainer) voiceOrbContainer.classList.add('wake-listening');
             } else {
-                // RED: Everything off
+                // RED: Everything off - idle state
                 micButton.innerHTML = 'MIC';
                 voiceStatus.textContent = 'Click to Start';
                 voiceHint.innerHTML = 'Click mic or enable Always Listen';
+                if (voiceOrbContainer) voiceOrbContainer.classList.add('idle');
             }
             
             if (wakeWordSpan) {
-                wakeWordSpan.textContent = `"${currentDevice?.wakeWord || 'hey computer'}"`;
+                // Format wake word for display (convert underscores to spaces, capitalize words)
+                var displayWake = (currentDevice?.wakeWord || 'computer').replace(/_/g, ' ').split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+                wakeWordSpan.textContent = '"' + displayWake + '"';
             }
             
             // Update settings header to show which device is being edited
@@ -7359,14 +7591,21 @@ DASHBOARD_PAGE = '''
             
             modalHTML += '<div style="margin-bottom: 16px;">';
             modalHTML += '<label style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Wake Word <span style="color: var(--text-muted); font-size: 11px;">(activates this device only)</span></label>';
-            modalHTML += '<input type="text" id="edit-device-wake" value="' + (device.wakeWord || '').replace(/"/g, '&quot;') + '" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: 15px; box-sizing: border-box;" autocomplete="off" spellcheck="false">';
+            var wakeOptions = ['computer', 'jarvis', 'alexa', 'hey_google', 'hey_siri', 'ok_google', 'bumblebee', 'terminator', 'picovoice', 'porcupine', 'americano', 'blueberry', 'grapefruit', 'grasshopper'];
+            var wakeLabels = ['Computer', 'Jarvis', 'Alexa', 'Hey Google', 'Hey Siri', 'OK Google', 'Bumblebee', 'Terminator', 'Picovoice', 'Porcupine', 'Americano', 'Blueberry', 'Grapefruit', 'Grasshopper'];
+            modalHTML += '<select id="edit-device-wake" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: 15px; box-sizing: border-box;">';
+            for (var w = 0; w < wakeOptions.length; w++) {
+                var sel = (device.wakeWord || '').toLowerCase() === wakeOptions[w] ? ' selected' : '';
+                modalHTML += '<option value="' + wakeOptions[w] + '"' + sel + '>' + wakeLabels[w] + '</option>';
+            }
+            modalHTML += '</select>';
             modalHTML += '<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Say this word to activate listening on this device</div>';
             modalHTML += '</div>';
             
             modalHTML += '<div style="margin-bottom: 20px;">';
             modalHTML += '<label style="display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted);">Icon</label>';
             modalHTML += '<div style="display: flex; gap: 8px; flex-wrap: wrap;">';
-            var icons = ['', '', '', '', '🎧', '', '', '📺'];
+            var icons = ['', '', '', '', '', '', '', ''];
             for (var i = 0; i < icons.length; i++) {
                 var icon = icons[i];
                 var isSelected = device.icon === icon;
@@ -7503,14 +7742,14 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            const icons = { success: '', info: 'ℹ️', warning: '' };
+            const icons = { success: '', info: '[i]', warning: '' };
             
             listEl.innerHTML = activityLog.map(a => `
                 <div class="activity-item">
-                    <div class="activity-icon ${a.type}">${icons[a.type] || 'ℹ️'}</div>
+                    <div class="activity-icon ${a.type}">${icons[a.type] || '[i]'}</div>
                     <div class="activity-content">
                         <p>${a.message}</p>
-                        <span class="time">${a.time}${a.words ? ` • ${a.words} words` : ''}</span>
+                        <span class="time">${a.time}${a.words ? ` * ${a.words} words` : ''}</span>
                     </div>
                 </div>
             `).join('');
@@ -7560,11 +7799,11 @@ DASHBOARD_PAGE = '''
             if (elapsed < 1) {
                 infoEl.textContent = 'Session started just now';
             } else if (elapsed < 60) {
-                infoEl.textContent = 'Session: ' + elapsed + ' min • ' + transcriptHistory.length + ' transcripts';
+                infoEl.textContent = 'Session: ' + elapsed + ' min * ' + transcriptHistory.length + ' transcripts';
             } else {
                 const hours = Math.floor(elapsed / 60);
                 const mins = elapsed % 60;
-                infoEl.textContent = 'Session: ' + hours + 'h ' + mins + 'm • ' + transcriptHistory.length + ' transcripts';
+                infoEl.textContent = 'Session: ' + hours + 'h ' + mins + 'm * ' + transcriptHistory.length + ' transcripts';
             }
             
             if (transcriptHistory.length === 0) {
@@ -7576,8 +7815,8 @@ DASHBOARD_PAGE = '''
             const typeIcons = {
                 command: '',
                 wake: '',
-                routed: '📤',
-                stop: '🛑'
+                routed: '>',
+                stop: '[STOP]'
             };
             
             const typeLabels = {
@@ -8076,30 +8315,25 @@ DASHBOARD_PAGE = '''
             }, 1000);
         } else if (isElectron) {
             console.log('[ELECTRON] Skipping auto-start - use mic button for Whisper');
-        }
-        
-        _checkpoint('Script fully loaded');
-        console.log('%c[CORTONA] ✅ All initialization complete!', 'color: #00f5d4; font-weight: bold; font-size: 14px;');
-        console.log('[CORTONA] Checkpoints:', _checkpoints);
-        
-        } catch (initError) {
-            // Catch any initialization errors
-            console.error('%c[CORTONA] ❌ INITIALIZATION ERROR:', 'color: #ef4444; font-weight: bold; font-size: 16px;');
-            console.error('Error:', initError.message);
-            console.error('Stack:', initError.stack);
-            console.error('Checkpoints completed before error:', _checkpoints);
             
-            // Show error in UI if possible
-            try {
-                const chatMessages = document.getElementById('chat-messages');
-                if (chatMessages) {
-                    const errorDiv = document.createElement('div');
-                    errorDiv.style.cssText = 'background: #ef4444; color: white; padding: 12px; border-radius: 8px; margin: 8px;';
-                    errorDiv.innerHTML = '<strong>⚠️ Script Error:</strong> ' + initError.message + '<br><small>Check console (Cmd+Option+I) for details</small>';
-                    chatMessages.appendChild(errorDiv);
-                }
-            } catch (e) {}
+            // PRE-INITIALIZE Leopard at startup to eliminate recording delay
+            if (window.electronAPI?.leopardPreInit && PICOVOICE_ACCESS_KEY) {
+                console.log('[LEOPARD] Pre-initializing Leopard model at startup...');
+                window.electronAPI.leopardPreInit(PICOVOICE_ACCESS_KEY).then(result => {
+                    if (result.success) {
+                        console.log('[LEOPARD] Pre-initialized! Recording will start instantly.');
+                        if (result.initTime) {
+                            console.log('[LEOPARD] Model loaded in', result.initTime, 'ms');
+                        }
+                    } else {
+                        console.warn('[LEOPARD] Pre-init failed:', result.error);
+                    }
+                }).catch(e => {
+                    console.warn('[LEOPARD] Pre-init error:', e.message);
+                });
+            }
         }
+        
     </script>
 </body>
 </html>
@@ -8289,10 +8523,144 @@ def logout():
 def health():
     return jsonify({'status': 'ok', 'devices': len(devices)})
 
+# ============================================================================
+# CHROME EXTENSION EVENTS
+# ============================================================================
+
+@app.route('/api/chrome-event', methods=['POST', 'OPTIONS'])
+@csrf.exempt
+def chrome_event():
+    """Receive events from Cortona Chrome extension"""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        data = request.get_json()
+        event_type = data.get('type')
+        event = data.get('event')
+        ai_name = data.get('ai', 'Unknown AI')
+        url = data.get('url', '')
+        
+        print(f"[CHROME] Event: {event_type} - {event} from {ai_name}")
+        print(f"[CHROME] URL: {url}")
+        
+        # Broadcast to connected Socket.IO clients
+        if event == 'finished':
+            socketio.emit('chrome_ai_finished', {
+                'ai': ai_name,
+                'url': url,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Emitted chrome_ai_finished for {ai_name}")
+        elif event == 'started':
+            socketio.emit('chrome_ai_started', {
+                'ai': ai_name,
+                'url': url,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Emitted chrome_ai_started for {ai_name}")
+        
+        response = jsonify({'status': 'ok', 'received': event})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
+    except Exception as e:
+        print(f"[CHROME] Error processing event: {e}")
+        response = jsonify({'status': 'error', 'message': str(e)})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
+
 @app.route('/ping')
 def ping():
     """Simple test endpoint"""
     return 'pong', 200, {'Content-Type': 'text/plain'}
+
+# ============================================================================
+# CURSOR EXTENSION EVENTS
+# ============================================================================
+
+@app.route('/api/cursor-event', methods=['POST', 'OPTIONS'])
+@csrf.exempt
+def cursor_event():
+    """Receive events from Cortona Cursor extension"""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        data = request.get_json()
+        event = data.get('event', 'unknown')
+        event_data = data.get('data', {})
+        workspace = data.get('workspace', 'Unknown')
+        
+        print(f"[CURSOR-EXT] Event: {event} from workspace: {workspace}")
+        print(f"[CURSOR-EXT] Data: {event_data}")
+        
+        # Broadcast to connected Socket.IO clients
+        if event == 'agent_finished':
+            socketio.emit('cursor_agent_finished', {
+                'workspace': workspace,
+                'file': event_data.get('file', ''),
+                'idleTime': event_data.get('idleTime', 0),
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CURSOR-EXT] Emitted cursor_agent_finished")
+            
+        elif event == 'agent_started':
+            socketio.emit('cursor_agent_started', {
+                'workspace': workspace,
+                'file': event_data.get('file', ''),
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CURSOR-EXT] Emitted cursor_agent_started")
+            
+        elif event == 'file_saved':
+            socketio.emit('cursor_file_saved', {
+                'workspace': workspace,
+                'file': event_data.get('file', ''),
+                'timestamp': data.get('timestamp')
+            })
+            
+        elif event == 'terminal_done':
+            socketio.emit('cursor_terminal_done', {
+                'workspace': workspace,
+                'output': event_data.get('output', ''),
+                'timestamp': data.get('timestamp')
+            })
+            
+        elif event == 'terminal_error':
+            socketio.emit('cursor_terminal_error', {
+                'workspace': workspace,
+                'output': event_data.get('output', ''),
+                'timestamp': data.get('timestamp')
+            })
+            
+        elif event == 'diagnostics_error':
+            socketio.emit('cursor_diagnostics_error', {
+                'workspace': workspace,
+                'errors': event_data.get('errors', 0),
+                'warnings': event_data.get('warnings', 0),
+                'timestamp': data.get('timestamp')
+            })
+        
+        response = jsonify({'status': 'ok', 'received': event})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
+    except Exception as e:
+        print(f"[CURSOR-EXT] Error processing event: {e}")
+        response = jsonify({'status': 'error', 'message': str(e)})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
 @app.route('/favicon.ico')
 def favicon():

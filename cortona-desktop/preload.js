@@ -81,6 +81,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Check if Leopard is available
   leopardAvailable: () => ipcRenderer.invoke('leopard-available'),
   
+  // Pre-initialize Leopard model (call on app load to eliminate delay)
+  leopardPreInit: (accessKey) => ipcRenderer.invoke('leopard-preinit', { accessKey }),
+  
   // Start recording for transcription
   leopardStart: (accessKey) => ipcRenderer.invoke('leopard-start', { accessKey }),
   
@@ -131,6 +134,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // List all windows for an app (to select which window to watch)
   windowWatcherListWindows: (appName) => ipcRenderer.invoke('window-watcher-list-windows', appName),
+  
+  // Get all apps with open windows that can be watched
+  getWatchableApps: () => ipcRenderer.invoke('get-watchable-apps'),
+  
+  // Get detailed accessibility state for an app
+  getAccessibilityState: (appName) => ipcRenderer.invoke('get-accessibility-state', appName),
   
   // Stop the window watcher
   windowWatcherStop: () => ipcRenderer.invoke('window-watcher-stop'),
