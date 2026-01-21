@@ -25,6 +25,10 @@
         "title": "Cortona: Stop Watching"
       },
       {
+        "command": "cortona.toggleWatching",
+        "title": "Cortona: Toggle Watching"
+      },
+      {
         "command": "cortona.notifyNow",
         "title": "Cortona: Notify Now (Test)"
       }

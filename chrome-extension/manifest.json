@@ -6,8 +6,11 @@
   
   "permissions": [
     "activeTab",
+    "tabs",
+    "scripting",
     "storage",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   
   "host_permissions": [
@@ -19,7 +22,7 @@
     "https://poe.com/*",
     "https://perplexity.ai/*",
     "https://www.perplexity.ai/*",
-    "http://localhost:5050/*"
+    "http://localhost:5001/*"
   ],
   
   "content_scripts": [

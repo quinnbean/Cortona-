@@ -63,7 +63,7 @@ process.stderr.on('error', (err) => {
 // ============================================================================
 
 const RENDER_URL = 'https://cortona.onrender.com';
-const DEV_URL = 'http://localhost:5050';
+const DEV_URL = 'http://localhost:5001';
 const IS_DEV = process.env.NODE_ENV === 'development';
 
 // Persistent settings
@@ -1494,6 +1494,14 @@ async function startNativeLeopardRecording(accessKey) {
     const audioChunks = [];
     const audioStream = leopardRecording.stream();
     
+    // Voice Activity Detection (VAD) - auto-stop on silence
+    let lastSpeechTime = Date.now();
+    let hasSpeechStarted = false;
+    let recordingStartTime = Date.now();
+    const SILENCE_THRESHOLD = 0.03;  // Audio level below this = silence (slightly higher)
+    const SILENCE_DURATION = 1800;   // Stop after 1.8 seconds of silence
+    const MIN_RECORDING_TIME = 1000; // Must record for at least 1 second before VAD kicks in
+    
     audioStream.on('data', (data) => {
       audioChunks.push(data);
       
@@ -1515,6 +1523,26 @@ async function startNativeLeopardRecording(accessKey) {
         
         // Send to renderer
         mainWindow.webContents.send('audio-level', { level });
+        
+        // VAD: Check if speaking or silent
+        const timeSinceStart = Date.now() - recordingStartTime;
+        
+        if (level > SILENCE_THRESHOLD) {
+          lastSpeechTime = Date.now();
+          if (!hasSpeechStarted) {
+            hasSpeechStarted = true;
+            console.log('[VAD] Speech started');
+          }
+        } else if (hasSpeechStarted && timeSinceStart > MIN_RECORDING_TIME) {
+          // Only check for silence after minimum recording time
+          const silenceDuration = Date.now() - lastSpeechTime;
+          if (silenceDuration > SILENCE_DURATION) {
+            console.log('[VAD] Silence detected for', silenceDuration, 'ms - auto-stopping');
+            hasSpeechStarted = false; // Prevent multiple triggers
+            // Notify renderer to stop recording
+            mainWindow.webContents.send('vad-silence-detected');
+          }
+        }
       }
     });
     
@@ -1530,6 +1558,86 @@ async function startNativeLeopardRecording(accessKey) {
     
   } catch (e) {
     console.error('[LEOPARD] Failed to start recording:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// Use Whisper for better accuracy (set to true to prefer Whisper over Leopard)
+let preferWhisper = true;
+
+async function transcribeWithWhisper(audioBuffer) {
+  try {
+    console.log('[WHISPER] Sending audio to local Whisper server...');
+    
+    // Create a WAV file from raw PCM data
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    
+    // Create WAV header for 16-bit PCM, 16kHz, mono
+    const wavHeader = Buffer.alloc(44);
+    const dataSize = audioBuffer.length;
+    const fileSize = dataSize + 36;
+    
+    // RIFF header
+    wavHeader.write('RIFF', 0);
+    wavHeader.writeUInt32LE(fileSize, 4);
+    wavHeader.write('WAVE', 8);
+    
+    // fmt chunk
+    wavHeader.write('fmt ', 12);
+    wavHeader.writeUInt32LE(16, 16); // chunk size
+    wavHeader.writeUInt16LE(1, 20);  // audio format (PCM)
+    wavHeader.writeUInt16LE(1, 22);  // num channels
+    wavHeader.writeUInt32LE(16000, 24); // sample rate
+    wavHeader.writeUInt32LE(32000, 28); // byte rate
+    wavHeader.writeUInt16LE(2, 32);  // block align
+    wavHeader.writeUInt16LE(16, 34); // bits per sample
+    
+    // data chunk
+    wavHeader.write('data', 36);
+    wavHeader.writeUInt32LE(dataSize, 40);
+    
+    // Combine header and audio data
+    const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+    
+    // Save to temp file
+    const tempPath = path.join(os.tmpdir(), `cortona-audio-${Date.now()}.wav`);
+    fs.writeFileSync(tempPath, wavBuffer);
+    console.log('[WHISPER] Saved temp audio file:', tempPath, '(' + wavBuffer.length + ' bytes)');
+    
+    // Send to Whisper server using FormData
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('audio', fs.createReadStream(tempPath), {
+      filename: 'audio.wav',
+      contentType: 'audio/wav'
+    });
+    
+    const response = await fetch('http://127.0.0.1:5051/transcribe', {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+    
+    // Clean up temp file
+    try { fs.unlinkSync(tempPath); } catch (e) {}
+    
+    if (!response.ok) {
+      throw new Error(`Whisper server returned ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('[WHISPER] Transcription result:', result);
+    
+    if (result.success && result.text) {
+      return { success: true, transcript: result.text };
+    } else {
+      return { success: false, error: result.error || 'No transcription' };
+    }
+    
+  } catch (e) {
+    console.error('[WHISPER] Transcription failed:', e.message);
     return { success: false, error: e.message };
   }
 }
@@ -1559,6 +1667,23 @@ async function stopNativeLeopardRecording() {
     const audioBuffer = Buffer.concat(audioChunks);
     console.log('[LEOPARD] Audio buffer size:', audioBuffer.length, 'bytes');
     
+    // Try Whisper first if preferred (more accurate)
+    if (preferWhisper) {
+      console.log('[TRANSCRIBE] Using Whisper for better accuracy...');
+      const whisperResult = await transcribeWithWhisper(audioBuffer);
+      if (whisperResult.success) {
+        console.log('[WHISPER] Transcription:', whisperResult.transcript);
+        return {
+          success: true,
+          transcript: whisperResult.transcript,
+          audioBytes: audioBuffer.length,
+          engine: 'whisper'
+        };
+      }
+      console.log('[WHISPER] Failed, falling back to Leopard:', whisperResult.error);
+    }
+    
+    // Fall back to Leopard
     // Convert to Int16Array for Leopard
     const samples = new Int16Array(audioBuffer.buffer, audioBuffer.byteOffset, audioBuffer.length / 2);
     
@@ -1573,7 +1698,8 @@ async function stopNativeLeopardRecording() {
       transcript: result.transcript,
       words: result.words,
       audioBytes: audioBuffer.length,
-      samples: samples.length
+      samples: samples.length,
+      engine: 'leopard'
     };
     
   } catch (e) {
@@ -1863,6 +1989,48 @@ function registerGlobalShortcuts() {
       mainWindow.webContents.toggleDevTools();
     }
   });
+  
+  // Global Escape key to stop listening (always active)
+  globalShortcut.register('Escape', () => {
+    if (mainWindow) {
+      console.log('[GLOBAL] Escape pressed - stopping listening');
+      mainWindow.webContents.send('stop-listening');
+    }
+  });
+}
+
+// Track if listening mode is active for dynamic Space shortcut
+let isListeningModeActive = false;
+
+function enableStopOnSpace() {
+  if (!isListeningModeActive) {
+    isListeningModeActive = true;
+    // Register Space as global shortcut to stop listening
+    try {
+      globalShortcut.register('Space', () => {
+        console.log('[GLOBAL] Space pressed - stopping listening');
+        if (mainWindow) {
+          mainWindow.webContents.send('stop-listening');
+        }
+        disableStopOnSpace();
+      });
+      console.log('[GLOBAL] Space shortcut enabled for stop');
+    } catch (e) {
+      console.log('[GLOBAL] Could not register Space:', e.message);
+    }
+  }
+}
+
+function disableStopOnSpace() {
+  if (isListeningModeActive) {
+    isListeningModeActive = false;
+    try {
+      globalShortcut.unregister('Space');
+      console.log('[GLOBAL] Space shortcut disabled');
+    } catch (e) {
+      // Ignore
+    }
+  }
 }
 
 // ============================================================================
@@ -2068,6 +2236,18 @@ function setupIPC() {
   // Minimize to tray
   ipcMain.on('minimize-to-tray', () => {
     mainWindow?.hide();
+  });
+  
+  // Listening mode started - enable global Space to stop
+  ipcMain.on('listening-started', () => {
+    console.log('[IPC] Listening started - enabling Space shortcut');
+    enableStopOnSpace();
+  });
+  
+  // Listening mode stopped - disable global Space
+  ipcMain.on('listening-stopped', () => {
+    console.log('[IPC] Listening stopped - disabling Space shortcut');
+    disableStopOnSpace();
   });
 
   // Check microphone permission status

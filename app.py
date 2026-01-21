@@ -163,6 +163,97 @@ devices = {}
 active_sessions = {}
 
 # ============================================================================
+# EXTENSION REGISTRY - Track connected extensions and their state
+# ============================================================================
+
+# Extension registry: tracks all connected extensions
+# Key: extension_id (e.g., "cursor_workspace-name"), Value: extension info dict
+connected_extensions = {}
+
+# Extension settings (persisted state)
+# Key: extension_type (e.g., "cursor", "chrome"), Value: settings dict
+extension_settings = {
+    'cursor': {
+        'enabled': True,
+        'idle_threshold': 3000,
+        'watch_text_changes': True,
+        'watch_terminal': True,
+        'watch_diagnostics': True,
+        'watch_file_saves': True,
+    },
+    'chrome': {
+        'enabled': True,
+        'watch_ai_sites': True,
+    }
+}
+
+# Command queue for Chrome extension (to send messages to AI)
+# List of pending commands: { 'ai': 'claude', 'text': 'message', 'timestamp': time }
+chrome_command_queue = []
+
+def queue_chrome_command(ai_name, text):
+    """Queue a command to be sent to Chrome extension"""
+    chrome_command_queue.append({
+        'ai': ai_name,
+        'text': text,
+        'timestamp': time.time()
+    })
+    print(f"[CHROME CMD] Queued: Send to {ai_name}: {text[:50]}...")
+
+def get_pending_chrome_commands():
+    """Get and clear pending commands for Chrome extension"""
+    global chrome_command_queue
+    commands = chrome_command_queue.copy()
+    if commands:
+        print(f"[CHROME CMD] Delivering {len(commands)} pending commands")
+    chrome_command_queue = []
+    return commands
+
+def get_extension_id(ext_type, workspace=None):
+    """Generate a unique extension ID"""
+    if workspace:
+        return f"{ext_type}_{workspace.replace(' ', '-').lower()}"
+    return ext_type
+
+def register_extension(ext_type, workspace=None, extra_info=None):
+    """Register an extension as connected"""
+    ext_id = get_extension_id(ext_type, workspace)
+    connected_extensions[ext_id] = {
+        'id': ext_id,
+        'type': ext_type,
+        'workspace': workspace,
+        'connected_at': time.time(),
+        'last_seen': time.time(),
+        'status': 'connected',
+        'info': extra_info or {}
+    }
+    print(f"[EXTENSIONS] Registered: {ext_id}")
+    # Notify connected clients about new extension
+    socketio.emit('extension_connected', connected_extensions[ext_id])
+    return ext_id
+
+def update_extension_heartbeat(ext_id):
+    """Update last_seen timestamp for an extension"""
+    if ext_id in connected_extensions:
+        connected_extensions[ext_id]['last_seen'] = time.time()
+        connected_extensions[ext_id]['status'] = 'connected'
+        return True
+    return False
+
+def cleanup_stale_extensions(timeout=30):
+    """Remove extensions that haven't sent a heartbeat in timeout seconds"""
+    now = time.time()
+    stale = []
+    for ext_id, ext in connected_extensions.items():
+        if now - ext['last_seen'] > timeout:
+            stale.append(ext_id)
+    for ext_id in stale:
+        ext = connected_extensions.pop(ext_id, None)
+        if ext:
+            print(f"[EXTENSIONS] Disconnected (timeout): {ext_id}")
+            socketio.emit('extension_disconnected', {'id': ext_id})
+
+# ============================================================================
 # INSTALL PAGE - SUPER EASY SETUP
 # ============================================================================
 
@@ -1566,6 +1657,42 @@ DASHBOARD_PAGE = '''
             color: var(--accent);
             background: rgba(0, 245, 212, 0.05);
         }
+        
+        /* Toggle Switch for Extensions */
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: var(--accent);
+        }
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(18px);
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+        .extension-item {
+            transition: all 0.2s ease;
+        }
+        .extension-item:hover {
+            border-color: var(--border-hover) !important;
+        }
+        .ext-status-dot.connected {
+            background: #10b981 !important;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+        }
+        .ext-status-dot.disconnected {
+            background: #666 !important;
+        }
+        .ext-status-dot.disabled {
+            background: #ef4444 !important;
+        }
+        
         .device-list {
             display: flex;
             flex-direction: column;
@@ -2424,6 +2551,124 @@ DASHBOARD_PAGE = '''
             <button class="add-device-btn" onclick="openAddDeviceModal()" style="margin-top: 16px;">
                 <span>+</span> Add Device
             </button>
+            
+            <!-- Extension toggle function (must be before toggle elements) -->
+            <script>
+                // Toggle extension enabled/disabled - defined early for inline handlers
+                window.toggleExtension = async function(type, enabled) {
+                    try {
+                        const response = await fetch('/api/extension/control', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                type: type,
+                                action: enabled ? 'enable' : 'disable'
+                            })
+                        });
+                        const data = await response.json();
+                        if (data.status === 'ok') {
+                            console.log('[EXT] Toggled', type, enabled);
+                        }
+                    } catch (e) {
+                        console.error('[EXT] Toggle failed:', e);
+                        document.getElementById('toggle-' + type).checked = !enabled;
+                    }
+                };
+            </script>
+            
+            <!-- Extensions Section -->
+            <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                    </svg>
+                    Extensions
+                </h2>
+                <div id="extensions-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Cursor Extension -->
+                    <div class="extension-item" id="ext-cursor" style="background: var(--bg-card); border-radius: 10px; padding: 12px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">⚡</span>
+                                <span style="font-weight: 500; font-size: 13px;">Cursor</span>
+                            </div>
+                            <label class="toggle-switch" style="position: relative; width: 40px; height: 22px;">
+                                <input type="checkbox" id="toggle-cursor" onchange="toggleExtension('cursor', this.checked)" checked style="display: none;">
+                                <span class="toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .3s; border-radius: 22px;"></span>
+                            </label>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span class="ext-status-dot" id="ext-cursor-status" style="width: 8px; height: 8px; border-radius: 50%; background: #666;"></span>
+                            <span id="ext-cursor-text" style="font-size: 11px; color: var(--text-muted);">Not connected</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Chrome Extension -->
+                    <div class="extension-item" id="ext-chrome" style="background: var(--bg-card); border-radius: 10px; padding: 12px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">🌐</span>
+                                <span style="font-weight: 500; font-size: 13px;">Chrome</span>
+                            </div>
+                            <label class="toggle-switch" style="position: relative; width: 40px; height: 22px;">
+                                <input type="checkbox" id="toggle-chrome" onchange="toggleExtension('chrome', this.checked)" checked style="display: none;">
+                                <span class="toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .3s; border-radius: 22px;"></span>
+                            </label>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span class="ext-status-dot" id="ext-chrome-status" style="width: 8px; height: 8px; border-radius: 50%; background: #666;"></span>
+                            <span id="ext-chrome-text" style="font-size: 11px; color: var(--text-muted);">Not connected</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- AI Status Dashboard -->
+            <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12,6 12,12 16,14"></polyline>
+                    </svg>
+                    AI Status
+                </h2>
+                <div id="ai-status-dashboard" style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Status items rendered by JS -->
+                </div>
+            </div>
+            
+            <!-- Productivity Stats -->
+            <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 20V10"></path>
+                        <path d="M12 20V4"></path>
+                        <path d="M6 20v-6"></path>
+                    </svg>
+                    Stats
+                </h2>
+                <div id="ai-stats-panel" style="background: var(--bg-card); border-radius: 10px; padding: 12px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 11px; color: var(--text-muted);">Today</span>
+                        <span id="stats-today-queries" style="font-size: 13px; font-weight: 600; color: var(--accent);">0 queries</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 11px; color: var(--text-muted);">Avg Response</span>
+                        <span id="stats-avg-response" style="font-size: 13px; font-weight: 500;">0s</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="font-size: 11px; color: var(--text-muted);">All Time</span>
+                        <span id="stats-all-time" style="font-size: 13px; font-weight: 500;">0 queries</span>
+                    </div>
+                </div>
+                <button onclick="openAiSettingsModal()" style="width: 100%; margin-top: 10px; padding: 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    AI Settings
+                </button>
+            </div>
         </aside>
         
         <!-- Main Content -->
@@ -2482,8 +2727,15 @@ DASHBOARD_PAGE = '''
                 </div>
                 <span class="recording-dot" id="recording-dot"></span>
                 <div class="voice-status" id="voice-status">Click the orb to start</div>
+                
+                <!-- Quick Wake Word Toggle -->
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px;">
+                    <span style="font-size: 12px; color: var(--text-muted);">Wake Word</span>
+                    <div class="toggle" id="toggle-always-listen-quick" onclick="toggleAlwaysListen()" style="transform: scale(0.85);"></div>
+                </div>
+                
                 <div class="voice-hint" id="voice-hint">
-                    Or say your wake word: <strong id="current-wake-word">"Hey Computer"</strong>
+                    Or say your wake word: <strong id="current-wake-word">"Jarvis"</strong>
                 </div>
                 <div class="mode-badges" style="display: flex; gap: 10px; justify-content: center; margin-top: 16px;">
                     <span id="badge-always" class="mode-badge" style="display: none; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 500;">
@@ -2906,6 +3158,351 @@ DASHBOARD_PAGE = '''
         let isActiveDictation = false; // true when wake word triggered dictation
         let wakeWordHeard = false; // true briefly when wake word detected (shows yellow)
         
+        // ============================================================
+        // AI MONITORING SETTINGS & STATS
+        // ============================================================
+        
+        // AI tool settings (saved to localStorage)
+        let aiToolSettings = JSON.parse(localStorage.getItem('aiToolSettings') || 'null') || {
+            chatgpt: { voiceAnnounce: true, autoFocus: false, pingSound: true },
+            claude: { voiceAnnounce: true, autoFocus: false, pingSound: true },
+            gemini: { voiceAnnounce: true, autoFocus: false, pingSound: true },
+            perplexity: { voiceAnnounce: true, autoFocus: false, pingSound: true },
+            cursor: { voiceAnnounce: true, autoFocus: false, pingSound: true },
+            poe: { voiceAnnounce: true, autoFocus: false, pingSound: true }
+        };
+        
+        // Real-time AI status
+        let aiStatus = {
+            chatgpt: { status: 'idle', lastActivity: null },
+            claude: { status: 'idle', lastActivity: null },
+            gemini: { status: 'idle', lastActivity: null },
+            perplexity: { status: 'idle', lastActivity: null },
+            cursor: { status: 'idle', lastActivity: null },
+            poe: { status: 'idle', lastActivity: null }
+        };
+        
+        // Productivity stats (saved to localStorage)
+        let aiStats = JSON.parse(localStorage.getItem('aiStats') || 'null') || {
+            today: { queries: 0, totalResponseTime: 0, date: new Date().toDateString() },
+            allTime: { queries: 0, totalResponseTime: 0 },
+            byTool: {
+                chatgpt: { queries: 0, totalResponseTime: 0 },
+                claude: { queries: 0, totalResponseTime: 0 },
+                gemini: { queries: 0, totalResponseTime: 0 },
+                perplexity: { queries: 0, totalResponseTime: 0 },
+                cursor: { queries: 0, totalResponseTime: 0 },
+                poe: { queries: 0, totalResponseTime: 0 }
+            }
+        };
+        
+        // Track when AI started (for response time calculation)
+        let aiStartTimes = {};
+        
+        // Reset daily stats if it's a new day
+        if (aiStats.today.date !== new Date().toDateString()) {
+            aiStats.today = { queries: 0, totalResponseTime: 0, date: new Date().toDateString() };
+            saveAiStats();
+        }
+        
+        function saveAiToolSettings() {
+            localStorage.setItem('aiToolSettings', JSON.stringify(aiToolSettings));
+        }
+        
+        function saveAiStats() {
+            localStorage.setItem('aiStats', JSON.stringify(aiStats));
+        }
+        
+        function getToolKey(aiName) {
+            // Normalize AI name to tool key
+            const name = (aiName || '').toLowerCase();
+            if (name.includes('chatgpt') || name.includes('openai')) return 'chatgpt';
+            if (name.includes('claude') || name.includes('anthropic')) return 'claude';
+            if (name.includes('gemini') || name.includes('bard') || name.includes('google')) return 'gemini';
+            if (name.includes('perplexity')) return 'perplexity';
+            if (name.includes('cursor')) return 'cursor';
+            if (name.includes('poe')) return 'poe';
+            return 'chatgpt'; // default
+        }
+        
+        function updateAiStatus(toolKey, status) {
+            aiStatus[toolKey] = {
+                status: status,
+                lastActivity: new Date().toISOString()
+            };
+            renderAiStatusDashboard();
+        }
+        
+        function getAiStatus(toolKey) {
+            const key = getToolKey(toolKey);
+            return aiStatus[key]?.status || 'idle';
+        }
+        
+        function recordAiQuery(toolKey, responseTimeMs) {
+            // Update stats
+            aiStats.today.queries++;
+            aiStats.today.totalResponseTime += responseTimeMs;
+            aiStats.allTime.queries++;
+            aiStats.allTime.totalResponseTime += responseTimeMs;
+            aiStats.byTool[toolKey].queries++;
+            aiStats.byTool[toolKey].totalResponseTime += responseTimeMs;
+            saveAiStats();
+            renderAiStats();
+        }
+        
+        // AI tool display names and icons
+        const aiToolInfo = {
+            chatgpt: { name: 'ChatGPT', icon: '🤖', color: '#10a37f' },
+            claude: { name: 'Claude', icon: '🧠', color: '#d97706' },
+            gemini: { name: 'Gemini', icon: '✨', color: '#4285f4' },
+            perplexity: { name: 'Perplexity', icon: '🔍', color: '#20b2aa' },
+            cursor: { name: 'Cursor', icon: '⚡', color: '#00d4ff' },
+            poe: { name: 'Poe', icon: '💬', color: '#7c3aed' }
+        };
+        
+        // Track which AIs to monitor (synced with Chrome extension)
+        let monitoredAIs = JSON.parse(localStorage.getItem('monitoredAIs') || '{}');
+        // Default all to true
+        for (const key of Object.keys(aiToolInfo)) {
+            if (monitoredAIs[key] === undefined) monitoredAIs[key] = true;
+        }
+        
+        function toggleAiMonitoring(key, enabled) {
+            monitoredAIs[key] = enabled;
+            localStorage.setItem('monitoredAIs', JSON.stringify(monitoredAIs));
+            
+            // Also update Chrome extension settings via API
+            fetch('/api/update-monitored-sites', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ site: key, enabled: enabled })
+            }).catch(e => console.log('Failed to sync monitoring setting:', e));
+            
+            addActivity((aiToolInfo[key]?.name || key) + " monitoring " + (enabled ? "enabled" : "disabled"), 'info');
+            
+            // Re-render to update opacity/status
+            renderAiStatusDashboard();
+        }
+        
+        function resetAllMonitoring() {
+            // Reset all to enabled
+            for (const key of Object.keys(aiToolInfo)) {
+                monitoredAIs[key] = true;
+            }
+            localStorage.setItem('monitoredAIs', JSON.stringify(monitoredAIs));
+            renderAiStatusDashboard();
+            addActivity('All AI monitoring enabled', 'success');
+        }
+        
+        function renderAiStatusDashboard() {
+            const container = document.getElementById('ai-status-dashboard');
+            if (!container) return;
+            
+            let html = '';
+            for (const [key, info] of Object.entries(aiToolInfo)) {
+                const status = aiStatus[key] || { status: 'idle' };
+                const isMonitored = monitoredAIs[key] !== false;
+                const settings = aiToolSettings[key] || {};
+                let statusColor, statusText;
+                
+                if (!isMonitored) {
+                    statusColor = '#444'; // Dark gray - disabled
+                    statusText = 'Off';
+                } else {
+                    switch (status.status) {
+                        case 'responding':
+                        case 'working':
+                            statusColor = '#f59e0b'; // Yellow - actively working
+                            statusText = 'Thinking...';
+                            break;
+                        case 'ready':
+                            statusColor = '#10b981'; // Green - just finished
+                            statusText = 'Done!';
+                            break;
+                        case 'open':
+                            statusColor = '#3b82f6'; // Blue - tab is open
+                            statusText = 'Ready';
+                            break;
+                        default:
+                            statusColor = '#666'; // Gray - idle
+                            statusText = 'Idle';
+                    }
+                }
+                
+                html += `
+                    <div style="background: ${isMonitored ? 'var(--bg-card)' : 'rgba(30,30,40,0.5)'}; border-radius: 8px; border: 1px solid ${isMonitored ? 'var(--border)' : 'rgba(60,60,70,0.5)'}; overflow: hidden; opacity: ${isMonitored ? 1 : 0.35}; margin-bottom: 4px; filter: ${isMonitored ? 'none' : 'grayscale(80%)'}; transition: all 0.2s ease;">
+                        <!-- Main status row -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <label style="display: flex; align-items: center; cursor: pointer;" title="Toggle monitoring">
+                                    <input type="checkbox" ${isMonitored ? 'checked' : ''} 
+                                        onchange="toggleAiMonitoring('${key}', this.checked)"
+                                        style="width: 14px; height: 14px; cursor: pointer; margin-right: 6px;">
+                                    <span style="font-size: 16px; ${isMonitored ? '' : 'filter: grayscale(100%);'}">${info.icon}</span>
+                                    <span style="font-size: 13px; font-weight: 500; margin-left: 4px; color: ${isMonitored ? 'inherit' : '#555'};">${info.name}</span>
+                                </label>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="width: 8px; height: 8px; border-radius: 50%; background: ${statusColor}; ${(status.status === 'responding' || status.status === 'working') && isMonitored ? 'animation: pulse 1s infinite;' : ''}"></span>
+                                <span style="font-size: 11px; color: ${isMonitored ? 'var(--text-muted)' : '#444'};">${statusText}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Settings bar - hidden when disabled -->
+                        ${isMonitored ? `
+                        <div style="display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: rgba(0,0,0,0.2); border-top: 1px solid var(--border);">
+                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; color: var(--text-muted);" title="Play ping when done">
+                                <input type="checkbox" ${settings.pingSound !== false ? 'checked' : ''} 
+                                    onchange="updateAiToolSetting('${key}', 'pingSound', this.checked)"
+                                    style="width: 12px; height: 12px; cursor: pointer;">
+                                🔔 Ping
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; color: var(--text-muted);" title="Voice announcement when done">
+                                <input type="checkbox" ${settings.voiceAnnounce === true ? 'checked' : ''} 
+                                    onchange="updateAiToolSetting('${key}', 'voiceAnnounce', this.checked)"
+                                    style="width: 12px; height: 12px; cursor: pointer;">
+                                🔊 Voice
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; color: var(--text-muted);" title="Auto-focus tab when done">
+                                <input type="checkbox" ${settings.autoFocus === true ? 'checked' : ''} 
+                                    onchange="updateAiToolSetting('${key}', 'autoFocus', this.checked)"
+                                    style="width: 12px; height: 12px; cursor: pointer;">
+                                🎯 Focus
+                            </label>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+        
+        function renderAiStats() {
+            const todayQueries = document.getElementById('stats-today-queries');
+            const avgResponse = document.getElementById('stats-avg-response');
+            const allTime = document.getElementById('stats-all-time');
+            
+            if (todayQueries) {
+                todayQueries.textContent = aiStats.today.queries + ' queries';
+            }
+            if (avgResponse) {
+                const avg = aiStats.today.queries > 0 
+                    ? Math.round(aiStats.today.totalResponseTime / aiStats.today.queries / 1000) 
+                    : 0;
+                avgResponse.textContent = avg + 's';
+            }
+            if (allTime) {
+                allTime.textContent = aiStats.allTime.queries + ' queries';
+            }
+        }
+        
+        function openAiSettingsModal() {
+            // Create modal HTML
+            let toolRows = '';
+            for (const [key, info] of Object.entries(aiToolInfo)) {
+                const settings = aiToolSettings[key] || {};
+                toolRows += `
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-secondary); border-radius: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 20px;">${info.icon}</span>
+                            <span style="font-weight: 500;">${info.name}</span>
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Voice announcement when done">
+                                <input type="checkbox" ${settings.voiceAnnounce !== false ? 'checked' : ''} 
+                                    onchange="updateAiToolSetting('${key}', 'voiceAnnounce', this.checked)"
+                                    style="width: 16px; height: 16px; cursor: pointer;">
+                                <span style="font-size: 14px;">🔊</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Play ping sound">
+                                <input type="checkbox" ${settings.pingSound !== false ? 'checked' : ''} 
+                                    onchange="updateAiToolSetting('${key}', 'pingSound', this.checked)"
+                                    style="width: 16px; height: 16px; cursor: pointer;">
+                                <span style="font-size: 14px;">🔔</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Auto-focus tab when done">
+                                <input type="checkbox" ${settings.autoFocus ? 'checked' : ''} 
+                                    onchange="updateAiToolSetting('${key}', 'autoFocus', this.checked)"
+                                    style="width: 16px; height: 16px; cursor: pointer;">
+                                <span style="font-size: 14px;">🎯</span>
+                            </label>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const modalHtml = `
+                <div id="ai-settings-modal" onclick="if(event.target.id==='ai-settings-modal')closeAiSettingsModal()" 
+                    style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                    <div style="background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 450px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h3 style="font-size: 18px; font-weight: 600;">AI Tool Settings</h3>
+                            <button onclick="closeAiSettingsModal()" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer;">&times;</button>
+                        </div>
+                        <div style="margin-bottom: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 12px; color: var(--text-muted);">
+                            <div style="display: flex; gap: 16px; justify-content: center;">
+                                <span>🔊 Voice</span>
+                                <span>🔔 Ping</span>
+                                <span>🎯 Auto-focus</span>
+                            </div>
+                        </div>
+                        ${toolRows}
+                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <button onclick="resetAiStats()" style="width: 100%; padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); cursor: pointer; font-size: 12px;">
+                                Reset Stats
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        function closeAiSettingsModal() {
+            const modal = document.getElementById('ai-settings-modal');
+            if (modal) modal.remove();
+        }
+        
+        function updateAiToolSetting(toolKey, setting, value) {
+            if (!aiToolSettings[toolKey]) {
+                aiToolSettings[toolKey] = {};
+            }
+            aiToolSettings[toolKey][setting] = value;
+            saveAiToolSettings();
+            console.log("[AI Settings] " + toolKey + "." + setting + " = " + value);
+            
+            // Show feedback
+            const settingNames = { pingSound: 'Ping', voiceAnnounce: 'Voice', autoFocus: 'Auto-focus' };
+            addActivity((aiToolInfo[toolKey]?.name || toolKey) + ": " + (settingNames[setting] || setting) + " " + (value ? "ON" : "OFF"), 'info');
+        }
+        
+        function resetAiStats() {
+            if (confirm('Reset all productivity stats?')) {
+                aiStats = {
+                    today: { queries: 0, totalResponseTime: 0, date: new Date().toDateString() },
+                    allTime: { queries: 0, totalResponseTime: 0 },
+                    byTool: {
+                        chatgpt: { queries: 0, totalResponseTime: 0 },
+                        claude: { queries: 0, totalResponseTime: 0 },
+                        gemini: { queries: 0, totalResponseTime: 0 },
+                        perplexity: { queries: 0, totalResponseTime: 0 },
+                        cursor: { queries: 0, totalResponseTime: 0 },
+                        poe: { queries: 0, totalResponseTime: 0 }
+                    }
+                };
+                saveAiStats();
+                renderAiStats();
+                closeAiSettingsModal();
+            }
+        }
+        
+        // Initialize dashboards on load
+        setTimeout(() => {
+            renderAiStatusDashboard();
+            renderAiStats();
+        }, 100);
+        
         // Whisper mode - now uses OpenAI cloud API for better accuracy
         let useWhisper = false;
         let useCloudWhisper = true;  // Use OpenAI cloud Whisper (fast, accurate)
@@ -2951,6 +3548,97 @@ DASHBOARD_PAGE = '''
         let lastAction = null;  // Track last action for "do that again" / "repeat"
         let lastTargetApp = null;  // Track last app for context
         let conversationContext = [];  // Local conversation history for display
+        
+        // ============================================================
+        // EXTENSION MANAGEMENT
+        // ============================================================
+        
+        let extensionSettings = {
+            cursor: { enabled: true },
+            chrome: { enabled: true }
+        };
+        let connectedExtensions = {};
+        
+        // Toggle extension enabled/disabled
+        async function toggleExtension(type, enabled) {
+            try {
+                const response = await fetch('/api/extension/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: type,
+                        action: enabled ? 'enable' : 'disable'
+                    })
+                });
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    extensionSettings[type] = data.settings;
+                    updateExtensionUI(type);
+                    addActivity((enabled ? "Enabled" : "Disabled") + " " + type + " extension", 'success');
+                }
+            } catch (e) {
+                console.error('[EXT] Toggle failed:', e);
+                // Revert the toggle
+                document.getElementById(`toggle-${type}`).checked = !enabled;
+            }
+        }
+        
+        // Load extensions state from server
+        async function loadExtensions() {
+            try {
+                const response = await fetch('/api/extensions');
+                const data = await response.json();
+                
+                extensionSettings = data.settings;
+                connectedExtensions = {};
+                
+                // Build connected map
+                data.connected.forEach(ext => {
+                    connectedExtensions[ext.type] = connectedExtensions[ext.type] || [];
+                    connectedExtensions[ext.type].push(ext);
+                });
+                
+                // Update UI
+                updateExtensionUI('cursor');
+                updateExtensionUI('chrome');
+                
+            } catch (e) {
+                console.log('[EXT] Failed to load extensions:', e);
+            }
+        }
+        
+        // Update extension UI based on state
+        function updateExtensionUI(type) {
+            const toggle = document.getElementById(`toggle-${type}`);
+            const statusDot = document.getElementById(`ext-${type}-status`);
+            const statusText = document.getElementById(`ext-${type}-text`);
+            
+            if (!toggle || !statusDot || !statusText) return;
+            
+            const settings = extensionSettings[type] || { enabled: true };
+            const connected = connectedExtensions[type] || [];
+            const isEnabled = settings.enabled;
+            const isConnected = connected.length > 0;
+            
+            // Update toggle
+            toggle.checked = isEnabled;
+            
+            // Update status
+            statusDot.classList.remove('connected', 'disconnected', 'disabled');
+            
+            if (!isEnabled) {
+                statusDot.classList.add('disabled');
+                statusText.textContent = 'Disabled';
+            } else if (isConnected) {
+                statusDot.classList.add('connected');
+                const ext = connected[0];
+                const workspace = ext.workspace ? ` (${ext.workspace})` : '';
+                statusText.textContent = `Connected${workspace}`;
+            } else {
+                statusDot.classList.add('disconnected');
+                statusText.textContent = 'Not connected';
+            }
+        }
         
         // Sensitivity labels
         const sensitivityLabels = {
@@ -3010,6 +3698,17 @@ DASHBOARD_PAGE = '''
                 });
             }
             
+            // Global stop listening (Escape or Space from any window)
+            if (window.electronAPI?.onStopListening) {
+                window.electronAPI.onStopListening(() => {
+                    console.log('[GLOBAL] Stop listening triggered (Escape/Space)');
+                    if (isListening || nativeLeopardActive || isRecording) {
+                        stopListening();
+                        addActivity('Stopped listening (global shortcut)', 'info');
+                    }
+                });
+            }
+            
             // Listen for native wake word detection (from main process)
             if (window.electronAPI.onWakeWordDetected) {
                 window.electronAPI.onWakeWordDetected((data) => {
@@ -3025,6 +3724,17 @@ DASHBOARD_PAGE = '''
                 });
             }
             
+            // Listen for VAD silence detection (auto-stop recording)
+            if (window.electronAPI.onSilenceDetected) {
+                window.electronAPI.onSilenceDetected(() => {
+                    console.log('[VAD] Silence detected - auto-stopping recording');
+                    if (nativeLeopardActive || isActiveDictation) {
+                        addActivity('Silence detected - processing...', 'info');
+                        stopWhisperRecording();
+                    }
+                });
+            }
+            
             // Listen for agent watcher completion (file-based)
             if (window.electronAPI.onAgentFinished) {
                 window.electronAPI.onAgentFinished((data) => {
@@ -3033,8 +3743,8 @@ DASHBOARD_PAGE = '''
                     const fileList = data.changedFiles?.slice(0, 5).join(', ') || 'unknown files';
                     const moreFiles = fileCount > 5 ? ` and ${fileCount - 5} more` : '';
 
-                    addChatMessage(`Agent finished! Modified ${fileCount} file${fileCount !== 1 ? 's' : ''}: ${fileList}${moreFiles}`, 'jarvis');
-                    addActivity(`Agent done: ${fileCount} files changed`, 'success');
+                    addChatMessage("Agent finished! Modified " + fileCount + " file" + (fileCount !== 1 ? "s" : "") + ": " + fileList + moreFiles, 'jarvis');
+                    addActivity("Agent done: " + fileCount + " files changed", 'success');
                     playChime('success');
                 });
             }
@@ -3047,8 +3757,8 @@ DASHBOARD_PAGE = '''
                     // If this is the first activity, notify the user
                     if (data.firstActivity) {
                         const sourceInfo = data.source ? ` (detected via ${data.source})` : '';
-                        addChatMessage(`**${data.app}** started working${sourceInfo}! I'll let you know when it's done.`, 'jarvis');
-                        addActivity(`${data.app} started`, 'info');
+                        addChatMessage('**' + data.app + '** started working' + sourceInfo + '! I will let you know when done.', 'jarvis');
+                        addActivity(data.app + " started", 'info');
                     }
                     
                     // Update status to show activity
@@ -3082,11 +3792,11 @@ DASHBOARD_PAGE = '''
                     
                     // Handle app closed vs finished
                     if (data.reason === 'closed') {
-                        addChatMessage(`**${data.app}** window was closed.`, 'jarvis');
-                        addActivity(`${data.app} closed`, 'info');
+                        addChatMessage("**" + data.app + "** window was closed.", 'jarvis');
+                        addActivity(data.app + " closed", 'info');
                     } else {
-                        addChatMessage(` **${data.app}** appears to be done! No activity for ${Math.round(data.idleTime/1000)}s.`, 'jarvis');
-                        addActivity(`${data.app} finished`, 'success');
+                        addChatMessage(" **" + data.app + "** appears to be done! No activity for " + Math.round(data.idleTime/1000) + "s.", 'jarvis');
+                        addActivity(data.app + " finished", 'success');
                         playChime('success');
                     }
                     
@@ -3109,23 +3819,116 @@ DASHBOARD_PAGE = '''
                 // Chrome extension detected AI started
                 socket.on('chrome_ai_started', (data) => {
                     console.log('[CHROME] AI started:', data);
-                    addActivity(`${data.ai} started responding...`, 'info');
+                    const toolKey = getToolKey(data.ai);
+                    
+                    // Track start time for response time calculation
+                    aiStartTimes[toolKey] = Date.now();
+                    
+                    // Update status dashboard
+                    updateAiStatus(toolKey, 'responding');
+                    
+                    addActivity(data.ai + " started responding...", 'info');
                 });
                 
                 // Chrome extension detected AI finished
                 socket.on('chrome_ai_finished', (data) => {
                     console.log('[CHROME] AI finished:', data);
-                    addChatMessage(`**${data.ai}** finished responding in your browser!`, 'jarvis');
-                    addActivity(`${data.ai} done`, 'success');
-                    playChime('success');
+                    const toolKey = getToolKey(data.ai);
+                    const settings = aiToolSettings[toolKey] || {};
                     
-                    // Show native notification
+                    // Calculate response time
+                    const startTime = aiStartTimes[toolKey];
+                    const responseTime = startTime ? Date.now() - startTime : 0;
+                    delete aiStartTimes[toolKey];
+                    
+                    // Update status dashboard
+                    updateAiStatus(toolKey, 'ready');
+                    
+                    // Record stats
+                    if (responseTime > 0) {
+                        recordAiQuery(toolKey, responseTime);
+                    }
+                    
+                    // Play satisfying ping sound (default ON)
+                    if (settings.pingSound !== false) {
+                        playChime('ai_done');
+                    }
+                    
+                    // Voice announcement (default OFF - just use ping)
+                    if (settings.voiceAnnounce === true) {
+                        const responseTimeSec = Math.round(responseTime / 1000);
+                        const timeMsg = responseTimeSec > 0 ? ` in ${responseTimeSec} seconds` : '';
+                        speak(data.ai + " has finished responding" + timeMsg + ".");
+                    }
+                    
+                    // Auto-focus tab if enabled
+                    if (settings.autoFocus && socket) {
+                        socket.emit('focus_chrome_tab', { url: data.url, ai: data.ai });
+                    }
+                    
+                    addChatMessage("**" + data.ai + "** finished responding!", 'jarvis');
+                    addActivity(data.ai + " done", 'success');
+                    
+                    // Show native notification (silent - just visual)
                     if (isElectron && window.electronAPI?.showNotification) {
                         window.electronAPI.showNotification(
-                            data.ai + ' Finished',
-                            'Your AI assistant has finished responding'
+                            data.ai + ' Done',
+                            'Response ready'
                         );
                     }
+                });
+                
+                // Chrome tab opened with AI site
+                socket.on('chrome_tab_opened', (data) => {
+                    console.log('[CHROME] Tab opened:', data);
+                    const toolKey = getToolKey(data.ai);
+                    updateAiStatus(toolKey, 'open');
+                    addActivity(data.ai + " tab opened", 'info');
+                });
+                
+                // Chrome tab closed
+                socket.on('chrome_tab_closed', (data) => {
+                    console.log('[CHROME] Tab closed:', data);
+                    const toolKey = getToolKey(data.ai);
+                    updateAiStatus(toolKey, 'idle');
+                    addActivity(data.ai + " tab closed", 'info');
+                });
+                
+                // AI response received for reading aloud
+                socket.on('ai_response_received', (data) => {
+                    console.log('[READ-RESPONSE] Received:', data);
+                    if (data.success && data.response) {
+                        const aiName = data.ai || 'The AI';
+                        const response = data.response;
+                        
+                        // Truncate if too long for TTS (max ~500 chars for reasonable reading)
+                        let textToRead = response;
+                        if (response.length > 500) {
+                            textToRead = response.substring(0, 500) + '... That is the first part. The full response is quite long.';
+                        }
+                        
+                        addActivity('Reading ' + aiName + ' response', 'info');
+                        addChatMessage("**" + aiName + " said:** " + response.substring(0, 200) + (response.length > 200 ? "..." : ""), 'jarvis');
+                        speak(textToRead);
+                    } else {
+                        speak('Sorry, I could not find a response to read.');
+                        addActivity('No response found', 'warning');
+                    }
+                });
+                
+                // Chrome extension confirmed watching an AI
+                socket.on('chrome_watching_started', (data) => {
+                    console.log('[CHROME] Watching started:', data);
+                    const toolKey = getToolKey(data.ai);
+                    updateAiStatus(toolKey, 'active');
+                    addActivity("Actively watching " + data.ai, 'success');
+                });
+                
+                // Chrome extension couldn't find requested AI tab
+                socket.on('chrome_tab_not_found', (data) => {
+                    console.log('[CHROME] Tab not found:', data);
+                    addChatMessage("Could not find **" + data.ai + "** tab in Chrome. Please make sure it's open.", 'jarvis');
+                    addActivity(data.ai + " tab not found", 'warning');
                 });
                 
                 // ============================================================
@@ -3136,25 +3939,55 @@ DASHBOARD_PAGE = '''
                 socket.on('cursor_agent_started', (data) => {
                     console.log('[CURSOR-EXT] Agent started:', data);
                     const fileName = data.file ? data.file.split('/').pop() : '';
-                    addActivity(`Cursor AI started${fileName ? ` on ${fileName}` : ''}`, 'info');
-                    addChatMessage(`**Cursor AI** started working${fileName ? ` on \`${fileName}\`` : ''}...`, 'jarvis');
+                    
+                    // Track start time
+                    aiStartTimes['cursor'] = Date.now();
+                    
+                    // Update status dashboard
+                    updateAiStatus('cursor', 'working');
+                    
+                    addActivity("Cursor AI started" + (fileName ? " on " + fileName : ""), 'info');
+                    addChatMessage("**Cursor AI** started working" + (fileName ? " on " + fileName : "") + "...", 'jarvis');
                 });
                 
                 // Cursor AI agent finished
                 socket.on('cursor_agent_finished', (data) => {
                     console.log('[CURSOR-EXT] Agent finished:', data);
                     const fileName = data.file ? data.file.split('/').pop() : '';
-                    const idleTime = data.idleTime ? Math.round(data.idleTime / 1000) : 0;
+                    const settings = aiToolSettings['cursor'] || {};
                     
-                    addChatMessage(`**Cursor AI** finished!${fileName ? ` Last file: \`${fileName}\`` : ''} (idle ${idleTime}s)`, 'jarvis');
+                    // Calculate response time
+                    const startTime = aiStartTimes['cursor'];
+                    const responseTime = startTime ? Date.now() - startTime : 0;
+                    delete aiStartTimes['cursor'];
+                    
+                    // Update status dashboard
+                    updateAiStatus('cursor', 'ready');
+                    
+                    // Record stats
+                    if (responseTime > 0) {
+                        recordAiQuery('cursor', responseTime);
+                    }
+                    
+                    // Play satisfying ping sound (default ON)
+                    if (settings.pingSound !== false) {
+                        playChime('ai_done');
+                    }
+                    
+                    // Voice announcement (default OFF - just use ping)
+                    if (settings.voiceAnnounce === true) {
+                        const responseTimeSec = Math.round(responseTime / 1000);
+                        speak("Cursor AI has finished" + (fileName ? " editing " + fileName : "") + ".");
+                    }
+                    
+                    addChatMessage("**Cursor AI** finished!" + (fileName ? " Last file: " + fileName : ""), 'jarvis');
                     addActivity('Cursor AI done', 'success');
-                    playChime('success');
                     
-                    // Show native notification
+                    // Show native notification (silent - just visual)
                     if (isElectron && window.electronAPI?.showNotification) {
                         window.electronAPI.showNotification(
-                            'Cursor AI Finished',
-                            `AI agent completed${fileName ? ' - ' + fileName : ''}`
+                            'Cursor AI Done',
+                            fileName ? fileName : "Response ready"
                         );
                     }
                 });
@@ -3163,7 +3996,7 @@ DASHBOARD_PAGE = '''
                 socket.on('cursor_file_saved', (data) => {
                     console.log('[CURSOR-EXT] File saved:', data);
                     const fileName = data.file ? data.file.split('/').pop() : 'file';
-                    addActivity(`Saved: ${fileName}`, 'info');
+                    addActivity("Saved: " + fileName, 'info');
                 });
                 
                 // Cursor terminal completed
@@ -3176,15 +4009,51 @@ DASHBOARD_PAGE = '''
                 socket.on('cursor_terminal_error', (data) => {
                     console.log('[CURSOR-EXT] Terminal error:', data);
                     addActivity('Terminal: error detected', 'warning');
-                    addChatMessage(`**Cursor Terminal** reported an error`, 'jarvis');
+                    addChatMessage("**Cursor Terminal** reported an error", 'jarvis');
                 });
                 
                 // Cursor diagnostics error
                 socket.on('cursor_diagnostics_error', (data) => {
                     console.log('[CURSOR-EXT] Diagnostics error:', data);
                     if (data.errors > 0) {
-                        addActivity(`Code errors: ${data.errors}`, 'warning');
+                        addActivity("Code errors: " + data.errors, 'warning');
                     }
+                });
+                
+                // ============================================================
+                // EXTENSION CONNECTION EVENTS
+                // ============================================================
+                
+                // Extension connected
+                socket.on('extension_connected', (data) => {
+                    console.log('[EXT] Connected:', data);
+                    if (!connectedExtensions[data.type]) {
+                        connectedExtensions[data.type] = [];
+                    }
+                    // Remove any existing entry for this extension
+                    connectedExtensions[data.type] = connectedExtensions[data.type].filter(e => e.id !== data.id);
+                    connectedExtensions[data.type].push(data);
+                    updateExtensionUI(data.type);
+                    addActivity(data.type + " extension connected", 'success');
+                });
+                
+                // Extension disconnected
+                socket.on('extension_disconnected', (data) => {
+                    console.log('[EXT] Disconnected:', data);
+                    // Find which type this belongs to
+                    for (const type in connectedExtensions) {
+                        connectedExtensions[type] = connectedExtensions[type].filter(e => e.id !== data.id);
+                    }
+                    updateExtensionUI('cursor');
+                    updateExtensionUI('chrome');
+                    addActivity("Extension disconnected", 'warning');
+                });
+                
+                // Extension settings changed
+                socket.on('extension_settings_changed', (data) => {
+                    console.log('[EXT] Settings changed:', data);
+                    extensionSettings[data.type] = data.settings;
+                    updateExtensionUI(data.type);
                 });
             }
         }
@@ -3379,35 +4248,31 @@ DASHBOARD_PAGE = '''
             const platform = navigator.platform || '';
 
             let name, icon, wakeWord;
+            
+            // Default wake word for all devices - matches dropdown options
+            wakeWord = 'jarvis';  // Default to Jarvis (like JARVIS from Iron Man)
 
             if (platform.includes('Mac') || ua.includes('Macintosh')) {
                 name = 'MacBook';
                 icon = '';
-                wakeWord = 'mac';
             } else if (platform.includes('Win') || ua.includes('Windows')) {
                 name = 'Windows PC';
                 icon = '';
-                wakeWord = 'windows';
             } else if (ua.includes('iPhone')) {
                 name = 'iPhone';
                 icon = '';
-                wakeWord = 'phone';
             } else if (ua.includes('iPad')) {
                 name = 'iPad';
                 icon = '';
-                wakeWord = 'ipad';
             } else if (ua.includes('Android')) {
                 name = 'Android';
                 icon = '';
-                wakeWord = 'android';
             } else if (platform.includes('Linux')) {
                 name = 'Linux PC';
                 icon = '';
-                wakeWord = 'linux';
             } else {
                 name = 'My Device';
                 icon = '';
-                wakeWord = 'computer';
             }
             
             return { name, icon, wakeWord };
@@ -3677,8 +4542,8 @@ DASHBOARD_PAGE = '''
                 timestamp: new Date().toISOString()
             });
             
-            showLastCommand(targetDevice.icon || '', `> ${targetDevice.name}`, command);
-            addActivity(`> Sent to ${targetDevice.name}: "${command.substring(0, 40)}..."`, 'success');
+            showLastCommand(targetDevice.icon || '', '> ' + targetDevice.name, command);
+            addActivity('> Sent to ' + targetDevice.name + ': "' + command.substring(0, 40) + '..."', 'success');
         }
         
         // Test desktop client connection
@@ -3703,7 +4568,7 @@ DASHBOARD_PAGE = '''
             const desktopClient = Object.values(devices).find(d => d.type === 'desktop_client');
             
             if (desktopClient) {
-                addActivity(` Desktop client found: ${desktopClient.name} (${desktopClient.id})`, 'success');
+                addActivity(" Desktop client found: " + desktopClient.name + " (" + desktopClient.id + ")", 'success');
                 console.log('Desktop client:', desktopClient);
                 
                 // Send a test ping
@@ -3714,7 +4579,7 @@ DASHBOARD_PAGE = '''
                     action: 'type',
                     timestamp: new Date().toISOString()
                 });
-                addActivity(`> Sent test ping to ${desktopClient.name}`, 'info');
+                addActivity("> Sent test ping to " + desktopClient.name, 'info');
             } else {
                 addActivity('[i] Use the Electron app for app control (no separate client needed)', 'info');
                 console.log('No desktop client. Device types:', Object.values(devices).map(d => ({name: d.name, type: d.type})));
@@ -3731,7 +4596,7 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
-            addActivity(` Executing: "${command}"`, 'info');
+            addActivity(' Executing: "' + command + '"', 'info');
             console.log('[MANUAL] Executing command:', command);
             
             // Process it just like a voice command
@@ -3798,7 +4663,7 @@ DASHBOARD_PAGE = '''
             const fromDevice = devices[fromDeviceId];
             const fromName = fromDevice?.name || 'Unknown Device';
             
-            addActivity(` Received from ${fromName}: "${command.substring(0, 40)}..."`, 'info');
+            addActivity(' Received from ' + fromName + ': "' + command.substring(0, 40) + '..."', 'info');
             playSound('activate');
             
             // Execute the command
@@ -4362,6 +5227,7 @@ DASHBOARD_PAGE = '''
                     alwaysListen = false;
                     isRestarting = false;
                     document.getElementById('toggle-always-listen').classList.remove('active');
+                    document.getElementById('toggle-always-listen-quick')?.classList.remove('active');
                     updateUI();
                 } else if (event.error === 'audio-capture') {
                     addActivity('X No microphone detected. Check System Preferences > Security > Microphone.', 'warning');
@@ -4382,7 +5248,7 @@ DASHBOARD_PAGE = '''
                     isRestarting = false;
                     updateUI();
                 } else {
-                    addActivity(`Speech error: ${event.error}`, 'warning');
+                    addActivity("Speech error: " + event.error, 'warning');
                 }
                 isListening = false;
                 updateUI();
@@ -4421,11 +5287,15 @@ DASHBOARD_PAGE = '''
         async function startWakeWordListening() {
             const wakeWord = currentDevice?.wakeWord || 'computer';
             console.log('[WAKE] Starting wake word listening for:', wakeWord);
+            
+            // CRITICAL: Reset recording states before starting wake word mode
+            // This ensures we're in a clean state (not stuck showing "recording")
+            nativeLeopardActive = false;
+            isActiveDictation = false;
+            wakeWordHeard = false;
+            
+            console.log('[WAKE] State reset - nativeLeopardActive:', nativeLeopardActive, 'isActiveDictation:', isActiveDictation);
             console.log('[WAKE] isElectron:', isElectron);
-            console.log('[WAKE] electronAPI available:', !!window.electronAPI);
-            console.log('[WAKE] electronAPI keys:', window.electronAPI ? Object.keys(window.electronAPI) : 'N/A');
-            console.log('[WAKE] porcupineStart available:', !!window.electronAPI?.porcupineStart);
-            console.log('[WAKE] porcupineStart type:', typeof window.electronAPI?.porcupineStart);
             console.log('[WAKE] PICOVOICE_ACCESS_KEY set:', !!PICOVOICE_ACCESS_KEY && PICOVOICE_ACCESS_KEY.length > 10);
             
             // Try native Porcupine first (Electron only - runs in main process, no IPC overhead)
@@ -4779,6 +5649,13 @@ DASHBOARD_PAGE = '''
         async function onWakeWordDetected() {
             
             console.log('[WAKE] Wake word triggered!');
+            
+            // INTERRUPT: Stop any TTS that's currently speaking
+            if (isTTSSpeaking) {
+                console.log('[WAKE] Interrupting TTS...');
+                stopTTS();
+            }
+            
             playSound('activate');
             addActivity('Wake word detected! Recording...', 'success');
             
@@ -4830,7 +5707,10 @@ DASHBOARD_PAGE = '''
                 porcupineStream.getTracks().forEach(track => track.stop());
                 porcupineStream = null;
             }
-            console.log('[PORCUPINE] Stopped listening');
+            
+            // CRITICAL: Reset the flag so UI shows correct state
+            nativePorcupineActive = false;
+            console.log('[PORCUPINE] Stopped listening, nativePorcupineActive = false');
         }
         
         // ============================================================
@@ -5259,12 +6139,12 @@ DASHBOARD_PAGE = '''
                         try {
                             const errorData = JSON.parse(errorText);
                             if (errorData.error) {
-                                addActivity(`X ${errorData.error}`, 'warning');
+                                addActivity("X " + errorData.error, 'warning');
                             } else {
-                                addActivity(`X Transcription failed: ${response.status}`, 'warning');
+                                addActivity("X Transcription failed: " + response.status, 'warning');
                             }
                         } catch (e) {
-                            addActivity(`X Transcription failed: ${response.status}`, 'warning');
+                            addActivity("X Transcription failed: " + response.status, 'warning');
                         }
                         return;
                     }
@@ -5486,6 +6366,40 @@ DASHBOARD_PAGE = '''
                     gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
                     oscillator.start(ctx.currentTime);
                     oscillator.stop(ctx.currentTime + 0.2);
+                } else if (type === 'success') {
+                    // Satisfying two-tone success ping (like a notification)
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(523, ctx.currentTime); // C5
+                    oscillator.frequency.setValueAtTime(659, ctx.currentTime + 0.1); // E5
+                    oscillator.frequency.setValueAtTime(784, ctx.currentTime + 0.15); // G5
+                    gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime + 0.1);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.35);
+                } else if (type === 'ai_done') {
+                    // Pleasant "ding" for AI completion - like iMessage sound
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(880, ctx.currentTime); // A5
+                    oscillator.frequency.exponentialRampToValueAtTime(1318, ctx.currentTime + 0.05); // E6
+                    gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.25);
+                    
+                    // Second higher ping for satisfying completion feel
+                    setTimeout(() => {
+                        const osc2 = ctx.createOscillator();
+                        const gain2 = ctx.createGain();
+                        osc2.connect(gain2);
+                        gain2.connect(ctx.destination);
+                        osc2.type = 'sine';
+                        osc2.frequency.setValueAtTime(1318, ctx.currentTime); // E6
+                        gain2.gain.setValueAtTime(0.15, ctx.currentTime);
+                        gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                        osc2.start(ctx.currentTime);
+                        osc2.stop(ctx.currentTime + 0.2);
+                    }, 100);
                 } else if (type === 'error') {
                     // Double low tone for error
                     oscillator.frequency.setValueAtTime(220, ctx.currentTime); // A3
@@ -5675,14 +6589,14 @@ DASHBOARD_PAGE = '''
         function addWordReplacement(from, to) {
             wordReplacements[from.toLowerCase()] = to;
             saveUserDictionary();
-            addActivity(` Added replacement: "${from}" > "${to}"`, 'success');
+            addActivity(' Added replacement: "' + from + '" > "' + to + '"', 'success');
         }
         
         // Add a snippet
         function addSnippet(trigger, content) {
             snippets[trigger.toLowerCase()] = content;
             saveUserDictionary();
-            addActivity(` Added snippet: "${trigger}"`, 'success');
+            addActivity(' Added snippet: "' + trigger + '"', 'success');
         }
         
         // Load dictionary on startup
@@ -5692,18 +6606,191 @@ DASHBOARD_PAGE = '''
         // TEXT-TO-SPEECH (OpenAI TTS)
         // ============================================================
         
+        let ttsQueue = [];
+        let isTTSSpeaking = false;
+        let ttsAbortController = null;  // For cancelling TTS
+        
+        // Split text into sentences for streaming TTS
+        function splitIntoSentences(text) {
+            // Split on sentence boundaries but keep short phrases together
+            const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+            const sentences = [];
+            let current = '';
+            
+            for (const part of parts) {
+                const trimmed = part.trim();
+                if (!trimmed) continue;
+                
+                // Combine very short sentences
+                if (current.length + trimmed.length < 60) {
+                    current += (current ? ' ' : '') + trimmed;
+                } else {
+                    if (current) sentences.push(current);
+                    current = trimmed;
+                }
+            }
+            if (current) sentences.push(current);
+            
+            return sentences.length > 0 ? sentences : [text];
+        }
+        
         async function speak(text) {
             if (!ttsEnabled || !text) return;
             
-            // Stop any currently playing audio
-            if (currentTTSAudio) {
-                currentTTSAudio.pause();
-                currentTTSAudio = null;
+            // Add to queue
+            ttsQueue.push(text);
+            
+            // Process queue if not already speaking
+            if (!isTTSSpeaking) {
+                processTTSQueue();
+            }
+        }
+        
+        // New: Streaming speak - starts playing first sentence immediately
+        async function speakStreaming(text) {
+            if (!ttsEnabled || !text) return;
+            
+            // Cancel any ongoing TTS
+            stopTTS();
+            
+            const sentences = splitIntoSentences(text);
+            console.log('[TTS-STREAM] Split into', sentences.length, 'parts:', sentences);
+            
+            ttsAbortController = new AbortController();
+            isTTSSpeaking = true;
+            
+            // IMPORTANT: Pause wake word detection to prevent hearing ourselves
+            if (alwaysListen && isElectron && window.electronAPI?.porcupineStop) {
+                console.log('[TTS-STREAM] Pausing wake word detection during speech');
+                try {
+                    await window.electronAPI.porcupineStop();
+                    nativePorcupineActive = false;
+                } catch (e) {
+                    console.log('[TTS-STREAM] Could not pause wake word:', e.message);
+                }
             }
             
             try {
+                for (let i = 0; i < sentences.length; i++) {
+                    if (ttsAbortController.signal.aborted) {
+                        console.log('[TTS-STREAM] Aborted');
+                        break;
+                    }
+                    
+                    const sentence = sentences[i];
+                    console.log('[TTS-STREAM] Speaking part', i + 1, '/', sentences.length, ':', sentence.substring(0, 40) + '...');
+                    
+                    if (i === 0) {
+                        addActivity("Speaking...", 'info');
+                    }
+                    
+                    // Fetch audio for this sentence
+                    const response = await fetch('/api/tts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: sentence, voice: ttsVoice }),
+                        credentials: 'include',
+                        signal: ttsAbortController.signal
+                    });
+                    
+                    if (!response.ok) {
+                        console.error('[TTS-STREAM] Failed:', response.status);
+                        continue;
+                    }
+                    
+                    // Play this sentence
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    await new Promise((resolve) => {
+                        if (ttsAbortController.signal.aborted) {
+                            URL.revokeObjectURL(audioUrl);
+                            resolve();
+                            return;
+                        }
+                        
+                        currentTTSAudio = new Audio(audioUrl);
+                        currentTTSAudio.onended = () => {
+                            URL.revokeObjectURL(audioUrl);
+                            currentTTSAudio = null;
+                            resolve();
+                        };
+                        currentTTSAudio.onerror = () => {
+                            URL.revokeObjectURL(audioUrl);
+                            currentTTSAudio = null;
+                            resolve();
+                        };
+                        currentTTSAudio.play().catch(() => resolve());
+                    });
+                }
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    console.error('[TTS-STREAM] Error:', e);
+                }
+            }
+            
+            isTTSSpeaking = false;
+            console.log('[TTS-STREAM] Finished');
+            
+            // ALWAYS resume wake word detection if alwaysListen is enabled
+            // Use longer delay to prevent echo detection
+            if (alwaysListen && isElectron) {
+                console.log('[TTS-STREAM] Will resume wake word detection in 1.5s...');
+                setTimeout(() => {
+                    if (alwaysListen && !isTTSSpeaking && !nativePorcupineActive) {
+                        console.log('[TTS-STREAM] Calling startWakeWordListening');
+                        startWakeWordListening();
+                    }
+                }, 1500); // 1.5 second delay to let audio fully dissipate
+            }
+        }
+        
+        // Stop TTS immediately (for interruptions)
+        function stopTTS() {
+            if (ttsAbortController) {
+                ttsAbortController.abort();
+                ttsAbortController = null;
+            }
+            if (currentTTSAudio) {
+                try {
+                    currentTTSAudio.pause();
+                    currentTTSAudio.src = '';
+                } catch (e) {}
+                currentTTSAudio = null;
+            }
+            isTTSSpeaking = false;
+            ttsQueue = [];
+        }
+        
+        async function processTTSQueue() {
+            if (isTTSSpeaking || ttsQueue.length === 0) return;
+            
+            isTTSSpeaking = true;
+            const text = ttsQueue.shift();
+            
+            // IMPORTANT: Pause wake word detection to prevent hearing ourselves
+            if (alwaysListen && isElectron && window.electronAPI?.porcupineStop && nativePorcupineActive) {
+                console.log('[TTS] Pausing wake word detection during speech');
+                try {
+                    await window.electronAPI.porcupineStop();
+                    nativePorcupineActive = false;
+                } catch (e) {
+                    console.log('[TTS] Could not pause wake word:', e.message);
+                }
+            }
+            
+            try {
+                // Stop any currently playing audio safely
+                if (currentTTSAudio) {
+                    try {
+                        currentTTSAudio.pause();
+                        currentTTSAudio.src = '';
+                    } catch (e) { /* ignore */ }
+                    currentTTSAudio = null;
+                }
+                
                 console.log('[TTS] Speaking:', text.substring(0, 50) + '...');
-                addActivity(` Speaking...`, 'info');
+                addActivity("Speaking...", 'info');
                 
                 const response = await fetch('/api/tts', {
                     method: 'POST',
@@ -5719,6 +6806,8 @@ DASHBOARD_PAGE = '''
                 
                 if (!response.ok) {
                     console.error('[TTS] Failed:', response.status);
+                    isTTSSpeaking = false;
+                    processTTSQueue(); // Try next in queue
                     return;
                 }
                 
@@ -5727,30 +6816,74 @@ DASHBOARD_PAGE = '''
                 const audioUrl = URL.createObjectURL(audioBlob);
                 currentTTSAudio = new Audio(audioUrl);
                 
+                // Wait for audio to be ready before playing
+                await new Promise((resolve, reject) => {
+                    currentTTSAudio.oncanplaythrough = resolve;
+                    currentTTSAudio.onerror = reject;
+                    currentTTSAudio.load();
+                });
+                
                 currentTTSAudio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
                     currentTTSAudio = null;
                     console.log('[TTS] Finished speaking');
+                    isTTSSpeaking = false;
+                    
+                    if (ttsQueue.length > 0) {
+                        processTTSQueue(); // Process next in queue
+                    } else if (alwaysListen && isElectron && !nativePorcupineActive) {
+                        // Queue empty, resume wake word detection after delay
+                        console.log('[TTS] Queue empty, will resume wake word in 1.5s');
+                        setTimeout(() => {
+                            if (alwaysListen && !isTTSSpeaking && !nativePorcupineActive) {
+                                startWakeWordListening();
+                            }
+                        }, 1500); // 1.5 second delay to prevent echo
+                    }
                 };
                 
                 currentTTSAudio.onerror = (e) => {
                     console.error('[TTS] Playback error:', e);
                     URL.revokeObjectURL(audioUrl);
                     currentTTSAudio = null;
+                    isTTSSpeaking = false;
+                    
+                    if (ttsQueue.length > 0) {
+                        processTTSQueue(); // Try next in queue
+                    } else if (alwaysListen && isElectron && !nativePorcupineActive) {
+                        setTimeout(() => {
+                            if (alwaysListen && !isTTSSpeaking && !nativePorcupineActive) {
+                                startWakeWordListening();
+                            }
+                        }, 1500);
+                    }
                 };
                 
-                await currentTTSAudio.play();
+                // Play and handle any interruptions gracefully
+                try {
+                    await currentTTSAudio.play();
+                } catch (playError) {
+                    if (playError.name === 'AbortError') {
+                        console.log('[TTS] Playback interrupted (expected)');
+                    } else {
+                        console.error('[TTS] Play error:', playError);
+                    }
+                }
                 
             } catch (e) {
                 console.error('[TTS] Error:', e);
+                isTTSSpeaking = false;
+                processTTSQueue(); // Try next in queue
             }
         }
         
         function stopSpeaking() {
+            ttsQueue = []; // Clear queue
             if (currentTTSAudio) {
-                currentTTSAudio.pause();
+                try { currentTTSAudio.pause(); } catch(e) {}
                 currentTTSAudio = null;
             }
+            isTTSSpeaking = false;
         }
         
         function processWhisperTranscript(text) {
@@ -6053,7 +7186,7 @@ DASHBOARD_PAGE = '''
             }
         }
         
-        function speakText(text) {
+        function speakText(text, useStreaming = false) {
             if (!text) return;
             
             // Also show as native notification in Electron (for when minimized)
@@ -6062,8 +7195,10 @@ DASHBOARD_PAGE = '''
             }
             
             // Use OpenAI TTS if available (better quality)
+            // NOTE: Streaming mode (sentence-by-sentence) is actually SLOWER due to multiple API calls
+            // Keeping it simple with single API call for now
             if (ttsEnabled) {
-                speak(text);  // Uses OpenAI TTS API
+                speak(text);
                 return;
             }
             
@@ -6090,7 +7225,7 @@ DASHBOARD_PAGE = '''
                 }
                 
                 window.speechSynthesis.speak(utterance);
-                console.log(' Speaking:', text);
+                console.log('Speaking:', text);
             } else {
                 console.log('Speech synthesis not available');
             }
@@ -6399,8 +7534,9 @@ DASHBOARD_PAGE = '''
                 phrases: ['list windows', 'show windows', 'cursor windows', 'which window', 'list cursor windows', 'show cursor windows']
             },
             // Greetings (handle locally for instant response)
+            // NOTE: These must be EXACT matches or standalone - use strictMatch flag
             greeting: {
-                phrases: ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy', 'greetings', 'sup', 'yo'],
+                strictPhrases: ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy', 'greetings', 'sup', 'yo', 'hi jarvis', 'hey jarvis', 'hello jarvis', 'hi cortona', 'hey cortona', 'hello cortona'],
                 response: () => {
                     const responses = [
                         'Hey! How can I help you?',
@@ -6414,29 +7550,52 @@ DASHBOARD_PAGE = '''
             // Help command
             help: {
                 phrases: ['help', 'what can you do', 'commands', 'how do i', 'what are my options'],
-                response: () => `Here's what I can do:
-* **Voice Commands** - Say your wake word, then speak
-* **Type Commands** - Use this chat input
-* **Watch Any App** - "watch cursor" or "watch chrome" to detect when AI finishes
-* **Watch Folder** - "watch project" for file changes
-* **Control Apps** - "open chrome", "type hello"
-* **List Apps** - "list apps" to see what's running
-* **Ask Questions** - I'll answer using AI`
+                response: () => "Here is what I can do:\\n* **Voice Commands** - Say your wake word, then speak\\n* **Type Commands** - Use this chat input\\n* **Watch Any App** - watch cursor or watch chrome to detect when AI finishes\\n* **Watch Folder** - watch project for file changes\\n* **Control Apps** - open chrome, type hello\\n* **List Apps** - list apps to see what is running\\n* **Ask Questions** - I will answer using AI"
             },
             // Status check
             status: {
                 phrases: ['status', 'are you there', 'you working', 'test', 'ping'],
-                response: () => "I'm here and ready! o"
+                response: () => "I am here and ready!"
+            },
+            // Stop talking (interrupt TTS)
+            stopTalking: {
+                strictPhrases: ['stop', 'shut up', 'be quiet', 'quiet', 'silence', 'stop talking', 'never mind', 'nevermind', 'cancel'],
+                response: () => {
+                    stopTTS();
+                    return null; // Don't speak a response
+                }
             }
         };
         
         // Fast keyword matching function
         function matchCommand(text) {
             const lower = text.toLowerCase().trim();
-            console.log('[MATCH] Checking command:', lower);
+            // Remove common filler words at start
+            const cleaned = lower.replace(/^(um|uh|so|well|okay|ok)\s+/gi, '').trim();
+            console.log('[MATCH] Checking command:', lower, '(cleaned:', cleaned + ')');
             
             for (const [cmdName, cmd] of Object.entries(COMMAND_REGISTRY)) {
-                // Check exact phrase matches first (fastest)
+                // Check STRICT phrase matches (must be exact or near-exact)
+                // Used for greetings to avoid "hey" in "hey open chrome" matching
+                if (cmd.strictPhrases) {
+                    const isStrictMatch = cmd.strictPhrases.some(p => {
+                        // Exact match
+                        if (cleaned === p) return true;
+                        // Match with trailing punctuation like "hey!" or "hello."
+                        if (cleaned.replace(/[!?,.\s]+$/, '') === p) return true;
+                        // Match just the greeting word(s) with nothing substantive after
+                        // e.g. "hey there" or "hi buddy" but NOT "hey open chrome"
+                        const words = cleaned.split(/\s+/);
+                        if (words.length <= 2 && words[0] === p) return true;
+                        return false;
+                    });
+                    if (isStrictMatch) {
+                        console.log('[MATCH] Strict phrase match:', cmdName);
+                        return { command: cmdName, confidence: 1.0 };
+                    }
+                }
+                
+                // Check regular phrase matches (can be contained in text)
                 if (cmd.phrases && cmd.phrases.some(p => lower.includes(p) || lower === p)) {
                     console.log('[MATCH] Phrase match:', cmdName);
                     return { command: cmdName, confidence: 1.0 };
@@ -6483,12 +7642,16 @@ DASHBOARD_PAGE = '''
                         'vscode': ['vscode', 'vs code', 'visual studio', 'code'],
                         'discord': ['discord', 'discorde'],
                         'chatgpt': ['chatgpt', 'chat gpt', 'chat gbt', 'gpt'],
-                        'claude': ['claude', 'claud', 'cloud'],
+                        'claude': ['claude', 'claud', 'cloud', 'clawed'],
                         'gemini': ['gemini', 'jemini'],
+                        'perplexity': ['perplexity', 'perplex'],
                         'terminal': ['terminal', 'terme', 'termal'],
                         'windsurf': ['windsurf', 'wind surf'],
                         'midjourney': ['midjourney', 'mid journey']
                     };
+                    
+                    // Browser-based AIs that should use Chrome extension instead of native watcher
+                    const browserAIs = ['chatgpt', 'claude', 'gemini', 'perplexity'];
                     
                     // Find matching app (checking aliases)
                     let appMatch = null;
@@ -6506,6 +7669,46 @@ DASHBOARD_PAGE = '''
                         addChatMessage('Which app should I watch? Try: "watch cursor", "watch chrome", or "watch vscode"', 'jarvis');
                         addChatMessage('(I heard: "' + text + '")', 'jarvis');
                         return { handled: true };
+                    }
+                    
+                    // Handle browser-based AIs differently - use Chrome extension
+                    if (browserAIs.includes(appMatch)) {
+                        console.log('[WATCH] Browser-based AI detected:', appMatch);
+                        
+                        // Check if we have Chrome extension connected
+                        const aiStatus = getAiStatus(appMatch);
+                        console.log('[WATCH] AI status for', appMatch, ':', aiStatus);
+                        
+                        if (aiStatus === 'open' || aiStatus === 'active' || aiStatus === 'generating') {
+                            // AI tab is already detected - start watching via Chrome extension
+                            addChatMessage("Now watching **" + appMatch.charAt(0).toUpperCase() + appMatch.slice(1) + "** in Chrome. I'll notify you when it finishes responding.", 'jarvis');
+                            speakText("Watching " + appMatch + " in Chrome. I'll notify you when it finishes.");
+                            addActivity("Watching: " + appMatch + " (Chrome)", 'success');
+                            
+                            // Request the Chrome extension to actively watch this AI
+                            if (socket && socket.connected) {
+                                socket.emit('watch_ai_request', { ai: appMatch });
+                            }
+                            
+                            return { handled: true };
+                        } else {
+                            // AI tab not detected - check if Chrome extension is connected
+                            const chromeConnected = document.querySelector('[data-tool="chrome"]')?.classList.contains('connected');
+                            
+                            if (!chromeConnected) {
+                                addChatMessage("**" + appMatch.charAt(0).toUpperCase() + appMatch.slice(1) + "** runs in Chrome, but I don't see the Chrome extension connected.\\n\\nMake sure:\\n1. The Cortona Chrome extension is installed\\n2. You have " + appMatch + " open in Chrome\\n3. Reload the extension if needed", 'jarvis');
+                                speakText("I need the Chrome extension to watch " + appMatch + ". Please make sure it's installed and " + appMatch + " is open in Chrome.");
+                            } else {
+                                addChatMessage("I don't see **" + appMatch.charAt(0).toUpperCase() + appMatch.slice(1) + "** open in Chrome right now.\\n\\nPlease open " + appMatch + " in Chrome and try again.", 'jarvis');
+                                speakText("I don't see " + appMatch + " open in Chrome. Please open it and try again.");
+                                
+                                // Request a rescan
+                                if (socket && socket.connected) {
+                                    socket.emit('rescan_ai_tabs');
+                                }
+                            }
+                            return { handled: true };
+                        }
                     }
                     
                     // Check for window number (e.g., "watch cursor 2")
@@ -6545,13 +7748,13 @@ DASHBOARD_PAGE = '''
                         }
                     }
                     
-                    addChatMessage(`Starting watcher on: **${appMatch}**${windowSelector ? ` (window ${windowSelector})` : ''}...`, 'jarvis');
+                    addChatMessage("Starting watcher on: **" + appMatch + "**" + (windowSelector ? " (window " + windowSelector + ")" : "") + "...", 'jarvis');
                     try {
                         const result = await window.electronAPI.windowWatcherStart(appMatch, 5000, 500, windowSelector);
                         if (result.success) {
                             const windowInfo = result.windowTitle ? ` "${result.windowTitle}"` : '';
-                            addChatMessage(`Now watching **${result.app}**${windowInfo}. Waiting for activity to start... I'll notify you when it finishes.`, 'jarvis');
-                            addActivity(`Watching: ${result.app}`, 'success');
+                            addChatMessage("Now watching **" + result.app + "**" + windowInfo + ". Waiting for activity to start... I will notify you when it finishes.", 'jarvis');
+                            addActivity("Watching: " + result.app, 'success');
                             updateWatcherWidget(result.app, true, result.windowTitle);
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
@@ -6579,7 +7782,7 @@ DASHBOARD_PAGE = '''
                         if (result.success && result.windows.length > 0) {
                             addChatMessage('**' + result.app + ' Windows:**\\n' + result.windows.map(w => '* Window ' + w.index + ': "' + w.title + '"').join('\\n') + '\\n\\n* Say "watch ' + listAppMatch + ' 2" or "watch ' + listAppMatch + ' [title]" to select one.', 'jarvis');
                         } else if (result.success) {
-                            addChatMessage(`No windows found for ${result.app}`, 'jarvis');
+                            addChatMessage("No windows found for " + result.app, 'jarvis');
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
                         }
@@ -6598,11 +7801,11 @@ DASHBOARD_PAGE = '''
                         const lastPath = await window.electronAPI.agentWatcherGetPath();
                         watchPath = lastPath || '/Users/quinnbean/Cortona-';
                     }
-                    addChatMessage(`Starting file watcher on: ${watchPath}`, 'jarvis');
+                    addChatMessage("Starting file watcher on: " + watchPath, 'jarvis');
                     try {
                         const result = await window.electronAPI.agentWatcherStart(watchPath, 3000);
                         if (result.success) {
-                            addChatMessage("File watcher active! I'll notify you when file changes stop.", 'jarvis');
+                            addChatMessage("File watcher active! I will notify you when file changes stop.", 'jarvis');
                             addActivity('File watcher started', 'success');
                         } else {
                             addChatMessage('Failed: ' + result.error, 'jarvis');
@@ -6649,6 +7852,12 @@ DASHBOARD_PAGE = '''
                 case 'status':
                     addChatMessage(cmd.response(), 'jarvis');
                     return { handled: true };
+                
+                case 'stopTalking':
+                    // Stop any TTS immediately
+                    stopTTS();
+                    addActivity('Stopped talking', 'info');
+                    return { handled: true };  // Don't say anything in response
                     
                 default:
                     return { handled: false };
@@ -6697,7 +7906,7 @@ DASHBOARD_PAGE = '''
             const match = matchCommand(text);
             
             if (match && match.confidence >= 0.7) {
-                console.log(`[HYBRID] Keyword match: ${match.command} (${match.confidence})`);
+                console.log("[HYBRID] Keyword match: " + match.command + " (" + match.confidence + ")");
                 const result = await executeLocalCommand(match.command, text);
                 if (result.handled) {
                     return; // Command handled locally - no AI needed!
@@ -6754,8 +7963,8 @@ DASHBOARD_PAGE = '''
                     aiModel = data.model;
                     if (claudeAvailable) {
                         const providerName = aiProvider === 'openai' ? 'GPT-4o' : 'Claude';
-                        console.log(` ${providerName} AI ready`);
-                        addActivity(` ${providerName} enabled (fast mode)`, 'success');
+                        console.log(" " + providerName + " AI ready");
+                        addActivity(" " + providerName + " enabled (fast mode)", 'success');
                     }
                 })
                 .catch(() => { claudeAvailable = false; });
@@ -6772,7 +7981,7 @@ DASHBOARD_PAGE = '''
                     text: text,
                     sessionId: sessionId,
                     currentApp: lastTargetApp || 'unknown',
-                    lastAction: lastAction ? `${lastAction.action} to ${lastAction.app || 'local'}: "${lastAction.content}"` : 'none',
+                    lastAction: lastAction ? lastAction.action + " to " + (lastAction.app || "local") + ": " + lastAction.content : "none",
                     activity: isActiveDictation ? 'active_dictation' : (continuousMode ? 'continuous' : 'general'),
                     assistantName: assistantName.charAt(0).toUpperCase() + assistantName.slice(1).toLowerCase()
                 };
@@ -6790,10 +7999,9 @@ DASHBOARD_PAGE = '''
                 console.log(' AI RESPONSE:', JSON.stringify(data, null, 2));
                 
                 // Claude ALWAYS returns a valid response now (no fallback)
-                // Log if Claude corrected the transcription
-                if (data.correctedText && data.correctedText !== text) {
-                    console.log(' Speech corrected:', text, '>', data.correctedText);
-                    addActivity(` Heard "${text}" > corrected to "${data.correctedText}"`, 'info');
+                // Log correction to console only (user sees corrected version)
+                if (data.correctedText && data.correctedText.toLowerCase() !== text.toLowerCase()) {
+                    console.log('[CORRECTION]', text, '>', data.correctedText);
                 }
                 
                 return data;
@@ -6856,8 +8064,8 @@ DASHBOARD_PAGE = '''
                     // Use corrected text if Claude fixed transcription errors
                     const displayText = claudeResult.correctedText || text;
                     
-                    // Show what user said in chat (use corrected version)
-                    addChatMessage(displayText, 'user');
+                    // NOTE: Don't add user message here - it's already added by caller
+                    // (sendMessage or voice handler adds it before calling handleTranscript)
                     
                     // Check if Claude detected a stop command
                     if (claudeResult.isStopCommand) {
@@ -6890,10 +8098,14 @@ DASHBOARD_PAGE = '''
                         waitForAnswer('clarification');
                         return;
                     }
-                    // Claude has a response to speak (but still executing)
-                    else if (claudeResult.speak && !claudeResult.needsClarification) {
+                    // Track if we've shown the AI response (avoid duplicate chat bubbles)
+                    let aiResponseShown = false;
+                    
+                    // Claude has a response to speak
+                    if (claudeResult.speak && !claudeResult.needsClarification) {
                         addChatMessage(claudeResult.speak, 'jarvis');
                         speakText(claudeResult.speak);
+                        aiResponseShown = true;
                         
                         // If AI asked a question, auto-activate mic for the answer
                         if (isQuestion(claudeResult.speak)) {
@@ -6925,13 +8137,10 @@ DASHBOARD_PAGE = '''
                         };
                         lastTargetApp = appId || lastTargetApp;
                         
-                        console.log(' Claude:', claudeResult.response || `${parsed.action} > ${appId || 'local'}`);
+                        console.log(' Claude:', claudeResult.response || (parsed.action + " > " + (appId || "local")));
+                        // Only show response in activity log, NOT as separate chat bubble
                         if (claudeResult.response) {
-                            addActivity(` ${claudeResult.response}`, 'info');
-                            // Show brief confirmation in chat (but don't speak for normal commands)
-                            if (!claudeResult.speak) {
-                                addChatMessage(` ${claudeResult.response}`, 'jarvis');
-                            }
+                            addActivity(" " + claudeResult.response, 'info');
                         }
                     }
                 }
@@ -6959,6 +8168,64 @@ DASHBOARD_PAGE = '''
                 routeCommandToDevice(parsed.targetDevice, parsed.command, parsed.action);
                 copyToClipboard(parsed.command); // Always copy to clipboard
                 document.getElementById('transcript').textContent = `> Sent to ${parsed.targetDevice.name}: "${parsed.command}"`;
+                return;
+            }
+            
+            // Handle "send to AI" action - send message to Claude/ChatGPT/etc via Chrome extension
+            if (parsed.action === 'send_to_ai') {
+                const aiTarget = parsed.targetApp?.id || parsed.targetApp || 'claude';
+                const message = parsed.command;
+                
+                console.log('[SEND-TO-AI] Action triggered:', { aiTarget, message });
+                addActivity('Sending to ' + aiTarget + ': "' + message.substring(0, 40) + '..."', 'info');
+                
+                // Call the API to queue the command for Chrome extension
+                fetch('/api/send-to-ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ai: aiTarget, text: message })
+                })
+                .then(r => r.json())
+                .then(data => {
+                    console.log('[SEND-TO-AI] API response:', data);
+                    if (data.status === 'ok') {
+                        addActivity("Message queued for " + aiTarget, 'success');
+                        speak("Sending that to " + aiTarget + " now.");
+                    } else {
+                        addActivity("Failed: " + data.message, 'warning');
+                        speak("Sorry, I could not send that. " + data.message);
+                    }
+                })
+                .catch(e => {
+                    console.error('[SEND-TO-AI] Error:', e);
+                    addActivity("Error: " + e.message, 'warning');
+                });
+                
+                return;
+            }
+            
+            // Handle "read response" action - read what AI said aloud
+            if (parsed.action === 'read_response') {
+                const aiTarget = parsed.targetApp?.id || parsed.targetApp || null;
+                
+                console.log('[READ-RESPONSE] Getting last response from:', aiTarget || 'any AI');
+                addActivity('Reading response...', 'info');
+                
+                // Request the last response via Chrome extension
+                fetch('/api/get-ai-response', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ai: aiTarget })
+                })
+                .then(r => r.json())
+                .then(data => {
+                    console.log('[READ-RESPONSE] Request sent');
+                })
+                .catch(e => {
+                    console.error('[READ-RESPONSE] Error:', e);
+                    speak('Sorry, I could not get the response.');
+                });
+                
                 return;
             }
             
@@ -7024,9 +8291,9 @@ DASHBOARD_PAGE = '''
                             );
                             
                             if (result.success) {
-                                showLastCommand(appInfo.icon, `> ${appInfo.name}`, parsed.command);
-                                addActivity(` Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
-                                document.getElementById('transcript').textContent = ` > ${appInfo.name}: "${parsed.command}"`;
+                                showLastCommand(appInfo.icon, "> " + appInfo.name, parsed.command);
+                                addActivity(' Sent to ' + appInfo.name + ': "' + parsed.command.substring(0, 40) + '..."', 'success');
+                                document.getElementById('transcript').textContent = ' > ' + appInfo.name + ': "' + parsed.command + '"';
                             } else {
                                 // Check if it's an accessibility permission error
                                 if (result.error && result.error.includes('osascript is not allowed')) {
@@ -7035,7 +8302,7 @@ DASHBOARD_PAGE = '''
                                     speakText('I need Accessibility permission. Opening settings now.');
                                     openAccessibilitySettings();
                                 } else {
-                                    addActivity(` Failed to control ${appInfo.name}: ${result.error}`, 'warning');
+                                    addActivity(" Failed to control " + appInfo.name + ": " + result.error, 'warning');
                                 }
                                 // Copy to clipboard as fallback
                                 copyToClipboard(parsed.command);
@@ -7048,7 +8315,7 @@ DASHBOARD_PAGE = '''
                                 addActivity(' Accessibility permission required!', 'warning');
                                 openAccessibilitySettings();
                             } else {
-                                addActivity(` Error: ${e.message}`, 'warning');
+                                addActivity(" Error: " + e.message, 'warning');
                             }
                             copyToClipboard(parsed.command);
                         }
@@ -7077,15 +8344,15 @@ DASHBOARD_PAGE = '''
                     
                     copyToClipboard(parsed.command);
                     showLastCommand(appInfo.icon, `> ${appInfo.name} on ${desktopClient.name}`, parsed.command);
-                    addActivity(`> Sent to ${appInfo.name}: "${parsed.command.substring(0, 40)}..."`, 'success');
+                    addActivity('> Sent to ' + appInfo.name + ': "' + parsed.command.substring(0, 40) + '..."', 'success');
                     document.getElementById('transcript').textContent = `> > ${appInfo.name}: "${parsed.command}"`;
                     return;
                 } else {
                     // No desktop client and not in Electron - copy to clipboard
-                    addActivity(` No way to control ${appInfo.name}. Use Electron app or run desktop client.`, 'warning');
+                    addActivity(" No way to control " + appInfo.name + ". Use Electron app or run desktop client.", 'warning');
                     copyToClipboard(parsed.command);
                     addActivity(' Copied to clipboard - paste manually', 'info');
-                    document.getElementById('transcript').textContent = ` Copied: "${parsed.command}"`;
+                    document.getElementById('transcript').textContent = ' Copied: "' + parsed.command + '"';
                 }
                 
                 text = parsed.command;
@@ -7108,9 +8375,9 @@ DASHBOARD_PAGE = '''
             // Log activity
             if (autoType) {
                 const targetInfo = parsed.targetApp ? ` > ${parsed.targetApp.name}` : '';
-                addActivity(`Typed${targetInfo}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (copied)`, 'success', wordCount);
+                addActivity('Typed' + targetInfo + ': "' + text.substring(0, 50) + (text.length > 50 ? '...' : '') + '" (copied)', 'success', wordCount);
             } else {
-                addActivity(`Copied: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`, 'info', wordCount);
+                addActivity('Copied: "' + text.substring(0, 50) + (text.length > 50 ? '...' : '') + '"', 'info', wordCount);
             }
             
             // Emit to server
@@ -7173,7 +8440,7 @@ DASHBOARD_PAGE = '''
             
             if (corrections.length > 0) {
                 console.log('Spell corrections:', corrections);
-                addActivity(` Auto-corrected: ${corrections.map(c => c.from + ' > ' + c.to).join(', ')}`, 'info');
+                addActivity(" Auto-corrected: " + corrections.map(c => c.from + " > " + c.to).join(", "), 'info');
             }
             
             return corrected;
@@ -7225,6 +8492,11 @@ DASHBOARD_PAGE = '''
                 return;
             }
             
+            // Notify Electron that listening started (for global stop shortcuts)
+            if (isElectron && window.electronAPI?.listeningStarted) {
+                window.electronAPI.listeningStarted();
+            }
+            
             // In alwaysListen mode, try Porcupine first (free local detection)
             if (alwaysListen && usePorcupine && !isActiveDictation) {
                 console.log('[LISTENING] Using Porcupine for wake word (FREE)');
@@ -7268,6 +8540,11 @@ DASHBOARD_PAGE = '''
             console.log('[STOP] stopListening called');
             console.log('[STOP] Before: isListening=', isListening, 'isActiveDictation=', isActiveDictation, 'nativeLeopardActive=', nativeLeopardActive);
             
+            // Notify Electron that listening stopped (disables global stop shortcuts)
+            if (isElectron && window.electronAPI?.listeningStopped) {
+                window.electronAPI.listeningStopped();
+            }
+            
             // Stop Leopard recording if active
             if (nativeLeopardActive) {
                 console.log('[STOP] Stopping Leopard...');
@@ -7281,13 +8558,22 @@ DASHBOARD_PAGE = '''
                 nativePorcupineActive = false;
             }
             
-            // Reset all state flags
+            // Reset ALL state flags (this is the master reset)
             isListening = false;
             isActiveDictation = false;
+            nativeLeopardActive = false;
             wakeWordHeard = false;
             manualMicClick = false;
             
-            console.log('[STOP] After: isListening=', isListening, 'isActiveDictation=', isActiveDictation, 'nativeLeopardActive=', nativeLeopardActive);
+            // Also stop audio visualization
+            const audioContainer = document.getElementById('audio-level-container');
+            if (audioContainer) {
+                audioContainer.classList.remove('active', 'native-recording');
+            }
+            const recordingDot = document.getElementById('recording-dot');
+            if (recordingDot) recordingDot.classList.remove('active');
+            
+            console.log('[STOP] After reset: isListening=', isListening, 'isActiveDictation=', isActiveDictation, 'nativeLeopardActive=', nativeLeopardActive, 'nativePorcupineActive=', nativePorcupineActive);
             updateUI();
         }
         
@@ -7362,20 +8648,31 @@ DASHBOARD_PAGE = '''
                 voiceOrbContainer.classList.remove('idle', 'wake-listening', 'listening', 'processing');
             }
             
-            // State logic:
-            // - isActiveDictation or (isListening && !alwaysListen) -> GREEN (actively recording)
-            // - alwaysListen enabled -> YELLOW (standby, waiting for wake word)
-            // - Everything else -> RED (off)
+            // State logic (evaluated in order):
+            // 1. nativeLeopardActive OR isActiveDictation -> GREEN (actively recording speech)
+            // 2. isListening && !alwaysListen -> GREEN (manual recording mode)
+            // 3. alwaysListen -> YELLOW (standby, waiting for wake word)
+            // 4. Everything else -> RED (off/idle)
+            
+            // Debug: Log all state variables
+            console.log('[UI] State check:', {
+                nativeLeopardActive,
+                isActiveDictation,
+                isListening,
+                alwaysListen,
+                nativePorcupineActive,
+                wakeWordHeard
+            });
             
             // Get audio visualization elements
             const audioLevelContainer = document.getElementById('audio-level-container');
             const recordingDot = document.getElementById('recording-dot');
             
-            // Determine if we're actively recording (should show audio bars)
-            const isActivelyRecording = isActiveDictation || nativeLeopardActive || (isListening && !alwaysListen);
+            // Determine if we're actively recording (should show GREEN + audio bars)
+            const isActivelyRecording = nativeLeopardActive || isActiveDictation || (isListening && !alwaysListen);
             
-            // Show/hide audio bars based on recording state
-            console.log('[UI] Audio bars: isActivelyRecording=', isActivelyRecording, 'nativeLeopardActive=', nativeLeopardActive);
+            // Log decision
+            console.log('[UI] Decision: isActivelyRecording=', isActivelyRecording);
             if (audioLevelContainer) {
                 if (isActivelyRecording) {
                     console.log('[UI] Adding active and native-recording classes');
@@ -7876,7 +9173,7 @@ DASHBOARD_PAGE = '''
                 socketEmit('device_delete', { deviceId: id });
                 renderDeviceList();
                 renderAvailableDevices();
-                addActivity(`Deleted device: ${name}`, 'info');
+                addActivity("Deleted device: " + name, 'info');
             }
         }
         
@@ -7895,8 +9192,9 @@ DASHBOARD_PAGE = '''
                     recognition.lang = currentDevice.language || 'en-US';
                 }
                 
-                // Update all toggle states
+                // Update all toggle states (including quick toggle)
                 document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+                document.getElementById('toggle-always-listen-quick')?.classList.toggle('active', alwaysListen);
                 document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
                 document.getElementById('toggle-autotype').classList.toggle('active', autoType);
                 document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
@@ -7908,7 +9206,7 @@ DASHBOARD_PAGE = '''
                 renderDeviceList();
                 
                 // Show which device is selected
-                addActivity(`Selected device: ${currentDevice.name || 'Unnamed'}`, 'info');
+                addActivity("Selected device: " + (currentDevice.name || "Unnamed"), 'info');
             }
         }
         
@@ -7932,7 +9230,7 @@ DASHBOARD_PAGE = '''
             
             updateUI();
             renderDeviceList();
-            addActivity(`Updated ${setting} to "${value}"`, 'info');
+            addActivity('Updated ' + setting + ' to "' + value + '"', 'info');
             
             // Sync to server
             socketEmit('device_update', { deviceId: currentDevice.id, settings: currentDevice });
@@ -7957,19 +9255,34 @@ DASHBOARD_PAGE = '''
             alwaysListen = !alwaysListen;
             console.log('alwaysListen now:', alwaysListen);
             document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+            document.getElementById('toggle-always-listen-quick')?.classList.toggle('active', alwaysListen);
             currentDevice.alwaysListen = alwaysListen;
             saveDevices();
             
             if (alwaysListen) {
+                // CRITICAL: Reset ALL recording states before starting wake word mode
+                // This ensures we show YELLOW (standby) not GREEN (recording)
+                nativeLeopardActive = false;
+                isActiveDictation = false;
+                wakeWordHeard = false;
+                console.log('[TOGGLE] Enabling wake word - states reset');
+                
                 addActivity('Wake word listening enabled - say "' + (currentDevice?.wakeWord || 'jarvis') + '" to activate', 'success');
                 // Try to start Porcupine for passive wake word listening
                 await startWakeWordListening();
             } else {
+                // CRITICAL: Reset ALL states when disabling
+                nativeLeopardActive = false;
+                isActiveDictation = false;
+                isListening = false;
+                nativePorcupineActive = false;
+                wakeWordHeard = false;
+                console.log('[TOGGLE] Disabling wake word - all states reset');
+                
                 addActivity('Wake word listening disabled', 'info');
                 // Stop wake word listening
                 stopWhisperWakeWordMode();
                 await stopPorcupineListening();
-                isListening = false;
             }
             updateUI();
         }
@@ -8006,7 +9319,7 @@ DASHBOARD_PAGE = '''
             currentDevice.sensitivity = sensitivity;
             saveDevices();
             document.getElementById('sensitivity-label').textContent = sensitivityLabels[sensitivity];
-            addActivity(`Wake word sensitivity set to: ${sensitivityLabels[sensitivity]}`, 'info');
+            addActivity("Wake word sensitivity set to: " + sensitivityLabels[sensitivity], 'info');
         }
         
         function toggleSpellCheck() {
@@ -8152,7 +9465,7 @@ DASHBOARD_PAGE = '''
             saveDevices();
             renderDeviceList();
             closeAddDeviceModal();
-            addActivity(`Added new device: ${name}`, 'success');
+            addActivity("Added new device: " + name, 'success');
             
             socketEmit('device_add', devices[newId]);
         }
@@ -8268,6 +9581,7 @@ DASHBOARD_PAGE = '''
         renderDeviceList();
         renderActivityLog();
         renderAvailableDevices();
+        loadExtensions();  // Load extension states
         
         // Restore settings
         alwaysListen = currentDevice?.alwaysListen || false;
@@ -8277,6 +9591,7 @@ DASHBOARD_PAGE = '''
         sensitivity = currentDevice?.sensitivity || 3;
         
         document.getElementById('toggle-always-listen').classList.toggle('active', alwaysListen);
+        document.getElementById('toggle-always-listen-quick')?.classList.toggle('active', alwaysListen);
         document.getElementById('toggle-continuous').classList.toggle('active', continuousMode);
         document.getElementById('toggle-autotype').classList.toggle('active', autoType);
         document.getElementById('toggle-spellcheck').classList.toggle('active', spellCheckEnabled);
@@ -8528,6 +9843,7 @@ def health():
 # ============================================================================
 
 @app.route('/api/chrome-event', methods=['POST', 'OPTIONS'])
+@limiter.exempt  # Exempt from rate limiting - handles frequent AI activity events
 @csrf.exempt
 def chrome_event():
     """Receive events from Cortona Chrome extension"""
@@ -8564,6 +9880,49 @@ def chrome_event():
                 'timestamp': data.get('timestamp')
             })
             print(f"[CHROME] Emitted chrome_ai_started for {ai_name}")
+        elif event == 'tab_opened':
+            socketio.emit('chrome_tab_opened', {
+                'ai': ai_name,
+                'url': url,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Tab opened: {ai_name}")
+        elif event == 'tab_closed':
+            socketio.emit('chrome_tab_closed', {
+                'ai': ai_name,
+                'url': url,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Tab closed: {ai_name}")
+        elif event == 'response_received':
+            # AI response was fetched for reading aloud
+            ai_response = data.get('response', '')
+            success = data.get('success', False)
+            error = data.get('error', '')
+            
+            socketio.emit('ai_response_received', {
+                'ai': ai_name,
+                'response': ai_response,
+                'success': success,
+                'error': error,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Response received from {ai_name}: {len(ai_response)} chars")
+        elif event == 'watching_started':
+            # Chrome extension confirmed it's watching an AI tab
+            socketio.emit('chrome_watching_started', {
+                'ai': ai_name,
+                'url': url,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Now actively watching: {ai_name}")
+        elif event == 'tab_not_found':
+            # Chrome extension couldn't find the requested AI tab
+            socketio.emit('chrome_tab_not_found', {
+                'ai': ai_name,
+                'timestamp': data.get('timestamp')
+            })
+            print(f"[CHROME] Tab not found: {ai_name}")
         
         response = jsonify({'status': 'ok', 'received': event})
         response.headers.add('Access-Control-Allow-Origin', '*')
@@ -8661,6 +10020,246 @@ def cursor_event():
         response = jsonify({'status': 'error', 'message': str(e)})
         response.headers.add('Access-Control-Allow-Origin', '*')
         return response, 500
+
+# ============================================================================
+# EXTENSION CONTROL API - Heartbeat, Status, and Control
+# ============================================================================
+
+@app.route('/api/extension/heartbeat', methods=['POST', 'OPTIONS'])
+@limiter.exempt  # Exempt from rate limiting - extensions need frequent heartbeats
+@csrf.exempt
+def extension_heartbeat():
+    """Heartbeat endpoint for extensions - registers/updates connection and returns config"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        data = request.get_json() or {}
+        ext_type = data.get('type', 'unknown')
+        workspace = data.get('workspace')
+        version = data.get('version', '1.0.0')
+        
+        ext_id = get_extension_id(ext_type, workspace)
+        
+        # Register or update the extension
+        if ext_id not in connected_extensions:
+            register_extension(ext_type, workspace, {'version': version})
+        else:
+            update_extension_heartbeat(ext_id)
+        
+        # Clean up stale extensions
+        cleanup_stale_extensions(timeout=30)
+        
+        # Get settings for this extension type
+        settings = extension_settings.get(ext_type, {'enabled': True})
+        
+        # Get pending commands for Chrome extension
+        commands = []
+        if ext_type == 'chrome':
+            commands = get_pending_chrome_commands()
+        
+        response = jsonify({
+            'status': 'ok',
+            'extension_id': ext_id,
+            'enabled': settings.get('enabled', True),
+            'settings': settings,
+            'commands': commands,
+            'server_time': time.time()
+        })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
+    except Exception as e:
+        print(f"[EXTENSIONS] Heartbeat error: {e}")
+        response = jsonify({'status': 'error', 'message': str(e), 'enabled': False})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
+
+@app.route('/api/extension/control', methods=['POST', 'OPTIONS'])
+@csrf.exempt
+@login_required
+def extension_control():
+    """Control endpoint to enable/disable extensions"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        data = request.get_json() or {}
+        ext_type = data.get('type')  # 'cursor' or 'chrome'
+        action = data.get('action')  # 'enable', 'disable', or 'update_settings'
+        settings_update = data.get('settings', {})
+        
+        if not ext_type or ext_type not in extension_settings:
+            return jsonify({'status': 'error', 'message': 'Invalid extension type'}), 400
+        
+        if action == 'enable':
+            extension_settings[ext_type]['enabled'] = True
+            print(f"[EXTENSIONS] Enabled: {ext_type}")
+        elif action == 'disable':
+            extension_settings[ext_type]['enabled'] = False
+            print(f"[EXTENSIONS] Disabled: {ext_type}")
+        elif action == 'update_settings':
+            extension_settings[ext_type].update(settings_update)
+            print(f"[EXTENSIONS] Updated settings for {ext_type}: {settings_update}")
+        else:
+            return jsonify({'status': 'error', 'message': 'Invalid action'}), 400
+        
+        # Notify all connected clients about the change
+        socketio.emit('extension_settings_changed', {
+            'type': ext_type,
+            'settings': extension_settings[ext_type]
+        })
+        
+        return jsonify({
+            'status': 'ok',
+            'type': ext_type,
+            'settings': extension_settings[ext_type]
+        })
+        
+    except Exception as e:
+        print(f"[EXTENSIONS] Control error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/extensions', methods=['GET'])
+def get_extensions():
+    """Get all connected extensions and their settings"""
+    # Clean up stale extensions first
+    cleanup_stale_extensions(timeout=30)
+    
+    return jsonify({
+        'connected': list(connected_extensions.values()),
+        'settings': extension_settings
+    })
+
+@app.route('/api/update-monitored-sites', methods=['POST', 'OPTIONS'])
+@limiter.exempt
+@csrf.exempt
+def update_monitored_sites():
+    """Update which AI sites the Chrome extension should monitor"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+    
+    try:
+        data = request.get_json() or {}
+        site = data.get('site')
+        enabled = data.get('enabled', True)
+        
+        # Store in a global that Chrome extension can fetch
+        global monitored_sites
+        if not hasattr(update_monitored_sites, 'sites'):
+            update_monitored_sites.sites = {}
+        update_monitored_sites.sites[site] = enabled
+        
+        print(f"[MONITORING] {site} monitoring: {enabled}")
+        
+        # Emit to connected clients so Chrome extension can pick it up
+        socketio.emit('monitored_sites_changed', {
+            'site': site,
+            'enabled': enabled,
+            'all_sites': update_monitored_sites.sites
+        })
+        
+        return jsonify({'status': 'ok', 'site': site, 'enabled': enabled})
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/get-monitored-sites', methods=['GET'])
+@limiter.exempt
+@csrf.exempt  
+def get_monitored_sites():
+    """Get current monitoring settings for Chrome extension"""
+    if not hasattr(update_monitored_sites, 'sites'):
+        update_monitored_sites.sites = {}
+    
+    # Default all to true
+    defaults = {'claude': True, 'chatgpt': True, 'gemini': True, 'perplexity': True, 'poe': True, 'cursor': True}
+    sites = {**defaults, **update_monitored_sites.sites}
+    
+    response = jsonify({'status': 'ok', 'sites': sites})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
+
+@app.route('/api/get-ai-response', methods=['POST', 'OPTIONS'])
+@limiter.exempt
+@csrf.exempt
+def get_ai_response():
+    """Request the last AI response from Chrome extension"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+    
+    try:
+        data = request.get_json() or {}
+        ai_name = data.get('ai')  # Optional - specific AI to get response from
+        
+        # Queue a command for the Chrome extension to get the response
+        chrome_command_queue.append({
+            'type': 'get_response',
+            'ai': ai_name,
+            'timestamp': time.time()
+        })
+        print(f"[GET-AI-RESPONSE] Queued request for {ai_name or 'any AI'}")
+        
+        return jsonify({
+            'status': 'ok',
+            'message': 'Request queued for Chrome extension'
+        })
+        
+    except Exception as e:
+        print(f"[GET-AI-RESPONSE] Error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/send-to-ai', methods=['POST', 'OPTIONS'])
+@csrf.exempt
+def send_to_ai():
+    """Send a message to an AI chat via Chrome extension"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        data = request.get_json() or {}
+        ai_name = data.get('ai', 'claude')  # Default to Claude
+        text = data.get('text', '')
+        
+        if not text:
+            return jsonify({'status': 'error', 'message': 'No text provided'}), 400
+        
+        # Queue the command
+        queue_chrome_command(ai_name, text)
+        
+        # Also emit via WebSocket for immediate delivery if extension is connected
+        socketio.emit('send_to_ai_command', {
+            'ai': ai_name,
+            'text': text,
+            'timestamp': time.time()
+        })
+        
+        return jsonify({
+            'status': 'ok',
+            'message': f'Command queued to send to {ai_name}'
+        })
+        
+    except Exception as e:
+        print(f"[SEND-TO-AI] Error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/favicon.ico')
 def favicon():
@@ -8948,8 +10547,47 @@ ALWAYS include a "speak" response - you're conversational! Keep it natural, 5-15
 
 CORE ABILITIES:
 1. CONTEXT AWARENESS - Remember conversation, infer meaning from "this", "that", "again"
-2. SPEECH CORRECTION - Fix transcription errors naturally:
-   - "right" > "write", "coarser" > "cursor", "cloud" > "claude"
+2. SPEECH-TO-TEXT CORRECTION (CRITICAL - do this FIRST before parsing):
+   Speech recognition often mishears words. ALWAYS fix these before interpreting the command:
+   
+   CODING CONTEXT FIXES:
+   - "right" > "write" (when followed by code-related words)
+   - "right a function" > "write a function"
+   - "right this code" > "write this code"
+   - "coarser/courser/curser" > "cursor"
+   - "be as code/visa code/v.s. code" > "vscode"
+   - "get hub/git hub" > "github"
+   - "no js/notice" > "node.js"
+   - "react/react to" > "React" (capitalize for the library)
+   - "typescript/type script" > "TypeScript"
+   - "jason" > "JSON"
+   - "sequel" > "SQL"
+   - "pie thon/python" > "Python"
+   
+   AI APP FIXES:
+   - "cloud/clod/claud" > "claude"
+   - "chat gpt/chat GPT/GPT" > "chatgpt"
+   - "co-pilot/co pilot" > "copilot"
+   - "jiminy/germany" > "gemini"
+   - "perplexity/complexity" > "perplexity"
+   
+   COMMON HOMOPHONES (use context):
+   - "their/there/they're" - pick the right one
+   - "to/too/two" - pick the right one
+   - "your/you're" - pick the right one
+   - "its/it's" - pick the right one
+   - "weather/whether" - pick the right one
+   
+   TECHNICAL TERMS (capitalize correctly):
+   - "api" > "API"
+   - "html" > "HTML"
+   - "css" > "CSS"
+   - "url" > "URL"
+   - "npm" > "npm"
+   - "aws" > "AWS"
+   
+   ALWAYS return the corrected text in "correctedText" field, even if no changes were needed.
+   
 3. SMART ROUTING - Know which app to target based on the request
 4. ANTICIPATION - If user is coding, assume code context
 
@@ -8957,13 +10595,22 @@ Return JSON:
 {{
   "correctedText": "speech-corrected version (fix mishearings)",
   "targetApp": "cursor" | "vscode" | "claude" | "chatgpt" | "copilot" | "gemini" | "terminal" | "browser" | "notes" | "slack" | "discord" | "finder" | null,
-  "action": "type" | "type_and_send" | "open" | "open_url" | "search" | "run" | "focus" | "stop" | "clarify" | "repeat" | null,
+  "action": "type" | "type_and_send" | "send_to_ai" | "read_response" | "open" | "open_url" | "search" | "run" | "focus" | "stop" | "clarify" | "repeat" | null,
   "content": "the actual content to type/send/search",
   "response": "Brief log message (3-5 words)",
   "speak": "What {assistant_name} says aloud - ALWAYS include this, be conversational and British!",
   "needsClarification": true | false,
   "isStopCommand": true | false
 }}
+
+SEND TO AI (Browser Tabs):
+Use "send_to_ai" when user wants to send a message to an AI assistant in their browser.
+This sends the message to a Chrome/browser tab with that AI open.
+
+- "ask claude..." / "send to claude..." > action: "send_to_ai", targetApp: "claude"
+- "ask chatgpt..." / "send to chatgpt..." > action: "send_to_ai", targetApp: "chatgpt"
+- "ask gemini..." / "send to gemini..." > action: "send_to_ai", targetApp: "gemini"
+- "ask perplexity..." > action: "send_to_ai", targetApp: "perplexity"
 
 STOP COMMANDS:
 - "stop" / "stop listening" / "cancel" / "that's enough" > isStopCommand: true
@@ -8988,10 +10635,18 @@ You are a ROUTER, not the target. Don't answer questions meant for other apps!
 
 ROUTING PATTERNS (ALWAYS route these):
 - "ask cursor..." / "cursor, ..." / "tell cursor..." > targetApp: "cursor", action: "type_and_send"
-- "ask claude..." / "claude, ..." / "tell claude..." > targetApp: "claude", action: "type_and_send"  
-- "ask chatgpt..." / "chatgpt, ..." > targetApp: "chatgpt", action: "type_and_send"
 - "ask copilot..." / "copilot, ..." > targetApp: "copilot", action: "type_and_send"
-- "ask gemini..." / "gemini, ..." > targetApp: "gemini", action: "type_and_send"
+
+BROWSER AI ROUTING (use send_to_ai - sends via Chrome extension):
+- "ask claude..." / "claude, ..." / "tell claude..." > targetApp: "claude", action: "send_to_ai"
+- "ask chatgpt..." / "chatgpt, ..." / "tell chatgpt..." > targetApp: "chatgpt", action: "send_to_ai"
+- "ask gemini..." / "gemini, ..." / "tell gemini..." > targetApp: "gemini", action: "send_to_ai"
+- "ask perplexity..." / "perplexity, ..." > targetApp: "perplexity", action: "send_to_ai"
+
+READ AI RESPONSE (use read_response - reads what AI said aloud):
+- "what did claude say" / "read claude's response" > targetApp: "claude", action: "read_response"
+- "what did chatgpt say" / "read that back" > action: "read_response" (reads from any AI)
+- "read the response" / "what was the answer" > action: "read_response"
 
 Code Editors (cursor, vscode):
 - "write a function" > "type" (no enter, just types code)
@@ -9017,22 +10672,34 @@ APP RECOGNITION (flexible - match these even if misspoken):
 EXAMPLE RESPONSES:
 
 User: "open YouTube"
-> {{"action":"open_url","content":"https://youtube.com","response":"Opening YouTube","speak":"Pulling up YouTube for you now."}}
+> {{"correctedText":"open YouTube","action":"open_url","content":"https://youtube.com","response":"Opening YouTube","speak":"Pulling up YouTube for you now."}}
 
-User: "cursor write a function that adds two numbers"
+User: "coarser right a function that adds two numbers" (speech recognition errors)
 > {{"correctedText":"cursor write a function that adds two numbers","targetApp":"cursor","action":"type","content":"function add(a, b) {{ return a + b; }}","response":"Writing to Cursor","speak":"Certainly. Writing that function to Cursor."}}
+
+User: "cloud explain what an api is" (mishearing of "claude")
+> {{"correctedText":"claude explain what an API is","targetApp":"claude","action":"send_to_ai","content":"explain what an API is","response":"Sending to Claude","speak":"Sending that to Claude for you."}}
+
+User: "cursor write a function that returns there name" (homophone error)
+> {{"correctedText":"cursor write a function that returns their name","targetApp":"cursor","action":"type","content":"function getName(user) {{ return user.name; }}","response":"Writing to Cursor","speak":"Writing that to Cursor now."}}
 
 User: "ask cursor how do I fix this bug"
 > {{"targetApp":"cursor","action":"type_and_send","content":"how do I fix this bug","response":"Asking Cursor","speak":"Sending that to Cursor now."}}
 
 User: "ask claude what is the capital of France"
-> {{"targetApp":"claude","action":"type_and_send","content":"what is the capital of France","response":"Asking Claude","speak":"Sending that question to Claude."}}
+> {{"targetApp":"claude","action":"send_to_ai","content":"what is the capital of France","response":"Sending to Claude","speak":"Sending that question to Claude in your browser."}}
 
 User: "tell chatgpt to explain recursion"
-> {{"targetApp":"chatgpt","action":"type_and_send","content":"explain recursion","response":"Asking ChatGPT","speak":"Sending that to ChatGPT."}}
+> {{"targetApp":"chatgpt","action":"send_to_ai","content":"explain recursion","response":"Sending to ChatGPT","speak":"Sending that to ChatGPT now."}}
 
 User: "claude help me write a poem"
-> {{"targetApp":"claude","action":"type_and_send","content":"help me write a poem","response":"Asking Claude","speak":"Passing that to Claude for you."}}
+> {{"targetApp":"claude","action":"send_to_ai","content":"help me write a poem","response":"Sending to Claude","speak":"Passing that to Claude for you."}}
+
+User: "what did claude say"
+> {{"targetApp":"claude","action":"read_response","response":"Reading Claude","speak":"Let me read that for you."}}
+
+User: "read the response" or "read that back"
+> {{"action":"read_response","response":"Reading response","speak":"Reading the last response."}}
 
 User: "what's the weather like"
 > {{"action":"search","content":"weather forecast","response":"Searching weather","speak":"Let me check that for you. Searching now."}}
@@ -9895,6 +11562,33 @@ def on_heartbeat(data):
             'deviceId': device_id,
             'lastSeen': devices[device_id]['lastSeen']
         }, room='dashboard')
+
+@socketio.on('watch_ai_request')
+def on_watch_ai_request(data):
+    """Handle request to watch a specific AI tab"""
+    ai_name = data.get('ai', '').lower()
+    print(f"[SOCKET] Watch AI request for: {ai_name}")
+    # This will be picked up by Chrome extension on next heartbeat
+    # Add to command queue
+    chrome_command_queue.append({
+        'type': 'watch_ai',
+        'ai': ai_name,
+        'timestamp': datetime.now().timestamp()
+    })
+    # Also emit to all clients so Chrome extension can react
+    socketio.emit('watch_ai_command', {'ai': ai_name})
+
+@socketio.on('rescan_ai_tabs')
+def on_rescan_ai_tabs():
+    """Request Chrome extension to rescan for AI tabs"""
+    print("[SOCKET] Rescan AI tabs request")
+    # Add to command queue for Chrome extension
+    chrome_command_queue.append({
+        'type': 'rescan_tabs',
+        'timestamp': datetime.now().timestamp()
+    })
+    # Also emit to all clients - Chrome extension will pick this up
+    socketio.emit('rescan_ai_tabs_command', {})
 
 @socketio.on('disconnect')
 def on_disconnect():

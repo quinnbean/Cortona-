@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideWindow: () => ipcRenderer.send('hide-window'),
   minimizeToTray: () => ipcRenderer.send('minimize-to-tray'),
   
+  // Listening mode control (for global stop shortcuts)
+  listeningStarted: () => ipcRenderer.send('listening-started'),
+  listeningStopped: () => ipcRenderer.send('listening-stopped'),
+  onStopListening: (callback) => {
+    ipcRenderer.on('stop-listening', () => callback());
+  },
+  
   // ========== APP CONTROL ==========
   // Focus an app by name
   focusApp: (appName) => ipcRenderer.invoke('focus-app', appName),
@@ -96,6 +103,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Listen for real-time audio levels (for visualization)
   onAudioLevel: (callback) => {
     ipcRenderer.on('audio-level', (event, data) => callback(data));
+  },
+  
+  // Listen for VAD silence detection (auto-stop recording)
+  onSilenceDetected: (callback) => {
+    ipcRenderer.on('vad-silence-detected', () => callback());
   },
   
   // ========== KEYBIND SETTINGS ==========
