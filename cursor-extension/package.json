@@ -1,0 +1,57 @@
+{
+  "name": "cortona-watcher",
+  "displayName": "Cortona AI Watcher",
+  "description": "Detects AI agent activity in Cursor and notifies Cortona",
+  "version": "1.0.0",
+  "publisher": "cortona",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cortona.startWatching",
+        "title": "Cortona: Start Watching"
+      },
+      {
+        "command": "cortona.stopWatching",
+        "title": "Cortona: Stop Watching"
+      },
+      {
+        "command": "cortona.toggleWatching",
+        "title": "Cortona: Toggle Watching"
+      },
+      {
+        "command": "cortona.notifyNow",
+        "title": "Cortona: Notify Now (Test)"
+      }
+    ],
+    "configuration": {
+      "title": "Cortona Watcher",
+      "properties": {
+        "cortona.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:5050",
+          "description": "Cortona server URL"
+        },
+        "cortona.idleThreshold": {
+          "type": "number",
+          "default": 3000,
+          "description": "Milliseconds of inactivity before considering agent done"
+        },
+        "cortona.autoWatch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically watch for AI activity"
+        }
+      }
+    }
+  }
+}

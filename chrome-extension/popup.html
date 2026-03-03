@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      width: 300px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #333;
+    }
+    
+    .logo {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    
+    .title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .subtitle {
+      font-size: 11px;
+      color: #888;
+    }
+    
+    .status {
+      background: #252542;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .status-row:last-child {
+      margin-bottom: 0;
+    }
+    
+    .status-label {
+      color: #888;
+      font-size: 12px;
+    }
+    
+    .status-value {
+      font-size: 12px;
+      font-weight: 500;
+    }
+    
+    .status-value.connected {
+      color: #4CAF50;
+    }
+    
+    .status-value.disconnected {
+      color: #f44336;
+    }
+    
+    .settings {
+      background: #252542;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .settings-title {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 10px;
+    }
+    
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .setting-row:last-child {
+      margin-bottom: 0;
+    }
+    
+    .setting-label {
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+    
+    .toggle input {
+      display: none;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #444;
+      transition: .3s;
+      border-radius: 20px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    
+    .toggle input:checked + .toggle-slider {
+      background-color: #4CAF50;
+    }
+    
+    .toggle input:checked + .toggle-slider:before {
+      transform: translateX(16px);
+    }
+    
+    .sites {
+      margin-bottom: 12px;
+    }
+    
+    .sites-title {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+    
+    .site-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    
+    .site-badge {
+      background: #333;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #aaa;
+    }
+    
+    .site-badge.active {
+      background: #1b5e20;
+      color: #81c784;
+    }
+    
+    .footer {
+      text-align: center;
+      padding-top: 12px;
+      border-top: 1px solid #333;
+    }
+    
+    .footer a {
+      color: #667eea;
+      text-decoration: none;
+      font-size: 11px;
+    }
+    
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">🎯</div>
+    <div>
+      <div class="title">Cortona AI Watcher</div>
+      <div class="subtitle">Monitoring AI assistants</div>
+    </div>
+  </div>
+  
+  <div class="status">
+    <div class="status-row">
+      <span class="status-label">Cortona Desktop</span>
+      <span class="status-value" id="cortona-status">Checking...</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">This Page</span>
+      <span class="status-value" id="page-status">-</span>
+    </div>
+  </div>
+  
+  <div class="settings">
+    <div class="settings-title">Settings</div>
+    <div class="setting-row">
+      <span class="setting-label">🎯 Auto-focus tab when done</span>
+      <label class="toggle">
+        <input type="checkbox" id="auto-focus-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+  
+  <div class="settings">
+    <div class="settings-title">Debug: Test Send to AI</div>
+    <div class="setting-row">
+      <input type="text" id="test-message" placeholder="Test message..." style="flex:1; padding:6px; border-radius:4px; border:none; background:#333; color:#fff; font-size:12px;">
+    </div>
+    <div class="setting-row" style="margin-top:8px;">
+      <button id="test-claude" style="flex:1; padding:8px; border-radius:4px; border:none; background:#667eea; color:#fff; cursor:pointer; font-size:12px;">Send to Claude</button>
+    </div>
+    <div id="test-result" style="font-size:11px; color:#888; margin-top:8px;"></div>
+  </div>
+  
+  <div class="settings">
+    <div class="settings-title">Monitor These Sites</div>
+    <div class="setting-row">
+      <span class="setting-label">🤖 Claude</span>
+      <label class="toggle">
+        <input type="checkbox" id="monitor-claude" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">💬 ChatGPT</span>
+      <label class="toggle">
+        <input type="checkbox" id="monitor-chatgpt" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">✨ Gemini</span>
+      <label class="toggle">
+        <input type="checkbox" id="monitor-gemini" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🔍 Perplexity</span>
+      <label class="toggle">
+        <input type="checkbox" id="monitor-perplexity" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🎭 Poe</span>
+      <label class="toggle">
+        <input type="checkbox" id="monitor-poe" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div style="font-size: 10px; color: #666; margin-top: 8px;">Reload AI tabs after changing</div>
+  </div>
+  
+  <div class="footer">
+    <a href="http://localhost:5001" target="_blank">Open Cortona Dashboard</a>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

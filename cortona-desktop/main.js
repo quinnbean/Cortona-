@@ -63,7 +63,7 @@ process.stderr.on('error', (err) => {
 // ============================================================================
 
 const RENDER_URL = 'https://cortona.onrender.com';
-const DEV_URL = 'http://localhost:5050';
+const DEV_URL = 'http://localhost:5001';
 const IS_DEV = process.env.NODE_ENV === 'development';
 
 // Persistent settings
@@ -298,11 +298,29 @@ let windowWatcherInterval = null;
 let lastWindowHash = null;
 let lastWindowActivity = null;
 let windowIdleTimer = null;
+let hasSeenActivity = false;  // Only notify "done" after we've seen activity first!
+let windowNotFoundCount = 0;  // Track consecutive failures before declaring "closed"
+const WINDOW_NOT_FOUND_THRESHOLD = 5;  // Need 5 consecutive failures (2.5s) to declare closed
+
+// NEW: Background monitoring state
+let lastWindowTitle = null;
+let lastCpuUsage = 0;
+let fileWatcher = null;
+// Note: lastFileChange already declared above (line ~104)
+let watcherProjectPath = null;
+
 let windowWatcherConfig = {
   idleThreshold: 5000,      // 5 seconds of no changes = done
-  captureInterval: 500,     // Check every 500ms
-  sensitivity: 'medium'     // low, medium, high
+  captureInterval: 2000,    // Check every 2s (was 1s - reduced to prevent crashes)
+  sensitivity: 'medium',    // low, medium, high
+  cpuThreshold: 5,          // Consider "active" if CPU > 5%
+  useBackgroundMode: true   // Enable CPU + title + file monitoring
 };
+
+// Native apps that support background monitoring
+const NATIVE_APPS = ['cursor', 'vscode', 'windsurf', 'terminal', 'discord'];
+const BROWSER_APPS = ['chrome', 'safari', 'firefox'];
+const CODE_EDITORS = ['cursor', 'vscode', 'windsurf'];  // Apps that modify files
 
 // Common AI app identifiers
 const AI_APP_ALIASES = {
@@ -421,6 +439,10 @@ function getWindowInfo(appName, windowSelector = 1) {
       end tell
     `;
     const result = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 5000 });
+    if (!result || result.trim() === '') {
+      console.log('[WINDOW-WATCHER] Empty result from AppleScript');
+      return null;
+    }
     const [x, y, width, height, ...titleParts] = result.trim().split(',');
     return {
       index: windowSelector,
@@ -437,28 +459,181 @@ function getWindowInfo(appName, windowSelector = 1) {
   }
 }
 
-// Capture a region of screen and return hash (for change detection)
+// ============================================================================
+// ACCESSIBILITY API - Enhanced Window State Detection
+// ============================================================================
+
+// Get detailed window state using Accessibility API
+// Returns more info than basic getWindowInfo
+function getAccessibilityState(appName) {
+  try {
+    const script = `
+      tell application "System Events"
+        tell process "${appName}"
+          set appInfo to {}
+          
+          -- Basic window info
+          if (count of windows) > 0 then
+            set win to window 1
+            set winTitle to name of win
+            set winFocused to focused of win
+            
+            -- Check if app is frontmost
+            set isFront to frontmost
+            
+            -- Get menu bar state (some apps show status here)
+            set menuCount to 0
+            try
+              set menuCount to count of menus of menu bar 1
+            end try
+            
+            -- Check for any sheets/dialogs (modal states)
+            set hasSheet to false
+            try
+              set hasSheet to (count of sheets of win) > 0
+            end try
+            
+            -- Check for busy cursor (app not responding)
+            set isBusy to false
+            try
+              set isBusy to busy of it
+            end try
+            
+            return winTitle & "|||" & winFocused & "|||" & isFront & "|||" & hasSheet & "|||" & isBusy
+          else
+            return "NO_WINDOW"
+          end if
+        end tell
+      end tell
+    `;
+    
+    const result = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 3000 }).trim();
+    
+    if (result === 'NO_WINDOW') {
+      return { hasWindow: false };
+    }
+    
+    const [title, focused, frontmost, hasSheet, busy] = result.split('|||');
+    
+    return {
+      hasWindow: true,
+      title: title,
+      focused: focused === 'true',
+      frontmost: frontmost === 'true',
+      hasModalDialog: hasSheet === 'true',
+      appBusy: busy === 'true'
+    };
+  } catch (e) {
+    console.error('[ACCESSIBILITY] Failed to get state:', e.message);
+    return { hasWindow: false, error: e.message };
+  }
+}
+
+// Check if Cursor specifically shows AI activity in title
+// Cursor titles change when agent is working: "● filename" or "Generating..." etc
+function detectCursorAIState(title) {
+  if (!title) return { working: false, confidence: 0 };
+  
+  const lowerTitle = title.toLowerCase();
+  
+  // Strong indicators AI is WORKING
+  const workingPatterns = [
+    /^●/,                          // Unsaved/active indicator
+    /generating/i,
+    /thinking/i,
+    /writing/i,
+    /\.\.\./,                       // Ellipsis usually means processing
+    /indexing/i,
+    /loading/i,
+    /agent/i
+  ];
+  
+  // Strong indicators AI is DONE
+  const donePatterns = [
+    /^[^●]/,                        // No activity indicator
+  ];
+  
+  for (const pattern of workingPatterns) {
+    if (pattern.test(title)) {
+      return { working: true, confidence: 0.8, pattern: pattern.toString() };
+    }
+  }
+  
+  return { working: false, confidence: 0.6 };
+}
+
+// Get all running apps that we might want to watch
+function getWatchableApps() {
+  try {
+    const script = `
+      tell application "System Events"
+        set appList to {}
+        repeat with proc in (every process whose background only is false)
+          set appName to name of proc
+          set winCount to 0
+          try
+            set winCount to count of windows of proc
+          end try
+          if winCount > 0 then
+            set end of appList to appName & ":" & winCount
+          end if
+        end repeat
+        return appList as text
+      end tell
+    `;
+    
+    const result = execSync(`osascript -e '${script}'`, { encoding: 'utf8', timeout: 5000 }).trim();
+    
+    return result.split(', ').map(item => {
+      const [name, count] = item.split(':');
+      return { name, windowCount: parseInt(count) || 0 };
+    }).filter(app => app.windowCount > 0);
+  } catch (e) {
+    console.error('[ACCESSIBILITY] Failed to get app list:', e.message);
+    return [];
+  }
+}
+
+// Capture a window region and return hash (for change detection)
+// Use a single temp file to prevent file buildup
+const SCREENSHOT_TEMP_FILE = '/tmp/cortona_capture.png';
+let screenshotInProgress = false;
+
 function captureWindowHash(windowInfo) {
   if (!windowInfo) return null;
   
+  // Prevent overlapping captures
+  if (screenshotInProgress) {
+    return lastWindowHash;  // Return cached value
+  }
+  
   try {
+    screenshotInProgress = true;
     const { x, y, width, height } = windowInfo;
-    // Use screencapture with -R for region, output to /dev/null but get hash
-    // We'll capture to a temp file and hash it
-    const tempFile = `/tmp/cortona_capture_${Date.now()}.png`;
     
-    // Capture the window region
-    execSync(`screencapture -R${x},${y},${width},${height} -x "${tempFile}"`, { timeout: 3000 });
+    // Validate dimensions
+    if (!x || !y || !width || !height || width < 10 || height < 10) {
+      screenshotInProgress = false;
+      return null;
+    }
+    
+    // Capture the window region (single reusable file)
+    execSync(`screencapture -R${x},${y},${width},${height} -x "${SCREENSHOT_TEMP_FILE}" 2>/dev/null`, { 
+      timeout: 2000,
+      stdio: ['pipe', 'pipe', 'pipe']  // Suppress output
+    });
     
     // Get file hash (fast comparison)
-    const hash = execSync(`md5 -q "${tempFile}"`, { encoding: 'utf8', timeout: 2000 }).trim();
+    const hash = execSync(`md5 -q "${SCREENSHOT_TEMP_FILE}" 2>/dev/null`, { 
+      encoding: 'utf8', 
+      timeout: 1000 
+    }).trim();
     
-    // Clean up
-    try { require('fs').unlinkSync(tempFile); } catch(e) {}
-    
+    screenshotInProgress = false;
     return hash;
   } catch (e) {
-    console.error('[WINDOW-WATCHER] Capture failed:', e.message);
+    screenshotInProgress = false;
+    // Don't log every failure - too noisy
     return null;
   }
 }
@@ -479,6 +654,314 @@ function getWindowTitle(appName) {
   } catch (e) {
     return null;
   }
+}
+
+// ============================================================================
+// BACKGROUND MONITORING - CPU, Title, and File System
+// ============================================================================
+
+// Get CPU usage for a process by name (returns percentage)
+function getProcessCpuUsage(appName) {
+  try {
+    // Use ps to get CPU usage for the process
+    const cmd = `ps aux | grep -i "${appName}" | grep -v grep | awk '{sum += $3} END {print sum}'`;
+    const result = execSync(cmd, { encoding: 'utf8', timeout: 2000 }).trim();
+    const cpu = parseFloat(result) || 0;
+    return cpu;
+  } catch (e) {
+    console.error('[CPU-MONITOR] Failed to get CPU:', e.message);
+    return 0;
+  }
+}
+
+// Get the project path from Cursor/VSCode window title
+function getProjectPathFromTitle(title, appName) {
+  if (!title) return null;
+  
+  // Cursor/VSCode titles can use different dashes:
+  // "filename - foldername - App" (regular dash)
+  // "filename — foldername — App" (em-dash, Cursor uses this)
+  // Normalize all dash types to regular dash first
+  const normalizedTitle = title
+    .replace(/\s*—\s*/g, ' - ')   // em-dash
+    .replace(/\s*–\s*/g, ' - ')   // en-dash
+    .replace(/\s*-\s*/g, ' - ');  // normalize spacing around regular dash
+  
+  const parts = normalizedTitle.split(' - ');
+  console.log('[PATH] Title parts:', parts);
+  
+  if (parts.length >= 2) {
+    // Try to find the folder name (usually second to last or last before app name)
+    // For "file.js - ProjectName - Cursor", we want "ProjectName"
+    const folderName = parts[parts.length - 2] || parts[0];
+    
+    // Clean up folder name (remove any trailing numbers like "Cortona--1" -> "Cortona-")
+    const cleanFolderName = folderName.replace(/--?\d+$/, '').replace(/-$/, '');
+    
+    console.log('[PATH] Looking for folder:', cleanFolderName);
+    
+    // Common project locations
+    const possiblePaths = [
+      path.join(process.env.HOME, cleanFolderName),
+      path.join(process.env.HOME, 'Projects', cleanFolderName),
+      path.join(process.env.HOME, 'Documents', cleanFolderName),
+      path.join(process.env.HOME, 'Desktop', cleanFolderName),
+      path.join(process.env.HOME, 'Developer', cleanFolderName),
+      path.join(process.env.HOME, 'Code', cleanFolderName),
+      // Also try with hyphen variations
+      path.join(process.env.HOME, cleanFolderName + '-'),
+      path.join(process.env.HOME, cleanFolderName.replace(/-/g, '')),
+    ];
+    
+    const fs = require('fs');
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        console.log('[PATH] Found project at:', p);
+        return p;
+      }
+    }
+    console.log('[PATH] Could not find project folder in common locations');
+  }
+  return null;
+}
+
+// Start file system watcher for a project directory
+function startFileWatcher(projectPath) {
+  if (!projectPath || !chokidar) {
+    console.log('[FILE-WATCHER] Cannot start - no path or chokidar');
+    return false;
+  }
+  
+  // Stop existing watcher
+  stopFileWatcher();
+  
+  console.log('[FILE-WATCHER] Starting for:', projectPath);
+  watcherProjectPath = projectPath;
+  
+  fileWatcher = chokidar.watch(projectPath, {
+    ignored: [
+      /node_modules/,
+      /\.git/,
+      /\.next/,
+      /dist/,
+      /build/,
+      /\.cache/,
+      /\.(log|lock)$/
+    ],
+    persistent: true,
+    ignoreInitial: true,
+    depth: 5
+  });
+  
+  fileWatcher.on('change', (filePath) => {
+    console.log('[FILE-WATCHER] File changed:', path.basename(filePath));
+    lastFileChange = Date.now();
+    lastWindowActivity = Date.now();
+    hasSeenActivity = true;
+  });
+  
+  fileWatcher.on('add', (filePath) => {
+    console.log('[FILE-WATCHER] File added:', path.basename(filePath));
+    lastFileChange = Date.now();
+    lastWindowActivity = Date.now();
+    hasSeenActivity = true;
+  });
+  
+  return true;
+}
+
+function stopFileWatcher() {
+  if (fileWatcher) {
+    fileWatcher.close();
+    fileWatcher = null;
+    watcherProjectPath = null;
+  }
+}
+
+// Title patterns that indicate AI is working
+const AI_WORKING_PATTERNS = [
+  /generat/i,           // "Generating...", "Generated"
+  /thinking/i,          // "Thinking..."
+  /loading/i,           // "Loading..."
+  /processing/i,        // "Processing..."
+  /writing/i,           // "Writing code..."
+  /agent/i,             // "Agent running"
+  /running/i,           // "Running..."
+  /working/i,           // "Working..."
+  /\.\.\./,             // Any "..." typically means loading
+  /streaming/i,         // "Streaming response"
+  /composing/i,         // "Composing..."
+];
+
+// Title patterns that indicate AI is done/idle
+const AI_DONE_PATTERNS = [
+  /^cursor\s*-\s*[^-]+$/i,  // Just "Cursor - projectname" with no status
+  /ready/i,
+  /idle/i,
+  /complete/i,
+  /done/i,
+];
+
+// Track activity window state
+let activityWindowStart = null;
+let lastActivityTime = null;
+let consecutiveIdleChecks = 0;
+const ACTIVITY_WINDOW_THRESHOLD = 3;  // Need 3 consecutive idle checks to confirm done
+
+// Network and child process monitoring DISABLED for now
+// These were causing performance issues
+// Can be re-enabled later with better throttling
+
+function getProcessNetworkActivity(appName) {
+  return 0; // Disabled
+}
+
+function getChildProcessCount(appName) {
+  return 0; // Disabled
+}
+
+// Check if title indicates AI is actively working
+function titleIndicatesWorking(title) {
+  if (!title) return false;
+  return AI_WORKING_PATTERNS.some(pattern => pattern.test(title));
+}
+
+// Check if title indicates AI is done/idle
+function titleIndicatesIdle(title) {
+  if (!title) return false;
+  return AI_DONE_PATTERNS.some(pattern => pattern.test(title));
+}
+
+// Track previous values for change detection
+let lastNetworkConnections = 0;
+let lastChildProcessCount = 0;
+
+// Combined activity detection using multiple signals
+// STABLE VERSION - No shell spawns (no screenshots, no CPU checks)
+// Uses only: title changes, file changes, Accessibility API
+let activityCheckCount = 0;  // Track check iterations for throttling
+let lastAccessibilityState = null;  // Cache accessibility state
+
+// Set to true to enable crashy shell-based detection (CPU, screenshots)
+const ENABLE_SHELL_DETECTION = false;  // DISABLED for stability
+
+function detectActivity(appName, windowInfo) {
+  let activityDetected = false;
+  let activitySource = null;
+  
+  activityCheckCount++;
+  
+  try {
+    // ================================================================
+    // STABLE SIGNALS (no shell spawns, won't crash)
+    // ================================================================
+    
+    // Signal 1: Window title change (FREE - no shell spawn)
+    const currentTitle = windowInfo?.title || '';
+    if (currentTitle && currentTitle !== lastWindowTitle) {
+      activityDetected = true;
+      activitySource = 'title';
+    }
+    
+    // Signal 2: Title indicates AI is working (FREE - regex match)
+    if (titleIndicatesWorking(currentTitle)) {
+      activityDetected = true;
+      if (!activitySource) activitySource = 'ai-pattern';
+    }
+    
+    // Signal 3: Cursor-specific title analysis (FREE)
+    if (appName.toLowerCase() === 'cursor') {
+      const cursorState = detectCursorAIState(currentTitle);
+      if (cursorState.working && cursorState.confidence > 0.7) {
+        activityDetected = true;
+        if (!activitySource) activitySource = 'cursor-ai';
+      }
+    }
+    lastWindowTitle = currentTitle;
+    
+    // Signal 4: File system changes (FREE - chokidar event-driven)
+    if (lastFileChange && (Date.now() - lastFileChange) < 3000) {
+      activityDetected = true;
+      activitySource = activitySource ? activitySource + '+file' : 'file';
+      // Don't clear lastFileChange immediately - keep detecting for a bit
+      if (Date.now() - lastFileChange > 2000) {
+        lastFileChange = null;
+      }
+    }
+    
+    // ================================================================
+    // ACCESSIBILITY API (stable - single osascript call, returns fast)
+    // ================================================================
+    
+    // Signal 5: Accessibility API state (throttled - every 5th check)
+    if (activityCheckCount % 5 === 0) {
+      try {
+        const axState = getAccessibilityState(appName);
+        if (axState.hasWindow) {
+          if (axState.hasModalDialog) {
+            activityDetected = true;
+            activitySource = activitySource ? activitySource + '+modal' : 'modal';
+          }
+          if (axState.appBusy) {
+            activityDetected = true;
+            activitySource = activitySource ? activitySource + '+busy' : 'busy';
+          }
+          lastAccessibilityState = axState;
+        }
+      } catch (e) {
+        // Accessibility API failed - not critical, continue
+      }
+    }
+    
+    // ================================================================
+    // DISABLED SIGNALS (cause crashes from too many shell spawns)
+    // ================================================================
+    
+    if (ENABLE_SHELL_DETECTION) {
+      // CPU usage - spawns `ps aux | grep` - DISABLED
+      if (activityCheckCount % 6 === 0) {
+        const cpuUsage = getProcessCpuUsage(appName);
+        if (cpuUsage > 5) {
+          activityDetected = true;
+          activitySource = activitySource ? activitySource + '+cpu' : 'cpu';
+        }
+        lastCpuUsage = cpuUsage;
+      }
+      
+      // Screenshot hash - spawns screencapture + md5 - DISABLED
+      if (!activityDetected && windowInfo && activityCheckCount % 20 === 0) {
+        const currentHash = captureWindowHash(windowInfo);
+        if (currentHash && currentHash !== lastWindowHash) {
+          activityDetected = true;
+          activitySource = 'screenshot';
+        }
+        lastWindowHash = currentHash;
+      }
+    }
+    
+    // Track consecutive idle checks
+    if (activityDetected) {
+      consecutiveIdleChecks = 0;
+      if (!activityWindowStart) {
+        activityWindowStart = Date.now();
+      }
+    } else {
+      consecutiveIdleChecks++;
+    }
+    
+  } catch (e) {
+    // Silently handle errors to prevent crashes
+    console.error('[ACTIVITY] Error:', e.message);
+  }
+  
+  return { 
+    detected: activityDetected, 
+    source: activitySource, 
+    cpu: lastCpuUsage || 0,
+    confirmedIdle: consecutiveIdleChecks >= ACTIVITY_WINDOW_THRESHOLD,
+    idleChecks: consecutiveIdleChecks,
+    accessibilityState: lastAccessibilityState
+  };
 }
 
 // Check if app's frontmost window is active (has focus and receiving input)
@@ -530,14 +1013,43 @@ function startWindowWatcher(appNameOrAlias, options = {}) {
   windowWatcherEnabled = true;
   windowWatcherApp = appName;
   lastWindowActivity = Date.now();
+  hasSeenActivity = false;  // Reset - wait for activity before detecting "done"
+  windowNotFoundCount = 0;  // Reset the not-found counter
+  lastWindowTitle = null;   // Reset title tracking
+  lastCpuUsage = 0;         // Reset CPU tracking
+  lastFileChange = null;    // Reset file change tracking
+  
+  // Reset activity window tracking
+  activityWindowStart = null;
+  lastActivityTime = null;
+  consecutiveIdleChecks = 0;
+  lastNetworkConnections = 0;
+  lastChildProcessCount = 0;
+
+  // Determine monitoring mode
+  const isNativeApp = NATIVE_APPS.includes(appNameOrAlias.toLowerCase());
+  const isCodeEditor = CODE_EDITORS.includes(appNameOrAlias.toLowerCase());
+  console.log(`[WINDOW-WATCHER] Mode: ${isNativeApp ? 'NATIVE (background)' : 'BROWSER'}, Code editor: ${isCodeEditor}`);
 
   // Get initial state (with selector support)
   const windowInfo = getWindowInfo(appName, windowWatcherSelector);
   if (windowInfo) {
     windowWatcherTitle = windowInfo.title;
+    lastWindowTitle = windowInfo.title;
     lastWindowHash = captureWindowHash(windowInfo);
     console.log('[WINDOW-WATCHER] Watching window:', windowInfo.title);
     console.log('[WINDOW-WATCHER] Initial hash:', lastWindowHash?.substring(0, 8));
+    
+    // For code editors, try to start file system watcher
+    if (isCodeEditor && windowWatcherConfig.useBackgroundMode) {
+      const projectPath = getProjectPathFromTitle(windowInfo.title, appName);
+      if (projectPath) {
+        console.log('[WINDOW-WATCHER] Starting file watcher for:', projectPath);
+        startFileWatcher(projectPath);
+      } else {
+        console.log('[WINDOW-WATCHER] Could not determine project path from title');
+      }
+    }
   } else {
     console.error('[WINDOW-WATCHER] Could not get window info');
     return {
@@ -553,19 +1065,45 @@ function startWindowWatcher(appNameOrAlias, options = {}) {
 
     const currentInfo = getWindowInfo(windowWatcherApp, windowWatcherSelector);
     if (!currentInfo) {
-      console.log('[WINDOW-WATCHER] Window not found, app may have closed');
+      windowNotFoundCount++;
+      console.log(`[WINDOW-WATCHER] Window not found (attempt ${windowNotFoundCount}/${WINDOW_NOT_FOUND_THRESHOLD})`);
+      
+      // Only declare "closed" after multiple consecutive failures
+      if (windowNotFoundCount >= WINDOW_NOT_FOUND_THRESHOLD) {
+        console.log('[WINDOW-WATCHER] Window confirmed closed after multiple failures');
+        const closedApp = windowWatcherApp;
+        stopWindowWatcher();
+        
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('window-agent-finished', {
+            app: closedApp,
+            title: 'App Closed',
+            idleTime: 0,
+            reason: 'closed'
+          });
+        }
+        
+        new Notification({
+          title: 'App Closed',
+          body: `${closedApp} window was closed`,
+          silent: true
+        }).show();
+      }
       return;
     }
     
-    // Method 1: Screenshot hash comparison (detects any visual change)
-    const currentHash = captureWindowHash(currentInfo);
+    // Reset the not-found counter since we found the window
+    windowNotFoundCount = 0;
     
-    // Method 2: Title change detection (fast, catches "Generating..." → "Done")
-    const hasHashChanged = currentHash && currentHash !== lastWindowHash;
+    // Use combined activity detection (CPU + title + file + screenshot)
+    const activity = detectActivity(windowWatcherApp, currentInfo);
     
-    if (hasHashChanged) {
-      console.log('[WINDOW-WATCHER] Activity detected! Hash changed.');
-      lastWindowHash = currentHash;
+    if (activity.detected) {
+      // Mark that we've seen activity - now we can detect when it stops
+      const wasFirstActivity = !hasSeenActivity;
+      hasSeenActivity = true;
+      
+      console.log(`[WINDOW-WATCHER] Activity detected via: ${activity.source}` + (wasFirstActivity ? ' (First activity!)' : ''));
       lastWindowActivity = Date.now();
       
       // Clear any pending "done" timer
@@ -579,35 +1117,60 @@ function startWindowWatcher(appNameOrAlias, options = {}) {
         mainWindow.webContents.send('window-activity', {
           app: windowWatcherApp,
           title: currentInfo.title,
-          timestamp: lastWindowActivity
+          timestamp: lastWindowActivity,
+          firstActivity: wasFirstActivity,
+          source: activity.source,
+          cpu: activity.cpu
         });
       }
     } else {
-      // No change - check if we've been idle long enough
+      // No change detected
+      
+      // IMPORTANT: Only check for "done" if we've seen activity first!
+      // This prevents false "done" notifications when watching an already-idle app
+      if (!hasSeenActivity) {
+        // Still waiting for activity to start - don't do anything
+        return;
+      }
+      
+      // Check if title indicates AI is done (quick exit)
+      const currentTitle = currentInfo?.title || '';
+      if (titleIndicatesIdle(currentTitle) && !titleIndicatesWorking(currentTitle)) {
+        console.log(`[WINDOW-WATCHER] Title indicates idle: "${currentTitle}"`);
+      }
+      
+      // We've seen activity before, now check if CONFIRMED idle
+      // Use activity window approach: need multiple consecutive idle checks
       const idleTime = Date.now() - lastWindowActivity;
       
-      if (idleTime >= windowWatcherConfig.idleThreshold && !windowIdleTimer) {
-        console.log('[WINDOW-WATCHER] Idle threshold reached, starting done timer...');
+      // Only consider "done" if we have confirmed idle (multiple checks) AND time threshold
+      if (activity.confirmedIdle && idleTime >= windowWatcherConfig.idleThreshold && !windowIdleTimer) {
+        console.log(`[WINDOW-WATCHER] Confirmed idle after ${activity.idleChecks} checks, starting done timer...`);
         
         // Wait a bit more to confirm it's really done
         windowIdleTimer = setTimeout(() => {
           const finalIdleTime = Date.now() - lastWindowActivity;
-          if (finalIdleTime >= windowWatcherConfig.idleThreshold) {
+          if (finalIdleTime >= windowWatcherConfig.idleThreshold && windowWatcherEnabled) {
             console.log('[WINDOW-WATCHER] Agent appears to be DONE!');
+            
+            // IMPORTANT: Stop the watcher FIRST to prevent repeat notifications
+            const finishedApp = windowWatcherApp;
+            const finishedTitle = currentInfo.title;
+            stopWindowWatcher();
             
             // Notify renderer
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('window-agent-finished', {
-                app: windowWatcherApp,
-                title: currentInfo.title,
+                app: finishedApp,
+                title: finishedTitle,
                 idleTime: finalIdleTime
               });
             }
             
-            // Show system notification
+            // Show system notification (only once since watcher is now stopped)
             new Notification({
-              title: '🎉 Agent Finished!',
-              body: `${windowWatcherApp} has been idle for ${Math.round(finalIdleTime/1000)}s`,
+              title: 'Agent Finished!',
+              body: `${finishedApp} has been idle for ${Math.round(finalIdleTime/1000)}s`,
               silent: false
             }).show();
           }
@@ -644,6 +1207,9 @@ function stopWindowWatcher() {
     windowIdleTimer = null;
   }
   
+  // Stop file watcher if running
+  stopFileWatcher();
+  
   const wasWatching = windowWatcherApp;
   const wasTitle = windowWatcherTitle;
   windowWatcherApp = null;
@@ -651,6 +1217,17 @@ function stopWindowWatcher() {
   windowWatcherSelector = 1;
   lastWindowHash = null;
   lastWindowActivity = null;
+  lastWindowTitle = null;
+  lastCpuUsage = 0;
+  hasSeenActivity = false;
+  windowNotFoundCount = 0;
+  
+  // Reset activity window state
+  activityWindowStart = null;
+  lastActivityTime = null;
+  consecutiveIdleChecks = 0;
+  lastNetworkConnections = 0;
+  lastChildProcessCount = 0;
   
   console.log('[WINDOW-WATCHER] Stopped');
   return { success: true, wasWatching };
@@ -842,6 +1419,42 @@ function stopNativeWakeWordListening() {
 let leopardHandle = null;
 let leopardRecording = null;
 let leopardAccessKey = null;
+let leopardPreInitialized = false;
+
+// Pre-initialize Leopard to eliminate startup delay
+async function preInitializeLeopard(accessKey) {
+  if (!Leopard) {
+    console.log('[LEOPARD] Module not available for pre-init');
+    return { success: false, error: 'Leopard not available' };
+  }
+  
+  if (leopardHandle && leopardAccessKey === accessKey) {
+    console.log('[LEOPARD] Already pre-initialized');
+    return { success: true, cached: true };
+  }
+  
+  try {
+    console.log('[LEOPARD] Pre-initializing model...');
+    const startTime = Date.now();
+    
+    if (leopardHandle) {
+      leopardHandle.release();
+    }
+    
+    leopardHandle = new Leopard(accessKey, {
+      enableAutomaticPunctuation: true
+    });
+    leopardAccessKey = accessKey;
+    leopardPreInitialized = true;
+    
+    const elapsed = Date.now() - startTime;
+    console.log(`[LEOPARD] Pre-initialized in ${elapsed}ms`);
+    return { success: true, initTime: elapsed };
+  } catch (e) {
+    console.error('[LEOPARD] Pre-init failed:', e.message);
+    return { success: false, error: e.message };
+  }
+}
 
 async function startNativeLeopardRecording(accessKey) {
   if (!record || !Leopard) {
@@ -881,6 +1494,14 @@ async function startNativeLeopardRecording(accessKey) {
     const audioChunks = [];
     const audioStream = leopardRecording.stream();
     
+    // Voice Activity Detection (VAD) - auto-stop on silence
+    let lastSpeechTime = Date.now();
+    let hasSpeechStarted = false;
+    let recordingStartTime = Date.now();
+    const SILENCE_THRESHOLD = 0.03;  // Audio level below this = silence (slightly higher)
+    const SILENCE_DURATION = 1800;   // Stop after 1.8 seconds of silence
+    const MIN_RECORDING_TIME = 1000; // Must record for at least 1 second before VAD kicks in
+    
     audioStream.on('data', (data) => {
       audioChunks.push(data);
       
@@ -902,6 +1523,26 @@ async function startNativeLeopardRecording(accessKey) {
         
         // Send to renderer
         mainWindow.webContents.send('audio-level', { level });
+        
+        // VAD: Check if speaking or silent
+        const timeSinceStart = Date.now() - recordingStartTime;
+        
+        if (level > SILENCE_THRESHOLD) {
+          lastSpeechTime = Date.now();
+          if (!hasSpeechStarted) {
+            hasSpeechStarted = true;
+            console.log('[VAD] Speech started');
+          }
+        } else if (hasSpeechStarted && timeSinceStart > MIN_RECORDING_TIME) {
+          // Only check for silence after minimum recording time
+          const silenceDuration = Date.now() - lastSpeechTime;
+          if (silenceDuration > SILENCE_DURATION) {
+            console.log('[VAD] Silence detected for', silenceDuration, 'ms - auto-stopping');
+            hasSpeechStarted = false; // Prevent multiple triggers
+            // Notify renderer to stop recording
+            mainWindow.webContents.send('vad-silence-detected');
+          }
+        }
       }
     });
     
@@ -917,6 +1558,86 @@ async function startNativeLeopardRecording(accessKey) {
     
   } catch (e) {
     console.error('[LEOPARD] Failed to start recording:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// Use Whisper for better accuracy (set to true to prefer Whisper over Leopard)
+let preferWhisper = true;
+
+async function transcribeWithWhisper(audioBuffer) {
+  try {
+    console.log('[WHISPER] Sending audio to local Whisper server...');
+    
+    // Create a WAV file from raw PCM data
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    
+    // Create WAV header for 16-bit PCM, 16kHz, mono
+    const wavHeader = Buffer.alloc(44);
+    const dataSize = audioBuffer.length;
+    const fileSize = dataSize + 36;
+    
+    // RIFF header
+    wavHeader.write('RIFF', 0);
+    wavHeader.writeUInt32LE(fileSize, 4);
+    wavHeader.write('WAVE', 8);
+    
+    // fmt chunk
+    wavHeader.write('fmt ', 12);
+    wavHeader.writeUInt32LE(16, 16); // chunk size
+    wavHeader.writeUInt16LE(1, 20);  // audio format (PCM)
+    wavHeader.writeUInt16LE(1, 22);  // num channels
+    wavHeader.writeUInt32LE(16000, 24); // sample rate
+    wavHeader.writeUInt32LE(32000, 28); // byte rate
+    wavHeader.writeUInt16LE(2, 32);  // block align
+    wavHeader.writeUInt16LE(16, 34); // bits per sample
+    
+    // data chunk
+    wavHeader.write('data', 36);
+    wavHeader.writeUInt32LE(dataSize, 40);
+    
+    // Combine header and audio data
+    const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+    
+    // Save to temp file
+    const tempPath = path.join(os.tmpdir(), `cortona-audio-${Date.now()}.wav`);
+    fs.writeFileSync(tempPath, wavBuffer);
+    console.log('[WHISPER] Saved temp audio file:', tempPath, '(' + wavBuffer.length + ' bytes)');
+    
+    // Send to Whisper server using FormData
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('audio', fs.createReadStream(tempPath), {
+      filename: 'audio.wav',
+      contentType: 'audio/wav'
+    });
+    
+    const response = await fetch('http://127.0.0.1:5051/transcribe', {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+    
+    // Clean up temp file
+    try { fs.unlinkSync(tempPath); } catch (e) {}
+    
+    if (!response.ok) {
+      throw new Error(`Whisper server returned ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('[WHISPER] Transcription result:', result);
+    
+    if (result.success && result.text) {
+      return { success: true, transcript: result.text };
+    } else {
+      return { success: false, error: result.error || 'No transcription' };
+    }
+    
+  } catch (e) {
+    console.error('[WHISPER] Transcription failed:', e.message);
     return { success: false, error: e.message };
   }
 }
@@ -946,6 +1667,23 @@ async function stopNativeLeopardRecording() {
     const audioBuffer = Buffer.concat(audioChunks);
     console.log('[LEOPARD] Audio buffer size:', audioBuffer.length, 'bytes');
     
+    // Try Whisper first if preferred (more accurate)
+    if (preferWhisper) {
+      console.log('[TRANSCRIBE] Using Whisper for better accuracy...');
+      const whisperResult = await transcribeWithWhisper(audioBuffer);
+      if (whisperResult.success) {
+        console.log('[WHISPER] Transcription:', whisperResult.transcript);
+        return {
+          success: true,
+          transcript: whisperResult.transcript,
+          audioBytes: audioBuffer.length,
+          engine: 'whisper'
+        };
+      }
+      console.log('[WHISPER] Failed, falling back to Leopard:', whisperResult.error);
+    }
+    
+    // Fall back to Leopard
     // Convert to Int16Array for Leopard
     const samples = new Int16Array(audioBuffer.buffer, audioBuffer.byteOffset, audioBuffer.length / 2);
     
@@ -960,7 +1698,8 @@ async function stopNativeLeopardRecording() {
       transcript: result.transcript,
       words: result.words,
       audioBytes: audioBuffer.length,
-      samples: samples.length
+      samples: samples.length,
+      engine: 'leopard'
     };
     
   } catch (e) {
@@ -1250,6 +1989,48 @@ function registerGlobalShortcuts() {
       mainWindow.webContents.toggleDevTools();
     }
   });
+  
+  // Global Escape key to stop listening (always active)
+  globalShortcut.register('Escape', () => {
+    if (mainWindow) {
+      console.log('[GLOBAL] Escape pressed - stopping listening');
+      mainWindow.webContents.send('stop-listening');
+    }
+  });
+}
+
+// Track if listening mode is active for dynamic Space shortcut
+let isListeningModeActive = false;
+
+function enableStopOnSpace() {
+  if (!isListeningModeActive) {
+    isListeningModeActive = true;
+    // Register Space as global shortcut to stop listening
+    try {
+      globalShortcut.register('Space', () => {
+        console.log('[GLOBAL] Space pressed - stopping listening');
+        if (mainWindow) {
+          mainWindow.webContents.send('stop-listening');
+        }
+        disableStopOnSpace();
+      });
+      console.log('[GLOBAL] Space shortcut enabled for stop');
+    } catch (e) {
+      console.log('[GLOBAL] Could not register Space:', e.message);
+    }
+  }
+}
+
+function disableStopOnSpace() {
+  if (isListeningModeActive) {
+    isListeningModeActive = false;
+    try {
+      globalShortcut.unregister('Space');
+      console.log('[GLOBAL] Space shortcut disabled');
+    } catch (e) {
+      // Ignore
+    }
+  }
 }
 
 // ============================================================================
@@ -1455,6 +2236,18 @@ function setupIPC() {
   // Minimize to tray
   ipcMain.on('minimize-to-tray', () => {
     mainWindow?.hide();
+  });
+  
+  // Listening mode started - enable global Space to stop
+  ipcMain.on('listening-started', () => {
+    console.log('[IPC] Listening started - enabling Space shortcut');
+    enableStopOnSpace();
+  });
+  
+  // Listening mode stopped - disable global Space
+  ipcMain.on('listening-stopped', () => {
+    console.log('[IPC] Listening stopped - disabling Space shortcut');
+    disableStopOnSpace();
   });
 
   // Check microphone permission status
@@ -1680,6 +2473,12 @@ function setupIPC() {
     return { available: !!Leopard && !!record };
   });
   
+  // Pre-initialize Leopard (call on app load for faster first recording)
+  ipcMain.handle('leopard-preinit', async (event, { accessKey }) => {
+    console.log('[IPC] Pre-initializing Leopard...');
+    return await preInitializeLeopard(accessKey);
+  });
+  
   // Start recording for transcription
   ipcMain.handle('leopard-start', async (event, { accessKey }) => {
     console.log('[IPC] Starting Leopard recording');
@@ -1820,6 +2619,30 @@ function setupIPC() {
     }
     const windows = getAllWindows(realAppName);
     return { success: true, app: realAppName, windows };
+  });
+  
+  // Get all watchable apps (apps with open windows)
+  ipcMain.handle('get-watchable-apps', async () => {
+    try {
+      const apps = getWatchableApps();
+      return { success: true, apps };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+  
+  // Get detailed accessibility state for an app
+  ipcMain.handle('get-accessibility-state', async (event, appName) => {
+    try {
+      const realAppName = findAppByName(appName);
+      if (!realAppName) {
+        return { success: false, error: `App "${appName}" not found` };
+      }
+      const state = getAccessibilityState(realAppName);
+      return { success: true, app: realAppName, state };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   });
 
   // Get last watched app

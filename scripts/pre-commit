@@ -1,0 +1,60 @@
+#!/bin/bash
+# Cortona Pre-Commit Hook
+# Runs automatic checks before allowing a commit
+
+echo "🔍 Running Cortona pre-commit checks..."
+
+ERRORS=0
+
+# Check Chrome extension syntax
+echo -n "  Chrome extension (content.js)... "
+if node -c chrome-extension/content.js 2>/dev/null; then
+    echo "✓"
+else
+    echo "✗ SYNTAX ERROR"
+    ERRORS=$((ERRORS + 1))
+fi
+
+echo -n "  Chrome extension (background.js)... "
+if node -c chrome-extension/background.js 2>/dev/null; then
+    echo "✓"
+else
+    echo "✗ SYNTAX ERROR"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check Electron syntax
+echo -n "  Electron (main.js)... "
+if node -c cortona-desktop/main.js 2>/dev/null; then
+    echo "✓"
+else
+    echo "✗ SYNTAX ERROR"
+    ERRORS=$((ERRORS + 1))
+fi
+
+echo -n "  Electron (preload.js)... "
+if node -c cortona-desktop/preload.js 2>/dev/null; then
+    echo "✓"
+else
+    echo "✗ SYNTAX ERROR"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check Python syntax
+echo -n "  Flask (app.py)... "
+if python3 -m py_compile app.py 2>/dev/null; then
+    echo "✓"
+else
+    echo "✗ SYNTAX ERROR"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Summary
+echo ""
+if [ $ERRORS -eq 0 ]; then
+    echo "✅ All checks passed!"
+    exit 0
+else
+    echo "❌ $ERRORS error(s) found. Fix them before committing."
+    exit 1
+fi

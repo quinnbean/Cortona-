@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideWindow: () => ipcRenderer.send('hide-window'),
   minimizeToTray: () => ipcRenderer.send('minimize-to-tray'),
   
+  // Listening mode control (for global stop shortcuts)
+  listeningStarted: () => ipcRenderer.send('listening-started'),
+  listeningStopped: () => ipcRenderer.send('listening-stopped'),
+  onStopListening: (callback) => {
+    ipcRenderer.on('stop-listening', () => callback());
+  },
+  
   // ========== APP CONTROL ==========
   // Focus an app by name
   focusApp: (appName) => ipcRenderer.invoke('focus-app', appName),
@@ -81,6 +88,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Check if Leopard is available
   leopardAvailable: () => ipcRenderer.invoke('leopard-available'),
   
+  // Pre-initialize Leopard model (call on app load to eliminate delay)
+  leopardPreInit: (accessKey) => ipcRenderer.invoke('leopard-preinit', { accessKey }),
+  
   // Start recording for transcription
   leopardStart: (accessKey) => ipcRenderer.invoke('leopard-start', { accessKey }),
   
@@ -93,6 +103,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Listen for real-time audio levels (for visualization)
   onAudioLevel: (callback) => {
     ipcRenderer.on('audio-level', (event, data) => callback(data));
+  },
+  
+  // Listen for VAD silence detection (auto-stop recording)
+  onSilenceDetected: (callback) => {
+    ipcRenderer.on('vad-silence-detected', () => callback());
   },
   
   // ========== KEYBIND SETTINGS ==========
@@ -131,6 +146,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // List all windows for an app (to select which window to watch)
   windowWatcherListWindows: (appName) => ipcRenderer.invoke('window-watcher-list-windows', appName),
+  
+  // Get all apps with open windows that can be watched
+  getWatchableApps: () => ipcRenderer.invoke('get-watchable-apps'),
+  
+  // Get detailed accessibility state for an app
+  getAccessibilityState: (appName) => ipcRenderer.invoke('get-accessibility-state', appName),
   
   // Stop the window watcher
   windowWatcherStop: () => ipcRenderer.invoke('window-watcher-stop'),
